@@ -1,0 +1,41 @@
+# secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.eggs/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# node / tauri
+node_modules/
+apps/desktop/dist/
+apps/desktop/src-tauri/target/
+
+# runtime artifacts
+journal/
+*.db
+*.sqlite3
+logs/
+*.log
+
+# models / audio
+models/
+*.wav
+*.onnx
+*.pt
+
+.DS_Store
