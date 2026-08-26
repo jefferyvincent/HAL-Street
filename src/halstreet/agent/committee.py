@@ -36,9 +36,16 @@ not prose that flows onward. A successful injection can therefore reach a lean a
 sentence of note, and from there a worse trade proposal, which is the case the gates
 already exist for.
 
-Off by default: `COMMITTEE=true` turns it on. The single-call path stays exactly as
-it was, because four calls a cycle per underlying is a real cost and a demo should not
-depend on it.
+**On by default**; `COMMITTEE=false` opts out. It was the other way round at first,
+for the honest reason that four calls a cycle per underlying is a real cost and a demo
+should not depend on it. That reasoning missed what the flag actually gates: the news
+fetch lives on this path alone, so with the committee off the agent never reads the
+tape at all. Everything else it sees — HV rank, indicator votes, the six-term score —
+is arithmetic that already ran. Trading the one genuinely new input for a smaller
+token bill was the wrong trade, so the default now costs money instead.
+
+The opt-out remains for demos and for anyone rate-limited, and the single-call path is
+unchanged — it is still what the write-up's token numbers were measured on.
 """
 
 from __future__ import annotations
@@ -63,8 +70,39 @@ JUDGE_TOKENS = 8000
 LEAN = ("bullish", "bearish", "neutral")
 
 
+#: Spellings of "off". Anything else — including unset — means on.
+OFF = ("0", "false", "no", "off")
+ON = ("1", "true", "yes", "on")
+
+
 def enabled() -> bool:
-    return (os.environ.get("COMMITTEE") or "").strip().lower() in ("1", "true", "yes", "on")
+    """Whether the committee path runs. Unset means yes.
+
+    Raises on a value that is neither, rather than guessing. A typo'd `COMMITTEE=flase`
+    would otherwise read as on and quietly quadruple the token bill for the rest of the
+    competition — the kind of thing found in an invoice rather than in a log. This is
+    read once at startup, before anything trades, so failing here costs a restart.
+    """
+    raw = (os.environ.get("COMMITTEE") or "").strip().lower()
+    if raw in OFF:
+        return False
+    if raw in ON or not raw:
+        return True
+    raise ValueError(
+        f"COMMITTEE={raw!r} is neither on nor off. Use one of {[*ON, *OFF]}, or leave "
+        "it unset — the committee runs by default."
+    )
+
+
+def resolve(flag: bool | None) -> bool:
+    """Reconcile the CLI flag with the environment. `None` means the caller said nothing.
+
+    Three states rather than two because the flag now has to be able to say *off*.
+    Written as `flag or enabled()` this would be a one-word bug: `--no-committee` sets
+    it to False, False is falsy, and the environment would win the argument the flag
+    exists to settle.
+    """
+    return enabled() if flag is None else flag
 
 
 VERDICT_SCHEMA: dict[str, Any] = {

@@ -89,8 +89,8 @@ async def main_async(args: argparse.Namespace) -> int:
     argv = ["--until-close", "--env", args.env]
     if args.submit:
         argv.append("--submit")
-    if args.committee:
-        argv.append("--committee")
+    if args.committee is not None:
+        argv.append("--committee" if args.committee else "--no-committee")
     print(f"soak: {' '.join(argv)}  (journal {args.journal})")
     code = await run_agent(build_parser().parse_args(argv))
     report(args.journal)
@@ -106,7 +106,9 @@ def main() -> int:
     p.add_argument("--submit", action="store_true",
                    help="place approved orders (paper). Without it nothing is submitted "
                         "and the exit path is never reached.")
-    p.add_argument("--committee", action="store_true", help="use the committee path")
+    p.add_argument("--committee", action=argparse.BooleanOptionalAction, default=None,
+                   help="force the committee path on or off for this soak; the default "
+                        "is whatever a real run would do, which is the point of a soak")
     p.add_argument("--journal", default=str(paths.RUN_JOURNAL))
     p.add_argument("--report-only", action="store_true",
                    help="read an existing journal and print the coverage table")

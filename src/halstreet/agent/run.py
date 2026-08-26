@@ -71,9 +71,11 @@ async def main_async(args: argparse.Namespace) -> int:
     writer = ProposalWriter.from_env()
     universe = args.universe.split(",") if args.universe else universe_from_env()
 
-    # Off unless asked for. Four model calls per underlying per cycle is a real cost,
-    # and the single-call path is what the write-up's token numbers were measured on.
-    use_committee = args.committee or committee_mod.enabled()
+    # Tri-state on purpose: the flag is None unless the caller said something, so an
+    # explicit --committee/--no-committee beats $COMMITTEE and silence defers to it.
+    # `args.committee or enabled()` would have made --no-committee unable to turn off
+    # what the environment turned on, which is the one thing the flag is now for.
+    use_committee = committee_mod.resolve(args.committee)
     agent = Agent(client, writer, limits=limits, journal=journal, ledger=ledger,
                   policy=policy, dry_run=dry_run, target_dte=args.dte,
                   profile=profile, breaker=breaker,
@@ -165,9 +167,11 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--env", default="dev", choices=["dev", "comp"])
-    p.add_argument("--committee", action="store_true",
+    p.add_argument("--committee", action=argparse.BooleanOptionalAction, default=None,
                    help="catalyst read, bull/bear debate, then a judge — four model "
-                        "calls per underlying instead of one (or COMMITTEE=true)")
+                        "calls per underlying instead of one, and the only path that "
+                        "reads the news. On unless COMMITTEE=false; --no-committee "
+                        "forces the single call for one run")
     p.add_argument("--universe", default="", help="comma-separated; defaults to $UNIVERSE")
     p.add_argument("--dte", type=int, default=45, help="target days to expiry")
     p.add_argument("--profile", default="", choices=["", *sorted(P.PROFILES)],
