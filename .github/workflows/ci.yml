@@ -1,0 +1,87 @@
+# The suite is the argument this project makes: the gates are deterministic, so they
+# are testable, so they are tested. Running them only on a laptop leaves that as a
+# claim. This runs them on every push.
+#
+# No secrets and no network to Alpaca. Every test here is offline by construction —
+# the broker is behind an MCP client that tests stub, and the gates take an injected
+# clock rather than reading one. A suite that needs live credentials is a suite that
+# stops running the moment they rotate.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  python:
+    name: gates and agent
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor from pyproject and a current release. The floor is the one that
+        # catches a 3.12-only syntax slipping in.
+        python: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - run: pip install -e ".[dev]"
+      - name: ruff
+        run: ruff check src tests scripts
+      - name: pytest
+        run: pytest -q
+
+  panel:
+    name: panel
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci
+      # `npm run build` is tsc -b followed by vite build, so this type-checks and
+      # bundles in one step. A panel that does not compile is a panel nobody sees.
+      - run: npm run build
+
+  shell:
+    name: tauri shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+      # Tauri renders through the OS web view rather than shipping a browser, so the
+      # Linux build needs WebKitGTK from the system. Same package list ./install.sh
+      # --desktop uses.
+      - name: system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+      # The frontend must exist before tauri-build embeds it.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - run: npm ci && npm run build
+        working-directory: apps/desktop
+      - run: cargo check --locked
+        working-directory: apps/desktop/src-tauri
