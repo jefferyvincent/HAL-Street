@@ -1,0 +1,115 @@
+"""The structure chart: the panel's one route that reaches the broker.
+
+Two properties matter here and both are easy to lose later. The chart's three lines
+must come from the same rule the exit policy applies — a picture that disagrees with
+the behaviour is worse than no picture, because it is believed. And the route must
+only be able to ask about structures this agent actually traded, or a read-only
+dashboard has quietly become a general market-data proxy.
+"""
+
+from __future__ import annotations
+
+from decimal import Decimal
+
+import pytest
+
+from halstreet.agent.ledger import Ledger, OpenStructure
+from halstreet.agent.manager import ExitPolicy, exit_levels
+from halstreet.telemetry import server, structure_chart
+
+SHORT, LONG = "QQQ261016C00755000", "QQQ261016C00765000"
+
+
+def structure(entry: Decimal | None = Decimal("-1.60")) -> OpenStructure:
+    return OpenStructure(
+        structure_id="s1", name="755/765 call credit spread", underlying="QQQ", qty=1,
+        legs={SHORT: -1, LONG: 1}, opened_at="2026-08-26T16:42:38+00:00",
+        entry_price=entry, order_id="o1",
+    )
+
+
+def bars(**series: list[tuple[str, str]]) -> dict[str, list[dict]]:
+    return {sym: [{"t": t, "c": c} for t, c in rows] for sym, rows in series.items()}
+
+
+# --- the net, not a leg ------------------------------------------------------------
+
+def test_the_series_is_the_structures_own_price():
+    """A spread's price is the signed sum of its legs, on the same convention the exit
+    uses: negative means it is held for a credit."""
+    got = structure_chart.net_series(structure(), bars(
+        **{SHORT: [("2026-08-26T13:00:00Z", "4.96")], LONG: [("2026-08-26T13:00:00Z", "3.36")]}
+    ))
+    assert [(p.t, p.value) for p in got] == [("2026-08-26T13:00:00Z", Decimal("-1.60"))]
+
+
+def test_a_timestamp_missing_from_one_leg_is_dropped():
+    """`mark_structure` refuses to act on a partial mark; the chart holds the same line.
+
+    Drawing the bars that did arrive would put dips in the line that are an absent
+    quote rather than a price, and nothing on the chart would say which.
+    """
+    got = structure_chart.net_series(structure(), bars(**{
+        SHORT: [("13:00", "4.96"), ("14:00", "5.10")],
+        LONG: [("13:00", "3.36")],
+    }))
+    assert [p.t for p in got] == ["13:00"]
+
+
+def test_no_bars_at_all_is_an_empty_series_not_a_crash():
+    assert structure_chart.net_series(structure(), {}) == []
+
+
+# --- the lines are the policy ------------------------------------------------------
+
+def test_the_levels_come_from_the_exit_policy_itself():
+    policy = ExitPolicy()
+    built = structure_chart.build(structure(), {}, policy)
+    expected = exit_levels(Decimal("-1.60"), policy)
+    assert built["levels"] == expected.to_prompt()
+    assert built["levels"]["target"] == str(Decimal("-1.60") * Decimal("0.5"))
+
+
+def test_an_unknown_entry_price_draws_no_levels_rather_than_guessing():
+    built = structure_chart.build(structure(entry=None), {}, ExitPolicy())
+    assert built["levels"] is None
+
+
+def test_the_policy_travels_with_the_chart():
+    """So the panel can say what the target *means*, not just where it is."""
+    built = structure_chart.build(structure(), {}, ExitPolicy())
+    assert built["policy"]["take_profit_pct"] == "50"
+    assert built["policy"]["force_close_dte"] == 5
+
+
+def test_a_provisional_price_is_flagged_as_one():
+    """The panel must be able to distinguish a fill from the limit standing in for it."""
+    built = structure_chart.build(structure(), {}, ExitPolicy())
+    assert built["entry_filled"] is False
+
+
+# --- the route can only ask about our own book -------------------------------------
+
+def test_only_structures_in_the_ledger_can_be_charted(tmp_path):
+    """The symbols come from the ledger, never from the caller.
+
+    That is what keeps this from being a general market-data proxy behind a read-only
+    dashboard: the panel cannot name a contract, only a structure the agent opened.
+    """
+    ledger = Ledger(path=tmp_path / "ledger.json", structures=[structure()])
+    assert structure_chart.find(ledger, "s1") is not None
+    assert structure_chart.find(ledger, "QQQ261016C00755000") is None
+    assert structure_chart.find(ledger, "../../etc/passwd") is None
+
+
+def test_the_chart_route_is_a_get_like_every_other():
+    from fastapi.routing import APIRoute
+
+    route = next(r for r in server.app.routes
+                 if isinstance(r, APIRoute) and "chart" in r.path)
+    assert route.methods <= {"GET", "HEAD"}
+
+
+@pytest.mark.parametrize("field", ["series", "levels", "policy", "legs"])
+def test_the_payload_carries_what_the_panel_draws(field):
+    assert field in structure_chart.build(structure(), {}, ExitPolicy())
