@@ -1,0 +1,200 @@
+"""Entry point: `python -m halstreet.agent.run` (or `./start.sh`).
+
+Defaults to a dry run. Submitting has to be asked for — an agent that trades because
+someone forgot a flag is a bug with a P&L attached.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import contextlib
+import os
+import sys
+from datetime import datetime
+
+from halstreet import clock as session_clock
+from halstreet import paths
+from halstreet.agent import committee as committee_mod
+from halstreet.agent.breaker import CircuitState
+from halstreet.agent.ledger import Ledger
+from halstreet.agent.llm import ProposalWriter
+from halstreet.agent.loop import Agent
+from halstreet.agent.manager import ExitPolicy
+from halstreet.agent.schedule import Scheduler, market_clock
+from halstreet.config import ConfigError, load_env
+from halstreet.execution.mcp_client import AlpacaMCP
+from halstreet.execution.paper_assert import LiveEnvironmentError
+from halstreet.gates.base import ConfigurationError, Limits
+from halstreet.strategy import profiles as P
+from halstreet.telemetry.journal import Journal
+
+
+def log(message: str = "") -> None:
+    print(message, flush=True)
+
+
+def universe_from_env(default: str = "SPY") -> list[str]:
+    raw = (os.environ.get("UNIVERSE") or default).strip()
+    return [s.strip().upper() for s in raw.split(",") if s.strip()]
+
+
+async def main_async(args: argparse.Namespace) -> int:
+    try:
+        load_env(args.env)
+        limits = Limits.from_env()
+        policy = ExitPolicy.from_env()
+        profile = P.get(args.profile) if args.profile else P.from_env()
+    except (ConfigError, ConfigurationError, P.UnknownProfile) as exc:
+        log(f"config: {exc}")
+        return 1
+
+    # DRY_RUN in the environment is a floor, not a default: it can force a dry run,
+    # but --submit is the only thing that ever turns submission on.
+    env_dry = (os.environ.get("DRY_RUN") or "true").strip().lower() != "false"
+    dry_run = True if env_dry else not args.submit
+    if args.submit and env_dry:
+        log("DRY_RUN=true in the environment overrides --submit. Nothing will be sent.")
+
+    try:
+        client = AlpacaMCP.from_env(args.env)
+    except LiveEnvironmentError as exc:
+        log(f"BLOCKED: {exc}")
+        return 1
+
+    journal = Journal.open(args.journal)
+    ledger = Ledger.load(args.ledger)
+    breaker = CircuitState.load(args.breaker)
+    if args.clear_halt and breaker.halted:
+        log(f"clearing halt: {breaker.halt_reason}")
+        breaker.clear()
+    writer = ProposalWriter.from_env()
+    universe = args.universe.split(",") if args.universe else universe_from_env()
+
+    # Off unless asked for. Four model calls per underlying per cycle is a real cost,
+    # and the single-call path is what the write-up's token numbers were measured on.
+    use_committee = args.committee or committee_mod.enabled()
+    agent = Agent(client, writer, limits=limits, journal=journal, ledger=ledger,
+                  policy=policy, dry_run=dry_run, target_dte=args.dte,
+                  profile=profile, breaker=breaker,
+                  committee=committee_mod.Committee.from_env() if use_committee else None)
+
+    log(f"env={args.env}  mode={'DRY RUN' if dry_run else 'LIVE (paper)'}  "
+        f"model={writer.model}  universe={','.join(universe)}")
+    log("proposal path: " + ("committee (catalyst -> bull/bear -> judge)"
+                             if use_committee else "single call"))
+    log(f"feed={client.option_feed}  journal={args.journal}  ledger={args.ledger}")
+    log(f"exits: take {policy.take_profit_pct:g}% / stop {policy.stop_loss_pct:g}% / "
+        f"force close at {policy.force_close_dte} DTE")
+    log(f"profile={profile.name}  deltas={'/'.join(f'{d:g}' for d in profile.short_deltas)}  "
+        f"dte band {profile.min_dte}-{profile.max_dte}  "
+        f"builds {', '.join(profile.structures)}")
+    # Every dimension where the profile and .env disagreed, in both directions —
+    # said out loud at startup rather than left to be inferred from an empty menu.
+    for note in agent.floor.notes:
+        log(f"  {note}")
+    log(f"circuit: {breaker.describe()}")
+    log(f"  correlated cap {limits.max_correlated_positions} position(s) per group / "
+        f"daily loss {limits.daily_loss_limit_pct:g}% / "
+        f"{limits.max_entries_per_hour} entries per hour / "
+        f"{limits.max_open_positions} open positions")
+    if breaker.halted:
+        log("  NOTE: entries are blocked until this clears. Exits are not — they never are.")
+    open_now = ledger.open_structures
+    log(f"open structures: {len(open_now)}\n")
+
+    totals = {"cycles": 0, "approved": 0, "submitted": 0}
+
+    async def one_pass() -> None:
+        results = await agent.run_once(universe)
+        # Wall-clock, for a human watching a terminal — not a market fact, so the
+        # host's zone is the right one and DTZ's warning does not apply.
+        stamp = datetime.now().astimezone().strftime("%H:%M:%S")
+        log(f"\n[{stamp}] scan")
+        for result in results:
+            log(f"  {result.summary()}")
+            for note in result.notes:
+                log(f"      note: {note}")
+        totals["cycles"] += len(results)
+        totals["approved"] += sum(r.approved for r in results)
+        totals["submitted"] += sum(r.submitted for r in results)
+
+    if args.once:
+        market = None
+        # A single pass runs whether or not the clock could be read — but if it can,
+        # the exchange's own date is adopted first, so a one-off run measures DTE the
+        # same way a scheduled one does.
+        with contextlib.suppress(Exception):
+            market = await market_clock(client)
+        if market is not None:
+            session_clock.adopt(market)
+        clock = market
+        if clock is not None and not clock.is_open:
+            log(f"note: market is closed (next open {clock.next_open}) — "
+                "quotes will be stale.")
+        await one_pass()
+    else:
+        interval = int(os.environ.get("SCAN_INTERVAL_MINUTES") or 30)
+        scheduler = Scheduler(client, interval, log=log)
+        scheduler.install_signal_handlers()
+        log(f"scheduled: every {interval}m while the market is open"
+            f"{', until the close' if args.until_close else ''}. Ctrl-C to stop.")
+        try:
+            await scheduler.run(one_pass, max_cycles=args.max_cycles,
+                                until_close=args.until_close)
+        except KeyboardInterrupt:
+            log("interrupted")
+
+    log(f"\n{totals['cycles']} cycle(s): {totals['approved']} approved, "
+        f"{totals['submitted']} submitted")
+
+    counts = journal.gate_rejection_counts()
+    if counts:
+        log("\nrejections by gate (whole journal):")
+        for gate, n in counts.items():
+            log(f"  {n:>4}  {gate}")
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """The agent's flags, so callers can reuse them instead of copying them."""
+    p = argparse.ArgumentParser(
+        description=__doc__,
+        # Defaults resolve through paths.py rather than being literals here, so
+        # --help has to show them or nobody can tell where a run will write.
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p.add_argument("--env", default="dev", choices=["dev", "comp"])
+    p.add_argument("--committee", action="store_true",
+                   help="catalyst read, bull/bear debate, then a judge — four model "
+                        "calls per underlying instead of one (or COMMITTEE=true)")
+    p.add_argument("--universe", default="", help="comma-separated; defaults to $UNIVERSE")
+    p.add_argument("--dte", type=int, default=45, help="target days to expiry")
+    p.add_argument("--profile", default="", choices=["", *sorted(P.PROFILES)],
+                   help="risk profile; defaults to $RISK_PROFILE, then moderate")
+    p.add_argument("--journal", default=str(paths.RUN_JOURNAL),
+                   help="append-only run journal")
+    p.add_argument("--ledger", default=str(paths.LEDGER),
+                   help="structure ledger — what the broker cannot tell us")
+    p.add_argument("--breaker", default=str(paths.CIRCUIT),
+                   help="circuit-breaker state (equity baseline, halt latch)")
+    p.add_argument("--clear-halt", action="store_true",
+                   help="clear a latched daily-loss halt; a human act, never automatic")
+    p.add_argument("--submit", action="store_true",
+                   help="actually place approved orders (paper). Off by default.")
+    p.add_argument("--dry-run", action="store_true", help="explicit no-op; this is the default")
+    p.add_argument("--once", action="store_true",
+                   help="one pass and exit, ignoring the schedule and market hours")
+    p.add_argument("--until-close", action="store_true",
+                   help="keep scanning until the market closes, then stop")
+    p.add_argument("--max-cycles", type=int, default=None,
+                   help="stop after this many scans")
+    return p
+
+
+def main() -> int:
+    return asyncio.run(main_async(build_parser().parse_args()))
+
+
+if __name__ == "__main__":
+    sys.exit(main())
