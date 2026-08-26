@@ -1,0 +1,58 @@
+/* The panel's palette and the two faces it is set in. Tailwind v4 keeps design tokens
+   in CSS rather than a config file, so this is the whole theme — a colour that is not
+   here does not exist in the panel. */
+
+@import "tailwindcss";
+
+@theme {
+  --color-void: #0b0d0e;
+  --color-chrome: #000000;
+  --color-panel: #14181b;
+  --color-sunk: #0e1113;
+  --color-raise: #1b2126;
+  --color-line: #23292e;
+  --color-line-soft: #1f252a;
+  --color-edge: #2f3843;
+  --color-ink: #e9edf0;
+  --color-amber: #e8a33d;
+  --color-pass: #21d07a;
+  --color-fail: #ff4d4f;
+  --color-fail-ink: #ff8a8c;
+  --color-agent: #4fc3f7;
+
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    /* Explicit, not inherited: the Tauri window paints its own ground behind this. */
+    background: var(--color-void);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Icons sit in flex rows beside text that is allowed to shrink; they are not. */
+  svg {
+    flex: none;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-amber);
+    outline-offset: 1px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

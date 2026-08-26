@@ -1,0 +1,128 @@
+{
+  "app": {
+    "waiting": "waiting for the run…"
+  },
+  "chrome": {
+    "brand": "HAL",
+    "paper": "PAPER",
+    "equity": "EQUITY",
+    "breakerArmed": "BREAKER ARMED",
+    "breakerHalted": "BREAKER HALTED"
+  },
+  "tabs": {
+    "console": "CONSOLE",
+    "journal": "JOURNAL",
+    "gates": "GATES",
+    "book": "BOOK"
+  },
+  "families": {
+    "contract": "contract",
+    "liquidity": "liquidity",
+    "defined_risk": "defined risk",
+    "portfolio": "portfolio",
+    "circuit": "circuit",
+    "other": "other"
+  },
+  "halt": {
+    "tag": "HALTED",
+    "detail": "{{reason}} — entries are blocked until this is cleared at the CLI. Exits are not: they never are."
+  },
+  "console": {
+    "none": "No proposal has been gated yet.",
+    "approved": "APPROVED · {{n}}/{{n}} GATES",
+    "rejected": "REJECTED · {{bad}}/{{n}} GATES · NO ORDER SUBMITTED",
+    "rationale": "RATIONALE",
+    "rejectReasons": "REJECT REASONS · ALL RECORDED",
+    "noOverride": "There is no override. A rejected proposal is not submitted, and the limits it failed can only change in the environment.",
+    "confidence": "Model confidence {{value}}",
+    "confidenceNote": "— journalled, not consulted by any gate."
+  },
+  "ledger": {
+    "allRan": "ALL {{n}} GATES RAN"
+  },
+  "journal": {
+    "title": "RUN JOURNAL",
+    "meta": "{{n}} RECORDS · NEWEST FIRST",
+    "empty": "Nothing gated yet.",
+    "columns": {
+      "time": "TIME",
+      "verdict": "VERDICT",
+      "underlying": "UNDERLYING",
+      "structure": "STRUCTURE",
+      "gates": "GATES",
+      "failedOn": "FAILED ON"
+    },
+    "approved": "APPROVED",
+    "rejected": "REJECTED",
+    "note": "Every proposal the model made is here, approved or not. Rejections are records, not errors — a gate that never fires is a gate that was never load-bearing."
+  },
+  "gates": {
+    "title": "GATE CHAIN",
+    "meta": "{{gates}} GATES · {{seen}} PROPOSALS SEEN",
+    "rejectedCount": "rejected {{n}}",
+    "neverRejected": "never rejected",
+    "note": "Every gate runs on every proposal — none of them short-circuits, so the counts above are out of all {{seen}}. The order is the order they are evaluated in, and it comes from the server rather than from this page: adding a gate changes this list on the next push."
+  },
+  "rail": {
+    "families": "GATE FAMILIES",
+    "limits": "LIMITS · READ-ONLY",
+    "limitsNote": "Set from the environment at startup. Not editable here, and never by the model."
+  },
+  "tape": {
+    "title": "RUN JOURNAL",
+    "empty": "Nothing gated yet.",
+    "counts": "{{approved}} APPROVED · {{rejected}} REJECTED · {{passed}} PASSED",
+    "approved": "APPROVED {{n}}/{{n}}",
+    "rejected": "REJECTED {{bad}}/{{n}}"
+  },
+  "equity": {
+    "title": "EQUITY",
+    "none": "No equity readings yet — the curve is written one point per scan cycle.",
+    "one": "One reading so far. A line needs two.",
+    "scans": "{{n}} SCANS",
+    "drawdown": "DRAWDOWN {{usd}} ({{pct}}%)"
+  },
+  "status": {
+    "prev": "PREV",
+    "next": "NEXT",
+    "latest": "LATEST",
+    "view": "VIEW",
+    "updated": "UPDATED",
+    "live": "{{gates}} GATES · LIVE · READ-ONLY",
+    "polling": "{{gates}} GATES · POLLING · READ-ONLY",
+    "disconnected": "DISCONNECTED",
+    "disconnectedWhy": "DISCONNECTED — {{why}}"
+  },
+  "book": {
+    "title": "THE BOOK",
+    "meta": "{{open}} OPEN · {{closed}} CLOSED",
+    "empty": "Nothing has been opened yet.",
+    "columns": {
+      "status": "STATUS",
+      "structure": "STRUCTURE",
+      "underlying": "UNDERLYING",
+      "qty": "QTY",
+      "entry": "ENTRY",
+      "exit": "EXIT",
+      "realized": "REALIZED"
+    },
+    "open": "OPEN",
+    "closed": "CLOSED",
+    "note": "Click a structure to chart it against the levels its exit policy acts on. A price shown here is the fill where one has been confirmed, and the submitted limit where it has not."
+  },
+  "chart": {
+    "back": "BOOK",
+    "loading": "fetching price history…",
+    "noHistory": "No price history for these contracts. The levels below are still exact — they come from the ledger and the exit policy, not from the tape.",
+    "noEntry": "No entry price recorded, so there is nothing to measure a target or a stop from.",
+    "entry": "ENTRY",
+    "target": "TARGET",
+    "stop": "STOP",
+    "last": "LAST",
+    "legend": "target = {{tp}}% of the credit taken · stop = {{sl}}% of it",
+    "credit": "credit structure — the mark rises toward zero as it wins",
+    "debit": "debit structure — the mark rises as it wins",
+    "note": "Entry, target and stop come from the same function the exit policy acts on, so this picture cannot disagree with what the agent will actually do.",
+    "forceClose": "force-close at {{dte}} DTE regardless of price"
+  }
+}

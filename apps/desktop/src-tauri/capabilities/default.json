@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The window, and nothing else. No filesystem, no shell, no HTTP plugin, no dialog — the panel reads the run over localhost like any browser tab, and a capability it does not have is a capability nobody can talk it into using.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
