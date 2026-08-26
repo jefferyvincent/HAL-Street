@@ -1027,3 +1027,67 @@ with `locales/en.json` since I last read it, and my edit to it silently did noth
 `str.replace` on text that was no longer there. The build caught it. The words are now
 in the locale where the refactor put them, and the typed shape is accessors like every
 other section. 399 → 428 tests.
+
+## Done: the exchange's calendar, and a history
+
+### The session date now comes from the exchange
+
+Nine `date.today()` calls were asking questions about the *market* — days to expiry,
+has the daily baseline rolled over, is this inside the force-close window — by reading
+the *host's* calendar. They agree most of the time, which is what made it dangerous:
+on a UTC box after 8pm New York the dates differ, every DTE is off by one, the DTE
+floor admits contracts a day nearer expiry than it believes, and the breaker thinks a
+new session began mid-afternoon. Nothing errors.
+
+**No hardcoding, because the broker already knows.** Alpaca returns its clock in
+exchange-local time with the offset attached (`2026-08-26T17:19:17-04:00`), so the
+session date is `timestamp.date()`. Nothing here knows where the exchange is, when it
+observes daylight saving, or what its hours are — a `ZoneInfo("America/New_York")`
+would have been a second claim about the world to keep in sync with the first, and it
+would not survive a venue change.
+
+`src/halstreet/clock.py` owns it: the scheduler and the one-off runner both `adopt()`
+the broker's clock before a cycle runs, and every former `date.today()` now calls
+`clock.today()`. The fallback to the host calendar is **counted**, and the count is
+journalled on every `cycle_start` alongside `date_source` — a run that dated itself
+from the machine says so in the record rather than looking identical to one that asked
+the exchange.
+
+`DTZ` is now **selected** in ruff, so any new `date.today()` outside that module is a
+lint error. Worth noting how nearly that went wrong: removing `DTZ` from the `ignore`
+list left it passing, and it was only passing because it had never been in `select` at
+all. A planted violation confirmed the rule actually fires before this was called done.
+
+Two mutations verified the wiring: a module going back to the host calendar fails
+`test_no_module_calls_date_today_behind_the_clocks_back`, and the scheduler dropping
+its `adopt` call fails a scheduler test written specifically because every *other* test
+passes on a machine whose calendar happens to agree with the exchange's — the agreement
+is the whole reason the bug is invisible.
+
+One thing deliberately left alone: an unavailable clock retries on the interval
+forever. That is correct — a broker blip is not a reason to end the session — but
+`max_cycles` counts *completed* cycles, so it does not bound that loop. Noted in the
+test file rather than "fixed". 428 → 443 tests.
+
+### A history, on a branch
+
+The repository had two commits and 154 changed files. Everything built was one
+undifferentiated lump against "Start", which undercuts a project whose whole argument
+is auditability.
+
+It is now twelve commits on `build/hal-street`, sliced by subsystem, each message
+saying what changed and *why* — the departures from the ported vendor code, the defects
+found and what they cost, the checks that are enforced rather than intended. Branched
+rather than committed straight to `main` because that is the safer default; `main` is
+unchanged and can fast-forward:
+
+    git checkout main && git merge --ff-only build/hal-street
+
+Verified before committing: no `.env`, no `var/`, no `node_modules` or build output
+staged, and a scan of every staged line for credential-shaped strings came back clean.
+The tree at HEAD passes 443 tests with ruff clean.
+
+Honest caveat on the history: these are reviewable slices of one body of work, not a
+reconstruction of the order it was written in. Intermediate commits are coherent by
+subsystem but are not individually bisectable, because the subsystems were developed
+together. HEAD is the tree that is tested.
