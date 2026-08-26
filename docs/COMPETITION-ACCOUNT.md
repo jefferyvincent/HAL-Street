@@ -7,13 +7,19 @@ This is the easiest way to lose on a technicality, so treat it as infrastructure
 
 ## Two accounts, always
 
-| Account | Purpose | Env file |
-|---|---|---|
-| `dev` | prototyping, breaking things, replaying scenarios | `.env` |
-| `comp` | judged run only — never used for development | `.env.comp` |
+| Account | Purpose | Selected by | Reads |
+|---|---|---|---|
+| `dev` | prototyping, breaking things, replaying scenarios | the default | `ALPACA_API_KEY` / `ALPACA_SECRET_KEY` |
+| `comp` | judged run only — never used for development | `--env comp` | `COMP_ALPACA_API_KEY` / `COMP_ALPACA_SECRET_KEY` |
+
+Both live in the same `.env`. The separation is the **variable name**, not the filename: a dev run
+never reads a `COMP_` name, so it cannot pick up the judged credentials even by accident, and a
+comp run with those names blank refuses to start rather than falling back to the dev pair.
 
 Never point the dev config at the competition account "just to test something." The moment you do,
-you cannot prove the account is clean.
+you cannot prove the account is clean — so `load_env` also refuses a comp run whose
+`COMP_ALPACA_API_KEY` is byte-identical to `ALPACA_API_KEY`, which is the form that mistake
+actually takes.
 
 ## Before the judged run
 

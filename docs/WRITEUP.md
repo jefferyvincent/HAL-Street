@@ -1,54 +1,287 @@
 # One-page write-up — HAL Street
 
 > Required deliverable. Judges asked for three things by name: **AI logic, risk gates, Alpaca
-> infrastructure.** Structure the page in exactly those three sections, in that order, and use
-> their words as the headings. Fill this in as you build; do not write it the night before.
+> infrastructure.** Sections below use their words, in their order.
+>
+> **Status:** written from the built system. Every number is measured, not projected. Results
+> currently show a dev-account rehearsal and are regenerated from the judged window with
+> `./start.sh report -- --writeup --window "<dates>"` — so the closing numbers are produced by
+> the same journal the agent wrote, not retyped from a terminal.
+
+**Thesis: the model proposes; deterministic gates dispose.**
+
+An LLM is good at ranking a short menu of legal structures and writing down why. It is not
+something to trust with a risk limit. So HAL Street draws a hard line: everything above the line
+is probabilistic and everything at or below it is auditable Python with no model call in it. The
+model never sees a limit it can argue with, cannot reach the environment, and has no say in
+whether the gates run.
 
 ---
 
 ## AI logic
 
-*What the model actually decides, and what it is not allowed to decide.*
+**Universe and cadence.** SPY, QQQ, IWM. One scan every 30 minutes, and only while the *broker's*
+`get_clock` says the market is open — a local `datetime` knows nothing about holidays or early
+closes, and a test asserts `weekday`/`hour` appear nowhere in the scheduler.
 
-- Universe and scan cadence:
-- What the strategy engine produces (deterministic candidate structures):
-- What the LLM does with them (rank, size, justify) — and the exact schema it must emit:
-- What the LLM explicitly does not control: strike selection bounds, position sizing ceilings,
-  environment, order type
-- Prompt/context strategy, and how hallucinated contracts are caught before they reach an order
+**What the strategy engine produces, deterministically.** `strategy/` builds put and call credit
+spreads and iron condors from the live chain — arithmetic only, no model, no randomness, so the
+same chain and market view reproduce the same menu from the journal months later. Strikes are
+chosen by **delta**, not by dollar distance: a 5-point wing means something different on a $60
+stock than on a $760 index, whereas a 0.20-delta short strike means roughly the same thing
+everywhere. Structures are priced at the touch — **sell the bid, buy the ask** — because quoting
+at mid and discovering the fill is worse is the standard way to talk yourself into a trade that
+never had the edge you thought.
+
+Candidates are then ranked by a six-term weighted blend ported from a prior codebase: bias fit,
+IV-regime fit, liquidity, reward/risk, probability of profit, and an event-risk penalty. Every
+candidate carries its own **score breakdown** into the journal, so "why was this one top of the
+menu?" has an answer that is six numbers rather than one.
+
+**What the LLM does.** Exactly one probabilistic step per cycle: pick one structure from a menu of
+at most six, size it, and justify it — emitted as closed-schema JSON. It also has a first-class
+way to **decline**: `action: "pass"`, counted separately from proposals and from failures. That
+matters more than it sounds. An earlier version told the model "if no candidate is worth taking,
+propose nothing" against a schema that required a priced structure; both cannot be satisfied, and
+what came back was `qty: 0` — which read as a broken model rather than the considered pass it was.
+
+**What the LLM does not control.** Strike-selection bounds, position-size ceilings, the trading
+environment, order type, whether gates run, or what they check. A limit a confident model can talk
+its way past is not a limit — model confidence is journalled and consulted by nothing.
+
+**Hallucinated contracts.** Caught twice. The parser rejects any leg that is not a valid OCC
+symbol or whose root differs from the proposed underlying; then `contract_exists` rejects any leg
+absent from the chain actually fetched this cycle. A contract that was not on the menu does not
+exist.
+
+**Context strategy.** A 1,592-token cached system prefix carrying the full gate catalogue — every
+gate named and described, so the model is never rejected by a rule it was not told about. A test
+asserts every gate in `ALL_GATES` appears in the prompt, which is what stops the catalogue
+drifting. Cache reads confirmed live (0 → 2,237 tokens). One corrective retry on a parse failure,
+strictly one: a model that cannot satisfy the schema twice will not satisfy it on the third
+attempt, and an unattended loop must not spend an unbounded budget arguing with itself.
+
+---
 
 ## Risk gates
 
-*The differentiator. Be specific and name each gate.*
+**Fifteen gates. All of them run on every proposal — evaluation never short-circuits**, because
+"rejected by four gates" is a more useful artifact than "rejected by the first one we checked."
+Every gate **fails closed**: a missing greek, an absent quote, an unreadable open-interest figure
+is a rejection, never a skip. A gate that silently stops protecting you when the data is bad stops
+protecting you exactly when you need it most.
 
 | Gate | Rule | Rejects |
 |---|---|---|
-| Defined risk only | | naked/unbounded structures |
-| Max loss per position | | |
-| Portfolio risk ceiling | | |
-| Per-underlying concentration | | |
-| DTE floor | | short gamma into expiry |
-| Liquidity floor | | thin OI / wide spreads |
-| Delta & vega bounds | | portfolio-level drift |
-| Assignment proximity | | ITM short legs near expiry |
-| Environment assertion | | any non-paper credential |
+| `daily-loss-halt` | Latched off once equity falls past the day's floor (5%) | every entry, for the rest of the session |
+| `entry-rate-throttle` | Entries per rolling hour | a runaway loop submitting outside the schedule |
+| `open-position-count` | Broker positions held at once | a book bigger than the exit path can work through |
+| `contract-validation` | Leg must exist in the chain fetched this cycle | hallucinated or stale contracts |
+| `defined-risk-only` | Every short leg must be covered | naked / unbounded structures |
+| `dte-floor` | Minimum days to expiry | short gamma into expiry |
+| `max-loss-per-position` | Worst case vs the per-position cap | oversized single trades |
+| `portfolio-risk-ceiling` | Summed defined risk vs equity | book-level over-deployment |
+| `options-buying-power` | Collateral vs *options* buying power, with a reserve | orders the account cannot collateralise |
+| `liquidity-floor` | Open interest **and** today's volume, per leg | contracts that cannot be exited |
+| `quoted-spread-width` | Bid/ask as % of mid, worst leg decides | positions expensive to leave |
+| `underlying-concentration` | Net contracts per underlying | stacking one name |
+| `correlated-exposure` | Contracts across a basket that moves together | SPY+QQQ+IWM as "diversification" |
+| `portfolio-greek-bounds` | Net delta and vega across the whole book | directional / vol drift |
+| `assignment-proximity` | Short leg near the money near expiry | operational assignment risk |
+| *(environment assertion)* | Paper-only, three independent signals | any non-paper credential |
 
-State plainly: gates are deterministic Python, contain no model call, and cannot be modified by
-the agent at runtime. Include the count of proposals rejected during the competition — a real
-number here is more persuasive than any prose.
+Three of these are worth a sentence each, because they came from things that actually happened.
+
+**`correlated-exposure` exists because the shipped universe walked into it.** A live scan approved
+put credit spreads on SPY, QQQ *and* IWM in one cycle. That is one bullish bet at triple size, and
+every other gate waved it through — `underlying-concentration` matches roots exactly, so three
+roots look like three separate names to it. Diversification across tickers that move together is
+not diversification; it is leverage with better paperwork.
+
+**`options-buying-power` is the one that reads a different number than everything
+else.** Every other sizing gate measures against equity. The broker does not: options
+collateral comes out of `options_buying_power`, which is cash — $89,817 on this
+account against a headline `buying_power` of $359,270, because the latter is 4×
+margin for equities. The two agree only while the book is flat; as positions
+accumulate, held collateral drains buying power while equity stays put, so an
+equity-based ceiling keeps approving trades the broker has stopped being able to
+accept. A reserve is kept back so there is always something left to *close* with —
+some exits are debits, and being unable to pay one is how a defined-risk position
+stops being defined.
+
+**`daily-loss-halt` is latched and survives a restart.** A breaker that un-trips when the tape
+bounces is a delay, not a breaker. And it is persisted to disk rather than held in process memory,
+because restarting the agent is precisely what someone does when an unattended agent starts
+behaving oddly — a latch that dies with the process is not a latch.
+
+**The environment assertion is not in the list on purpose.** It is not a judgement over a
+proposal; it runs inside `place_structure`, against the broker's own account snapshot,
+immediately before every single order. Putting it in the chain would imply it could be reordered,
+disabled, or handed a stale context. It checks three independent signals — `ALPACA_ENV`, the key
+prefix (`PK` paper vs `AK` live), and the account number prefix — and refuses live credentials
+outright.
+
+**Gates are deterministic Python.** No model call, no network, no clock beyond an injected date,
+and nothing the agent can rewrite at runtime. Every gate has a test proving it **rejects**, which
+is the only kind of test that shows a safety layer is load-bearing rather than decorative.
+347 tests, and the per-gate rejection count for the window is in Results below — generated from
+the journal rather than asserted here, because a safety layer's own write-up is the last place a
+number should be taken on trust.
+
+**Exits are never gated.** Nothing in `gates/` applies on the way out. A latched halt, a breached
+concentration cap, an account in drawdown — every one of those is a reason to be *more* able to
+close, not less.
+
+---
 
 ## Alpaca infrastructure
 
-- MCP server: which tools consumed, how the client is wired, auth handling
-- Account: brand-new dedicated paper account, starting balance $100,000
-- Order flow: construction → submission → fill handling → position reconciliation
-- Scheduling / hosting
-- Telemetry: run journal, P&L tracking, how results were exported
+**MCP, not REST.** All broker interaction goes through Alpaca's official MCP server
+(`uvx alpaca-mcp-server`, stdio); nothing in the project calls the REST API. Tools consumed:
+`get_account_info`, `get_option_chain`, `get_option_contracts`, `get_option_snapshot`,
+`get_stock_bars`, `get_stock_latest_trade`, `get_all_positions`, `get_orders`,
+`get_account_activities`, `get_clock`, `place_option_order`, `close_position`.
+
+Two findings worth recording, both from reading a live server rather than the repo. The tool names
+in `toolsets.py` are OpenAPI operationIds (`getAccount`, `OptionChain`) — every *registered* MCP
+tool is snake_case, and calling an operationId returns "Unknown tool." And every response is
+wrapped in a `{_alpaca_mcp_security, data}` envelope that the client unwraps; a caller that
+receives an error message shaped like data will act on it.
+
+**Connection model.** Connect-per-call: each call opens a short-lived stdio session and closes it,
+which avoids juggling long-lived async MCP sessions across asyncio tasks. Subprocess startup per
+call is real, but against a 30-minute cadence it is noise.
+
+**Verified live before anything was built on it.** Multi-leg (`mleg`) submission, the 4-leg
+ceiling, the 4-leg roll, and options level 3 were all confirmed by real paper orders on
+2026-08-26 — because the whole project rests on that assumption and the remaining unknowns needed
+real keys. Two things that survey came back with:
+
+- **The broker nets legs across structures.** After a vertical and a condor both sold the same
+  Oct-16 770 call, the account reported *one* position at qty −2, not two positions tagged to
+  their parents. Alpaca has no concept of which structure a leg belongs to. That reshaped both the
+  ledger and the concentration gate: everything counts contracts, never structures.
+- **Friction, measured per leg per contract.** $7.50 — so ~$15 round trip for a two-leg spread and
+  ~$30 for a condor. The unit matters: the raw figure was a $73.40 total across *three* structures
+  and 16 leg-fills, and comparing that lump against one structure's per-contract max gain
+  overstated friction roughly 4× and had the agent declining trades it should have taken.
+
+**Account.** A brand-new dedicated paper account, starting balance $100,000, never used for
+anything else. `scripts/preflight.py` refuses to run against an account that is not fresh at
+$100,000, and the judged run reads `COMP_ALPACA_*` credentials where a dev run reads `ALPACA_*`,
+with no fallback between them — pointing the dev config at the competition account "just to test
+something" is the mistake that ends a competition entry, so it is made structurally impossible
+rather than discouraged. The separation is the variable name, not a second config file: one `.env`
+means the two credential pairs sit four lines apart, and the failure that actually happens — the
+same account pasted under both names — becomes a comparison the loader can make.
+
+**Order flow.** Construct (`execution/structures.py`, 4-leg ceiling enforced at construction) →
+gate → assert paper → submit as a single `mleg` order → journal on acceptance, not on fill → the
+ledger reconciles against broker positions every cycle. **Broker always wins**: divergence is
+reported, never repaired. An agent that "fixes" its own books to match its expectations is an
+agent that cannot tell you when it is wrong.
+
+**On Alpaca's Skills Library.** The Paper Trading Skill published during the build
+names five capabilities: restate strategy logic before ordering, preview orders with
+buying-power checks, verify the paper environment and block live credentials, track
+order lifecycle, and save session artifacts. HAL Street does all five — but as
+deterministic Python rather than agent instructions, which is the whole argument here.
+A skill is a prompt; the environment assertion has to be a guarantee, so it runs in
+`place_structure` against the broker's own account snapshot where no model can decline
+to follow it. Adopting the skill for that job would move a hard check into the
+probabilistic layer. What the skill *did* contribute is the buying-power gate above:
+it was the one item on that list this project genuinely lacked, and the measurement
+that followed found options buying power to be a quarter of the headline figure.
+
+**Telemetry.** Append-only JSONL journal: every cycle, market view, candidate menu with score
+breakdowns, proposal, all fifteen gate verdicts, order, fill, exit. `./start.sh report` exports
+`summary.json`, `positions.csv` and `results.txt`. Realized P&L comes from the ledger rather than
+the broker, because Alpaca can tell you what a *contract* did but never what a *condor* did.
+Drawdown is labelled "over N scan samples" — it is scan-resolution, not tick-resolution, and the
+output should not imply otherwise.
+
+**The panel, and why it cannot trade.** `./start.sh panel` serves a React/TypeScript app that
+reads the same journal: one decision with all fifteen verdicts grouped by family, the full
+decision history, the chain with each gate's actual rejection count, and an equity curve. A
+WebSocket pushes it within half a second of the agent writing a record.
+
+It is read-only, and the interesting part is that this is enforced rather than promised. Every
+HTTP route is a GET. The socket is *send-only* — the server never calls `receive` and the client
+never calls `send` — so a crafted frame reaches no code, and a test parses the module's AST to
+prove the call does not exist. The Tauri desktop shell registers no commands and holds no
+capability past a window, so the desktop build is a frame around the identical unprivileged
+page. There is no override button, no editable limit, and no way to clear a latched halt from
+the screen: that is a deliberate act at the CLI, where it lands in shell history.
+
+The reason for all of it is the thesis. A dashboard that can trade is a second path to the
+broker that does not pass through `gates/`, and the claim this project makes is that there is
+exactly one such path.
+
+---
 
 ## Results
 
-- Window traded:
-- Trades placed / gate rejections:
-- Realized + unrealized P&L:
-- Max drawdown:
-- What went wrong and what you'd change:
+**Generated, not typed.** `./start.sh report -- --writeup --window "<dates>"` emits this
+section as markdown straight from the journal. The numbers a judge reads first are the
+ones most likely to be wrong if a human retypes them from a scrolled terminal, so the
+only line below written by hand is the last one.
+
+*Rehearsal figures from the dev paper account on 2026-08-26 — replaced by the judged
+window's output before submission:*
+
+- **Window traded:** 2026-08-26 (dev account rehearsal)
+- **Proposals / passes:** 30 proposed, 15 passed (45 model turns). A pass is a
+  considered decline, not a failure — it is counted separately for that reason.
+- **Gate outcomes:** 30 approved, 0 rejected
+- **Rejections by gate:** none. Not evidence the gates are inert — candidates are
+  pre-filtered against the same limits before the model sees them, so the strategy
+  layer absorbs most of what would otherwise be rejected.
+- **Orders submitted:** 2
+- **Positions:** 1 closed, 0 open — 0W / 1L
+- **Realized P&L:** $-9.00 · **Unrealized:** $0.00 · **Total:** $-9.00
+- **Equity:** $89,826.79 → $89,817.69
+- **Max drawdown:** $9.10 (0.01%) over 60 scan samples — scan resolution, not tick
+  resolution
+
+**That figure was $-10.00 until the soak harness explained why.** The ledger held two
+*limits* — -1.59 in and 1.69 out — because an order is `pending_new` when it is
+recorded and the only number in hand at that moment is the price you were willing to
+pay. `refresh_fills` was written to correct exactly this, and did not: it walked open
+structures only, so a position opened and closed inside one session was never revisited,
+and a closing order's fill was never fetched under any circumstances. Both halves of a
+round trip could go unchecked, and this one did.
+
+It now corrects both sides, and each price carries a flag recording whether a fill has
+actually been confirmed or the limit is still standing in. Asked for its own record,
+Alpaca reports the open filled at **-1.60** and the close at **1.69** — so the real
+loss is $9.00, and the extra dollar was never a trading result at all.
+
+An earlier draft of this section argued the number should stand uncorrected, on the
+grounds that editing a historical ledger entry is what an audit trail exists to
+prevent. That was the right instinct pointed at the wrong thing. What an audit trail
+forbids is a number changing with no record of why; what happened here is that the
+broker's own fill was fetched and written with a journalled `fill_correction` carrying
+both the old price and the new one — the same event the agent now emits automatically.
+The correction is in the record. Reporting a P&L computed from prices nobody traded at
+would have been the actual violation.
+
+### What already went wrong, and what changed
+
+Kept here because a build log with no mistakes in it is a build log nobody should believe.
+
+- **A gate that would have blocked every order.** `assert_paper_account` checked an `is_paper`
+  field Alpaca never returns. Fixed to read the `PA` account-number prefix. Found by testing the
+  assertion rather than trusting it.
+- **A hidden ×100.** `MAX_NET_DELTA=50` silently meant 5,000 shares. Units changed to
+  share-equivalents, which is the number that tells you what the book does when the tape moves a
+  dollar.
+- **Limits that were decoration.** The `.env` risk limits were read by nothing until
+  `Limits.from_env()` existed. A malformed value now raises instead of falling back — believing
+  you are protected at the number you wrote is worse than no limit at all.
+- **A liquidity floor measuring the wrong thing.** The volume floor rejected almost everything
+  while open interest and spread rejected almost nothing, and it was biased: the further OTM a
+  strike sits, the less it trades *today*, so it selected hardest against exactly the structures
+  this strategy is built on. Retuned on measurement, and the sweep is in the commit.
+- **A sign error worth $0 and nearly a lot more.** `evaluate_exit` negated a mark that was already
+  in the right convention, reporting a profitable debit spread as a 254% loss — which the stop
+  would have closed at the worst possible moment.
