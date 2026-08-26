@@ -282,3 +282,84 @@ def test_a_trade_with_no_realized_figure_is_unknown_not_a_loss():
     ledger = _Ledger([_Structure("SPY A", "SPY", False, "2026-08-10T00:00:00", None)])
     assert C.reflection(ledger, "SPY")[0]["outcome"] == "unknown"
 
+
+
+# --- what the first live run found ------------------------------------------------------
+
+class _Response:
+    def __init__(self, stop_reason, blocks, usage=None):
+        self.stop_reason = stop_reason
+        self.content = blocks
+        self.usage = usage or type("U", (), {"input_tokens": 1, "output_tokens": 2,
+                                             "cache_read_input_tokens": 0})()
+
+
+class _Block:
+    def __init__(self, type_, text=""):
+        self.type, self.text = type_, text
+
+
+class _Replying:
+    def __init__(self, response):
+        self._response = response
+        self.messages = self
+        self.kwargs = None
+
+    def create(self, **kwargs):
+        self.kwargs = kwargs
+        return self._response
+
+
+def test_a_truncated_answer_is_named_as_truncation_not_as_silence():
+    """The first live committee run reported `bull: no text block`.
+
+    The model had not been silent — adaptive thinking spends from the same budget as
+    the answer, and it had run out mid-thought at 1600 tokens. The two failures need
+    different fixes (raise the ceiling vs. investigate the model), and the old message
+    pointed at the wrong one.
+    """
+    client = _Replying(_Response("max_tokens", [_Block("thinking", "")]))
+    text, _, error = C.Committee(client)._call("sys", "user", max_tokens=1600)
+    assert text == ""
+    assert error == "truncated at max_tokens=1600"
+
+
+def test_a_partial_argument_is_discarded_rather_than_handed_to_the_judge():
+    # A truncated bull case reads as a weak bull case. The judge is told the stage was
+    # unavailable instead, because "unfinished" and "unconvincing" are not the same
+    # input to a decision.
+    client = _Replying(_Response("max_tokens", [_Block("text", "The case for this is str")]))
+    text, _, error = C.Committee(client)._call("sys", "user", max_tokens=1600)
+    assert text == "", "half an argument must not reach the judge as a whole one"
+    assert error is not None
+
+
+def test_the_debate_budget_clears_observed_usage_with_room():
+    # Measured: 1270 output tokens for one researcher on a 27k-character brief. The
+    # ceiling that failed was 1600. This is the number, not a vibe — if someone trims
+    # it back toward observed usage, the bull goes missing again and nothing stops the
+    # cycle to say so.
+    assert C.DEBATE_TOKENS >= 2 * 1270
+    assert C.JUDGE_TOKENS > C.DEBATE_TOKENS > C.ANALYST_TOKENS // 2
+
+
+def test_a_missing_researcher_is_recorded_rather_than_swallowed():
+    # The failure is silent by design — the cycle continues on one researcher. The
+    # only thing making it visible afterwards is that the error reaches the journal
+    # and the judge's brief.
+    s = C.Session(errors=["bull: truncated at max_tokens=1600"])
+    assert "truncated" in C.brief(base_turn="t", session=s, debate=False)
+    assert "truncated" in json.dumps(s.to_journal())
+
+
+def test_a_refusal_is_still_its_own_failure():
+    client = _Replying(_Response("refusal", []))
+    _, _, error = C.Committee(client)._call("sys", "user", max_tokens=100)
+    assert error == "model refused"
+
+
+def test_a_complete_answer_carries_no_error():
+    client = _Replying(_Response("end_turn", [_Block("thinking", ""), _Block("text", "case")]))
+    text, counts, error = C.Committee(client)._call("sys", "user", max_tokens=100)
+    assert (text, error) == ("case", None)
+    assert counts == {"in": 1, "out": 2, "cache_read": 0}

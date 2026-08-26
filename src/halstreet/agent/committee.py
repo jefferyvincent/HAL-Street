@@ -63,9 +63,16 @@ from halstreet.agent.llm import response_schema as proposal_schema
 from halstreet.marketdata.news import Headline
 
 #: A short read, not an essay. These are inputs to a judge, not the output.
-ANALYST_TOKENS = 1200
-DEBATE_TOKENS = 1600
-JUDGE_TOKENS = 8000
+#
+#: Sized for adaptive thinking, which spends from the same budget as the answer. The
+#: first live committee run lost the bull entirely — a measured 1270 output tokens
+#: against a 1600 ceiling is a 20% margin, and the run that exceeded it produced only
+#: thinking and no text. These are roughly 2.5x observed usage, because the failure is
+#: silent: a missing researcher does not stop the cycle, it just leaves the judge
+#: hearing one side.
+ANALYST_TOKENS = 3000
+DEBATE_TOKENS = 4000
+JUDGE_TOKENS = 12000
 
 LEAN = ("bullish", "bearish", "neutral")
 
@@ -316,6 +323,15 @@ class Committee:
         }
         if response.stop_reason == "refusal":
             return "", counts, "model refused"
+        if response.stop_reason == "max_tokens":
+            # Named separately because "no text block" is what a truncated response
+            # looks like from here, and it sent the first investigation to the wrong
+            # place — the model had answered, the budget had run out mid-thought.
+            #
+            # Discarded rather than salvaged even when a partial text block survives:
+            # half a bull case reads to the judge as a weak bull case, not a truncated
+            # one, and that quietly biases the decision toward whoever finished.
+            return "", counts, f"truncated at max_tokens={max_tokens}"
         text = next((b.text for b in response.content if b.type == "text"), "")
         return text, counts, None if text else "no text block"
 

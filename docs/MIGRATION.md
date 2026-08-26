@@ -895,7 +895,7 @@ rules engine can answer.
 So: catalyst → bull ∥ bear → judge, four calls per underlying. Reflection is not a
 call — closed structures come from the ledger with their realized P&L. The judge runs
 under `ProposalWriter.system_prompt` itself rather than a copy, so it cannot drift from
-the gate catalogue. Off by default (`COMMITTEE=true` or `--committee`).
+the gate catalogue. On by default; `COMMITTEE=false` or `--no-committee` opts out.
 
 First live run, SPY: it passed, and the rationale cited *"a Fed decision and an NVDA
 print inside the 51-DTE window"* against `event_risk 0.0` on every candidate. That is
@@ -1091,3 +1091,75 @@ Honest caveat on the history: these are reviewable slices of one body of work, n
 reconstruction of the order it was written in. Intermediate commits are coherent by
 subsystem but are not individually bisectable, because the subsystems were developed
 together. HEAD is the tree that is tested.
+
+
+## Done: the committee becomes the default, and what that found
+
+It shipped off by default, for a reason that was true and beside the point: four model
+calls per underlying per cycle is a real cost — roughly 156 calls a session against 39
+for the single-call path — and a demo should not depend on it.
+
+What that reasoning missed is what the switch actually gates. **The news fetch lives on
+the committee path alone.** `get_news` is called from exactly one function,
+`Agent._committee_proposal`, so `COMMITTEE=false` did not merely buy a cheaper proposal;
+it meant the agent never read the tape. Everything else the model is shown — HV rank,
+indicator votes, the six-term score — is arithmetic that already ran deterministically.
+The catalyst analyst is the only genuinely new input in the system, and the default
+traded it away for a smaller token bill.
+
+So the default flipped. `COMMITTEE=false` remains as an explicit opt-out for demos and
+rate limits, and the single-call path is untouched.
+
+Three things had to change with it.
+
+**The flag needed a way to say no.** `--committee` was `store_true`, and
+`args.committee or enabled()` cannot express "off" — False is falsy, so the environment
+would have won the argument the flag exists to settle. It is now
+`BooleanOptionalAction` with `default=None`, and `committee.resolve()` reconciles the
+three states: an explicit flag beats `$COMMITTEE`, silence defers to it.
+
+**An unrecognized value now raises.** Under any is-it-in-the-off-list rule a typo'd
+`COMMITTEE=flase` reads as on and quietly quadruples the bill for the rest of the
+competition — a thing found in an invoice, not in a log. It is read once at startup,
+before anything trades, so failing there costs a restart.
+
+**The module had no tests.** None. It had been written, ported, wired into the loop and
+journalled, and then defaulted off — and an off-by-default path with no tests is a
+feature that exists in its docstring. `tests/agent/test_committee.py` is 44 tests, six
+of them mutation-checked against the specific defects they name.
+
+### What the first real run found
+
+One dry-run cycle on SPY, live against the broker and the model. It approved a
+2026-10-16 800/810 call credit spread, sixteen gates passed, and the catalyst read 12
+headlines and correctly flagged the Fed decision and the NVDA print as forward event
+risk the HV rank understates.
+
+It also journalled `errors: ['bull: no text block']`. **The bull case was missing and
+nothing stopped.** The judge decided having heard only the bear.
+
+The message was wrong about why. Adaptive thinking spends from the same budget as the
+answer, and the bull had not been silent — it had run out of budget mid-thought. A
+measured run puts one researcher at 1270 output tokens on a 27k-character brief against
+a ceiling of 1600: a 20% margin on a stage whose failure is silent by design. So
+`ANALYST_TOKENS`/`DEBATE_TOKENS`/`JUDGE_TOKENS` are 3000/4000/12000, roughly 2.5x
+observed, and `_call` now names `stop_reason == "max_tokens"` as truncation rather than
+as silence.
+
+A partial text block is discarded rather than salvaged, which is the less obvious half.
+Half a bull case does not read to the judge as a truncated argument; it reads as a weak
+one, and that biases the decision toward whichever researcher finished.
+
+This is the argument for having flipped the default before the judged run rather than
+during it. The committee had passed every test it had — because it had none — and one
+live cycle cost four calls to find a defect that would have silenced a researcher at
+random for the whole competition.
+
+### Unrelated, found on the way
+
+`1600` and `4000` are the same number of bytes. Restoring a mutated file with `cp` gave
+it the same mtime, and CPython's `(mtime, size)` bytecode invalidation could not tell
+the two versions apart — a stale `.pyc` reported the mutant's value for a source file
+that no longer contained it. Worth recording because `telemetry/server.py` fingerprints
+the journal for the WebSocket watcher the same way; appends change the size, so it is
+not a live bug there, but it is the same assumption.
