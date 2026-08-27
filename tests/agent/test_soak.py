@@ -384,3 +384,116 @@ def test_a_confirmed_fill_is_never_looked_up_again(soak):
     assert asyncio.run(agent.refresh_fills()) == 0, "no change: the fill matched the limit"
     assert ledger.structures[0].entry_filled, "but it was answered, and must not be re-asked"
     assert ledger.awaiting_fill_price() == []
+
+
+# --- what a bad response from the broker costs the rest of the book -------------------
+
+def test_a_malformed_fill_price_does_not_abort_the_exit_sweep(soak):
+    """One structure's unexpected response must not cost every other structure its exit.
+
+    The failure was three deep and only the first part was obvious. `_close` parsed
+    `filled_avg_price` with a bare `Decimal(str(fill))` — undefended, while the
+    identical parse in `refresh_fills` was guarded — and it sat *between* the order
+    being accepted by the broker and the ledger being told about it. So a single
+    malformed figure produced:
+
+      1. an order the broker had taken and a ledger that still called the structure
+         open, which is the duplicate close the comment in `_close` exists to prevent;
+      2. every structure later in the sweep left unexamined, because the raise escaped
+         the `for` loop entirely; and
+      3. the loss of `ledger.save()`, which sat after the loop.
+
+    None of it surfaced as an error at the time: `run_once` catches around
+    `manage_exits`, so the whole thing read as a quiet cycle.
+    """
+    agent, broker, _journal, ledger = soak
+    for n, sid in enumerate(("s0", "s1", "s2")):
+        st = spread()
+        ledger.record_open(st, "SPY", structure_id=sid,
+                           entry_price=Decimal("-1.00"), order_id=f"e{n}", rationale="r")
+        ledger.structures[-1].entry_filled = True
+
+    # The broker answers the second close with something that is not a number.
+    calls = {"n": 0}
+    original = broker.place_structure
+
+    async def flaky(structure, **kw):
+        calls["n"] += 1
+        response = await original(structure, **kw)
+        response["filled_avg_price"] = "N/A" if calls["n"] == 2 else "1.10"
+        return response
+
+    broker.place_structure = flaky
+    # All three hold the same legs, so one mark takes every one of them to its
+    # profit target: entry was a 1.00 credit and 50% of it is a 0.50 buy-back.
+    broker.mark_spread_at("0.40")
+    asyncio.run(agent.manage_exits())
+
+    assert calls["n"] == 3, "every structure in the book must get its closing order"
+    assert ledger.open_structures == [], "a structure the broker accepted a close for is not open"
+    assert Ledger.load(ledger.path).open_structures == [], "and that must survive a restart"
+
+
+def test_an_unparseable_fill_is_recorded_as_unknown_not_invented(soak):
+    # Unknown is the same outcome as absent, which the ledger already handles and
+    # `refresh_fills` corrects on a later cycle. Anything else would put a number
+    # nobody traded at into a realized P&L.
+    agent, broker, journal, ledger = soak
+    ledger.record_open(spread(), "SPY", structure_id="s0", entry_price=Decimal("-1.00"),
+                       order_id="e0", rationale="r")
+    ledger.structures[-1].entry_filled = True
+
+    original = broker.place_structure
+
+    async def bad(structure, **kw):
+        response = await original(structure, **kw)
+        response["filled_avg_price"] = "not-a-price"
+        return response
+
+    broker.place_structure = bad
+    broker.mark_spread_at("0.40")
+    asyncio.run(agent.manage_exits())
+
+    closed = ledger.structures[0]
+    assert not closed.is_open and closed.exit_price is None
+    assert closed.realized() is None, "no realized figure from a price that was never read"
+    assert any(e.get("event") == "error" and "unparseable" in str(e)
+               for e in journal.read()), "the broker sent something odd; say so"
+
+
+def test_one_structure_failing_to_close_does_not_cost_the_others_their_exit(soak):
+    """The isolation, tested on its own terms rather than through the parse bug.
+
+    `_close` already handles the two broker errors it expects. This is the third
+    case — anything else — and it is the one that used to abort the whole sweep,
+    silently, because `run_once` catches around `manage_exits` and a dead sweep looks
+    exactly like a quiet cycle.
+
+    Written separately because the fill-parse fix removes the only trigger currently
+    reachable, so a test that goes through it proves nothing about the isolation. This
+    raises a type nothing in the exit path claims to handle.
+    """
+    agent, broker, journal, ledger = soak
+    for n, sid in enumerate(("s0", "s1", "s2")):
+        ledger.record_open(spread(), "SPY", structure_id=sid,
+                           entry_price=Decimal("-1.00"), order_id=f"e{n}", rationale="r")
+        ledger.structures[-1].entry_filled = True
+
+    calls = {"n": 0}
+    original = broker.place_structure
+
+    async def flaky(structure, **kw):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("something nothing here claims to handle")
+        return await original(structure, **kw)
+
+    broker.place_structure = flaky
+    broker.mark_spread_at("0.40")
+    asyncio.run(agent.manage_exits())
+
+    assert calls["n"] == 3, "the third structure must still be offered its exit"
+    still_open = {s.structure_id for s in ledger.open_structures}
+    assert still_open == {"s1"}, "only the one that actually failed stays open"
+    assert any(e.get("event") == "error" and "close_failed" in str(e)
+               for e in journal.read()), "a failed exit is the loudest thing in the journal"

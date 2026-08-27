@@ -176,7 +176,17 @@ class Agent:
                 dte=decision.structure.dte(),
             )
             if decision.should_close:
-                await self._close(decision)
+                try:
+                    await self._close(decision)
+                except Exception as exc:
+                    # Per structure, because the alternative is what used to happen:
+                    # one unexpected response aborted the sweep, so every structure
+                    # after it in the book went unexamined and unclosed for the cycle
+                    # — silently, since the raise was caught a frame further out.
+                    # Exits are the one path that must never be blocked by another
+                    # position's problem.
+                    self.journal.error("close_failed",
+                                       f"{decision.structure.name}: {type(exc).__name__}: {exc}")
 
         if any(d.should_close for d in decisions):
             self.ledger.save()
@@ -257,8 +267,21 @@ class Agent:
             self.journal.error("close_failed", f"{structure.name}: {exc}")
             return
 
+        # Unparseable is the same outcome as absent: unknown, which the ledger already
+        # handles and `refresh_fills` will correct on a later cycle. This parse was
+        # undefended while the identical one in `refresh_fills` was guarded, and it sat
+        # *between* the order being accepted and the ledger being told about it — so a
+        # single malformed figure from the broker meant an order the broker had taken
+        # and a ledger that still believed the structure was open, which is exactly the
+        # duplicate close the comment below exists to prevent.
         fill = response.get("filled_avg_price")
-        exit_price = Decimal(str(fill)) if fill not in (None, "") else None
+        exit_price = None
+        if fill not in (None, ""):
+            try:
+                exit_price = Decimal(str(fill))
+            except (InvalidOperation, ValueError):
+                self.journal.error("close_fill", f"{structure.name}: unparseable "
+                                                 f"filled_avg_price {fill!r}")
         self.journal.order(
             structure=order.name, submitted=True, intent="close",
             order_id=response.get("id"), status=response.get("status"),
@@ -269,6 +292,10 @@ class Agent:
         # the ledger would have the next cycle try to close it again.
         self.ledger.record_close(structure.structure_id, exit_price=exit_price,
                                  exit_order_id=response.get("id"))
+        # Saved here rather than once after the sweep. The order is already with the
+        # broker; between that and the write hitting disk, a crash or a kill leaves a
+        # position the ledger thinks is still open and will close again on restart.
+        self.ledger.save()
 
     # --- scan ------------------------------------------------------------------
 
