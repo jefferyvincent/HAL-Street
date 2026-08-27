@@ -31,9 +31,48 @@ from halstreet.agent.manager import ExitPolicy, exit_levels
 #: its whole life with room for the run-up that preceded it.
 LOOKBACK_DAYS = 30
 
+#: The least context to show before a position was opened. A structure entered an
+#: hour ago still needs a few candles to sit against.
+MIN_LEAD_IN_DAYS = 2
+
+#: And beyond that, a share of how long it has been held — so the lead-in grows with
+#: the position rather than dwarfing it.
+LEAD_IN_SHARE = 0.25
+
 #: Hourly is the finest that still spans a month without thousands of points. Daily
 #: would collapse a position held for three days into three dots.
 TIMEFRAME = "1Hour"
+
+#: Bar size by how much history is being drawn, and the bucket each one groups into.
+#:
+#: A fixed hourly bar is wrong at both ends. Over a two-day window it yields a dozen
+#: points, and a candle needs several observations to have a body at all — an
+#: hour-old position drew three flat candles. Over a two-month one it yields hundreds,
+#: which is a smudge. Every charting tool picks its bar from the span; this does the
+#: same, and the bucket moves with it so the candle count stays in a readable band.
+_RESOLUTIONS = (
+    # (window in days, bar timeframe, characters of the timestamp that share a bucket)
+    (5, "15Min", 13),    # bucket by hour
+    (20, "1Hour", 10),   # bucket by session
+    (10_000, "1Day", 10),
+)
+
+
+def resolution(days: float) -> tuple[str, int]:
+    """The bar size and bucket width for a window this long."""
+    for limit, timeframe, width in _RESOLUTIONS:
+        if days <= limit:
+            return timeframe, width
+    return _RESOLUTIONS[-1][1], _RESOLUTIONS[-1][2]
+
+
+def window_days(structure: OpenStructure) -> float:
+    """How much history the chart will cover, in days."""
+    try:
+        start = datetime.strptime(start_of_window(structure), "%Y-%m-%d").replace(tzinfo=UTC)
+    except ValueError:
+        return float(LOOKBACK_DAYS)
+    return max(1.0, (datetime.now(UTC) - start).total_seconds() / 86400)
 
 
 def _dec(value: Any) -> Decimal | None:
@@ -49,7 +88,7 @@ class Point:
     value: Decimal
 
 
-def net_candles(points: list[Point]) -> list[dict]:
+def net_candles(points: list[Point], bucket: int = 10) -> list[dict]:
     """The net price bucketed into one candle per session.
 
     **Built from the observed net, never from the legs' own highs and lows.** That
@@ -63,13 +102,14 @@ def net_candles(points: list[Point]) -> list[dict]:
     this function was already given. Every point drawn is a price the structure was
     actually at.
 
-    One candle per session date rather than a fixed count, because that is what the
-    hourly bars group into naturally and it keeps the x-axis honest across a gap —
-    a weekend produces no candle rather than a wide one.
+    `bucket` is how many characters of the timestamp share a candle: 10 groups by
+    date, 13 by hour. It moves with the bar size so the candle count stays readable
+    at any window, and because it groups on the stamp itself a gap produces no candle
+    rather than a wide one — a weekend simply is not there.
     """
     buckets: dict[str, list[Point]] = {}
     for point in points:
-        buckets.setdefault(str(point.t)[:10], []).append(point)
+        buckets.setdefault(str(point.t)[:bucket], []).append(point)
 
     out: list[dict] = []
     for day in sorted(buckets):
@@ -115,17 +155,35 @@ def net_series(structure: OpenStructure, bars: dict[str, list[dict]]) -> list[Po
 
 
 def start_of_window(structure: OpenStructure) -> str:
-    """Far enough back to show the position's whole life, and no further."""
+    """The position's life, plus a little context — proportional, not fixed.
+
+    It used to take a flat month before the open, which is not what the docstring
+    claimed and is worse the newer the position. A structure opened this morning got
+    a chart that was *entirely* prehistory: thirty days of what those two contracts
+    cost as a pair before anyone held them, back when the underlying was somewhere
+    else and the spread meant something different. Measured on a live QQQ position,
+    the candles spanned -3.84 to -0.50 while the position itself had traded between
+    -1.0 and -1.7 — the part worth looking at squeezed into a fifth of the chart by
+    a month of prices nobody acted on.
+
+    So the lead-in scales with how long the position has been held: a couple of days
+    for a fresh one, a week for a month-old one. Enough to see what the structure was
+    doing as it was entered, never enough to bury it.
+    """
     opened = structure.opened_at
     try:
         anchor = datetime.fromisoformat(opened) if opened else datetime.now(UTC)
     except (TypeError, ValueError):
         anchor = datetime.now(UTC)
-    return (anchor - timedelta(days=LOOKBACK_DAYS)).strftime("%Y-%m-%d")
+    if anchor.tzinfo is None:
+        anchor = anchor.replace(tzinfo=UTC)
+    held = max(0.0, (datetime.now(UTC) - anchor).total_seconds() / 86400)
+    lead = min(LOOKBACK_DAYS, max(MIN_LEAD_IN_DAYS, held * LEAD_IN_SHARE))
+    return (anchor - timedelta(days=lead)).strftime("%Y-%m-%d")
 
 
 def build(structure: OpenStructure, bars: dict[str, list[dict]],
-          policy: ExitPolicy) -> dict[str, Any]:
+          policy: ExitPolicy, bucket: int = 10) -> dict[str, Any]:
     """Everything the chart needs, in the shape the panel renders."""
     series = net_series(structure, bars)
     entry = structure.entry_price
@@ -145,7 +203,7 @@ def build(structure: OpenStructure, bars: dict[str, list[dict]],
         # The same prices as candles, one per session. See `net_candles` for why they
         # are bucketed from the net rather than summed from the legs' own ranges.
         "candles": [{k: (v if k == "t" else str(v)) for k, v in c.items()}
-                    for c in net_candles(series)],
+                    for c in net_candles(series, bucket)],
         # None when the entry price is unknown — the panel says so rather than drawing
         # three lines through a number nobody has.
         "levels": levels.to_prompt() if levels else None,

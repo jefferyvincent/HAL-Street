@@ -17,9 +17,17 @@ import type { Candle, Line, Series } from "./useStructureLevels";
  * a price line is horizontal by construction and carries its own axis label, which is
  * what makes the target and stop readable at a glance.
  *
- * The visible range is forced to include every level. Auto-scaling to the price alone
- * would push a stop — three times the credit from entry — off the bottom, and an
- * invisible stop defeats the point of drawing one.
+ * The chart scales to the prices, not to the levels — which is a reversal.
+ *
+ * Forcing every level into view sounds right and ruins the chart. A stop sits three
+ * times the credit away from entry, so on a spread trading between -1.0 and -1.7 the
+ * range is dragged out to -4.53 and every candle collapses into a sliver: the thing
+ * the chart exists to show becomes the thing you cannot see. The levels are drawn as
+ * price lines and appear when the price is anywhere near them, which is exactly when
+ * they matter, and their numbers sit in the cells above the chart at all times.
+ *
+ * Scroll and zoom are enabled for the same reason, so a level off the bottom can be
+ * found rather than merely inferred.
  */
 export function useStructureChartCanvas(
   series: Series[], candles: Candle[], lines: Line[], live: number | null,
@@ -40,12 +48,15 @@ export function useStructureChartCanvas(
         fontFamily: '"IBM Plex Mono", ui-monospace, monospace',
       },
       grid: { vertLines: { color: CHART_COLOR.grid }, horzLines: { color: CHART_COLOR.grid } },
-      rightPriceScale: { borderColor: CHART_COLOR.border, scaleMargins: { top: 0.12, bottom: 0.12 } },
+      rightPriceScale: { borderColor: CHART_COLOR.border },
       timeScale: { borderColor: CHART_COLOR.border, timeVisible: true, secondsVisible: false },
       crosshair: {
         horzLine: { color: CHART_COLOR.crosshair, labelBackgroundColor: CHART_COLOR.crosshair },
         vertLine: { color: CHART_COLOR.crosshair, labelBackgroundColor: CHART_COLOR.crosshair },
       },
+      handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true,
+                      vertTouchDrag: true },
+      handleScale: { mouseWheel: true, pinch: true, axisPressedMouseMove: true },
     });
     // Candles for the sessions, and the hourly line over them. The line is what
     // the levels are read against — a target sitting inside a day's range says
@@ -61,6 +72,7 @@ export function useStructureChartCanvas(
     line.current = c.addLineSeries({
       color: CHART_COLOR.line,
       lineWidth: 1,
+      crosshairMarkerVisible: false,
       priceLineVisible: false,
       lastValueVisible: true,
     });
@@ -115,17 +127,6 @@ export function useStructureChartCanvas(
 
     if (series.length) {
       chart.current?.timeScale().fitContent();
-      // Every level in view, whatever the price did.
-      const values = series.map((p) => p.value)
-        .concat(candles.flatMap((c) => [c.high, c.low]))
-        .concat(lines.map((l) => l.value))
-        .concat(live === null ? [] : [live]);
-      const low = Math.min(...values);
-      const high = Math.max(...values);
-      const pad = (high - low) * 0.08 || 0.1;
-      api.applyOptions({ autoscaleInfoProvider: () => ({
-        priceRange: { minValue: low - pad, maxValue: high + pad },
-      }) });
     }
 
     return () => {

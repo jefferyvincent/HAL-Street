@@ -550,9 +550,11 @@ async def api_structure_chart(structure_id: str) -> JSONResponse:
         from halstreet.execution.mcp_client import AlpacaMCP
 
         client = AlpacaMCP.from_env()
+        timeframe, bucket = structure_chart.resolution(
+            structure_chart.window_days(structure))
         bars = await client.get_option_bars(
             sorted(structure.legs),
-            timeframe=structure_chart.TIMEFRAME,
+            timeframe=timeframe,
             start=structure_chart.start_of_window(structure),
         )
     except Exception as exc:
@@ -561,7 +563,8 @@ async def api_structure_chart(structure_id: str) -> JSONResponse:
         payload = structure_chart.build(structure, {}, ExitPolicy.from_env())
         payload["error"] = f"{type(exc).__name__}: {exc}"
         return JSONResponse(_plain(payload))
-    return JSONResponse(_plain(structure_chart.build(structure, bars, ExitPolicy.from_env())))
+    return JSONResponse(_plain(
+        structure_chart.build(structure, bars, ExitPolicy.from_env(), bucket)))
 
 
 @app.get("/api/marks")

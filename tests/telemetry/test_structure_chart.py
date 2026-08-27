@@ -171,3 +171,68 @@ def test_a_single_observation_is_a_flat_candle():
 def test_no_points_means_no_candles():
     from halstreet.telemetry.structure_chart import net_candles
     assert net_candles([]) == []
+
+
+def test_the_bar_size_follows_the_window():
+    """A fixed hourly bar is wrong at both ends.
+
+    Over a two-day window it yields a dozen points, and a candle needs several
+    observations to have a body at all — an hour-old position drew three flat ones.
+    Over two months it yields hundreds, which is a smudge.
+    """
+    from halstreet.telemetry.structure_chart import resolution
+
+    assert resolution(1)[0] == "15Min"
+    assert resolution(12)[0] == "1Hour"
+    assert resolution(60)[0] == "1Day"
+    # And the bucket moves with it, so the candle count stays in a readable band.
+    assert resolution(1)[1] == 13, "grouped by hour"
+    assert resolution(12)[1] == 10, "grouped by session"
+
+
+def test_candles_group_by_hour_at_the_finest_resolution():
+    from halstreet.telemetry.structure_chart import Point, net_candles
+
+    points = [Point(t=f"2026-08-27T14:{m:02d}:00Z", value=Decimal(f"-1.{m}"))
+              for m in (15, 30, 45)]
+    points.append(Point(t="2026-08-27T15:00:00Z", value=Decimal("-1.9")))
+    assert len(net_candles(points, bucket=13)) == 2
+    assert len(net_candles(points, bucket=10)) == 1, "same points, grouped by date"
+
+
+def test_the_lead_in_scales_with_how_long_the_position_has_been_held():
+    """A flat month before the open buried a fresh position in prehistory.
+
+    Measured on a live QQQ spread opened that morning: the candles spanned -3.84 to
+    -0.50 while the position had traded between -1.0 and -1.7. Four fifths of the
+    chart was what those two contracts cost as a pair before anyone held them.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from halstreet.telemetry.structure_chart import MIN_LEAD_IN_DAYS, start_of_window
+
+    def opened(days_ago: float) -> OpenStructure:
+        when = datetime.now(UTC) - timedelta(days=days_ago)
+        return OpenStructure(structure_id="s", name="n", underlying="QQQ", qty=1,
+                             legs={}, opened_at=when.isoformat())
+
+    fresh = datetime.strptime(start_of_window(opened(0)), "%Y-%m-%d").replace(tzinfo=UTC)
+    lead = (datetime.now(UTC) - fresh).total_seconds() / 86400
+    assert MIN_LEAD_IN_DAYS <= lead < MIN_LEAD_IN_DAYS + 1.5, lead
+
+    # A month-old position gets about a week, not another month.
+    old = datetime.strptime(start_of_window(opened(30)), "%Y-%m-%d").replace(tzinfo=UTC)
+    before_open = 30 - (datetime.now(UTC) - old).total_seconds() / 86400
+    assert 5 <= -before_open <= 10, -before_open
+
+
+def test_the_lead_in_is_never_unbounded():
+    from datetime import UTC, datetime, timedelta
+
+    from halstreet.telemetry.structure_chart import LOOKBACK_DAYS, start_of_window
+
+    ancient = OpenStructure(structure_id="s", name="n", underlying="QQQ", qty=1, legs={},
+                            opened_at=(datetime.now(UTC) - timedelta(days=900)).isoformat())
+    start = datetime.strptime(start_of_window(ancient), "%Y-%m-%d").replace(tzinfo=UTC)
+    before_open = 900 - (datetime.now(UTC) - start).total_seconds() / 86400
+    assert -before_open <= LOOKBACK_DAYS + 1
