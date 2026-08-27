@@ -133,11 +133,11 @@
       "qty": "QTY",
       "entry": "OPENED FOR",
       "exit": "CLOSED FOR",
-      "realized": "REALIZED"
+      "realized": "P&L"
     },
     "open": "OPEN",
     "closed": "CLOSED",
-    "note": "Click a structure to chart it against the levels its exit policy acts on. A price shown here is the fill where one has been confirmed, and the submitted limit where it has not.",
+    "note": "Click a structure to chart it against the levels its exit policy acts on. A price shown here is the fill where one has been confirmed, and the submitted limit where it has not. P&L is realized on a closed row and marked-to-market on an open one.",
     "exposure": {
       "bullish": "WANTS UP",
       "bearish": "WANTS DOWN",
@@ -147,7 +147,9 @@
     "against": "{{count}} against",
     "confirming": "{{count}} confirming",
     "patternsNone": "chart quiet",
-    "patternsTitle": "Confirmed chart patterns on {{underlying}}. Shown only — the exit policy does not read them."
+    "patternsTitle": "Confirmed chart patterns on {{underlying}}. Shown only — the exit policy does not read them.",
+    "unrealizedTag": "open",
+    "unpriced": "—"
   },
   "chart": {
     "back": "BOOK",

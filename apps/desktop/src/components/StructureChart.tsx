@@ -176,7 +176,15 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
         opened {day(chart.opened_at)} {clock(chart.opened_at)}
         {chart.closed_at && <> · closed {day(chart.closed_at)} {clock(chart.closed_at)}</>}
         {chart.dte !== null && chart.open && <> · {chart.dte} DTE</>}
-        {chart.realized_usd && <> · realized {money(chart.realized_usd)}</>}
+        {/* Coloured, because the line it sits on is grey and a loss printed grey
+            reads as a note rather than as a number. Same rule as the book. */}
+        {chart.realized_usd && (
+          <> · realized{" "}
+            <span className={Number(chart.realized_usd) < 0 ? "text-fail" : "text-pass"}>
+              {money(chart.realized_usd)}
+            </span>
+          </>
+        )}
       </div>
 
       <Note>{t.chart.note}</Note>

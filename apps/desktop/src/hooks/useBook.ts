@@ -18,6 +18,11 @@ export interface BookRow {
   entry: string | null;
   exit: string | null;
   realized: string | null;
+  /**
+   * The agent's own last unrealized read on an open row, as a fallback for when the
+   * broker cannot be reached. Null on a closed row: there is nothing left to mark.
+   */
+  unrealized: string | null;
 }
 
 /**
@@ -45,6 +50,7 @@ export function useBook(): { rows: BookRow[]; open: number; closed: number } {
       entry: p.entry_price,
       exit: null,
       realized: null,
+      unrealized: p.read?.unrealized_usd ?? null,
     }));
 
     const closed: BookRow[] = snap.closed.map((c) => ({
@@ -59,6 +65,7 @@ export function useBook(): { rows: BookRow[]; open: number; closed: number } {
       entry: c.entry_price,
       exit: c.exit_price,
       realized: c.realized_usd,
+      unrealized: null,
     }));
 
     return { rows: [...open, ...closed], open: open.length, closed: closed.length };

@@ -185,6 +185,8 @@ export function makeStrings(t: Translate) {
       },
       open: t("book.open"),
       closed: t("book.closed"),
+      unrealizedTag: t("book.unrealizedTag"),
+      unpriced: t("book.unpriced"),
       note: t("book.note"),
       exposure: {
         bullish: t("book.exposure.bullish"),
