@@ -193,7 +193,7 @@ outright.
 **Gates are deterministic Python.** No model call, no network, no clock beyond an injected date,
 and nothing the agent can rewrite at runtime. Every gate has a test proving it **rejects**, which
 is the only kind of test that shows a safety layer is load-bearing rather than decorative.
-600 tests, and the per-gate rejection count for the window is in Results below — generated from
+631 tests, and the per-gate rejection count for the window is in Results below — generated from
 the journal rather than asserted here, because a safety layer's own write-up is the last place a
 number should be taken on trust. Coverage is not the standard used: a test is accepted when the
 defect it names, planted back into the source, actually makes it fail.
@@ -244,6 +244,15 @@ something" is the mistake that ends a competition entry, so it is made structura
 rather than discouraged. The separation is the variable name, not a second config file: one `.env`
 means the two credential pairs sit four lines apart, and the failure that actually happens — the
 same account pasted under both names — becomes a comparison the loader can make.
+
+**The record is separated the same way.** The two accounts do not share a journal, a ledger or a
+breaker file. They used to: `--env comp` changed the credentials and nothing else, so a judged run
+appended to the same files as every dev rehearsal — and since every figure below is computed over
+whole files, the Results block would have folded a rehearsal into itself and said nothing. The
+line that made it obvious is `Equity: X → Y`, which would have taken X from a dev cycle and Y from
+the competition account: two accounts averaged into one claim. And the window is now *measured*
+from the journal rather than asserted by whoever ran the report; a description that names dates
+the data does not contain is reported beside the measured one instead of printed over it.
 
 **Order flow.** Construct (`execution/structures.py`, 4-leg ceiling enforced at construction) →
 gate → assert paper → submit as a single `mleg` order → journal on acceptance, not on fill → the
