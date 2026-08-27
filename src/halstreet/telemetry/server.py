@@ -200,6 +200,32 @@ def _activity(events: list[dict]) -> list[dict]:
     return out[-RECENT_ACTIVITY:]
 
 
+def _marks_by_structure(events: list[dict]) -> dict[str, dict]:
+    """The agent's own latest read of each open position.
+
+    A per-position mark needs live quotes, and the snapshot must not reach the
+    broker — it is polled every five seconds. But the agent prices the whole book
+    every cycle and writes the result down, so the freshest honest number is already
+    in the journal. This is that number, labelled as of when it was taken rather
+    than presented as live.
+    """
+    out: dict[str, dict] = {}
+    for event in events:
+        if event.get("event") != "exit_decision":
+            continue
+        key = str(event.get("structure_id") or "")
+        if key:
+            out[key] = {
+                "mark": event.get("mark"),
+                "unrealized_usd": event.get("unrealized_usd"),
+                "dte": event.get("dte"),
+                "action": event.get("action"),
+                "reason": event.get("reason"),
+                "as_of": event.get("ts"),
+            }
+    return out
+
+
 def _patterns_by_underlying(events: list[dict]) -> dict[str, list[dict]]:
     """The most recent confirmed patterns per underlying, from the market views.
 
@@ -279,6 +305,7 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
 
     events = list(journal.read())
     latest_patterns = _patterns_by_underlying(events)
+    latest_marks = _marks_by_structure(events)
     decisions = [e for e in events if e.get("event") == "gate_decision"][-RECENT_DECISIONS:]
     views = {e["underlying"]: e for e in events if e.get("event") == "market_view"}
     latest_menu: dict[str, dict] = {}
@@ -360,6 +387,10 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
                 # than computed here: the agent has the bars, this process must not
                 # touch the broker on a route polled every five seconds.
                 **_pattern_read(s, latest_patterns),
+                # The agent's own most recent judgement of this position: what it is
+                # worth, how long it has, and what the policy said to do about it.
+                # Stamped `as_of`, because it is a cycle old rather than live.
+                "read": latest_marks.get(s.structure_id),
             }
             for s in ledger.open_structures
         ],

@@ -46,7 +46,12 @@
     "noOverride": "There is no override. A rejected proposal is not submitted, and the limits it failed can only change in the environment.",
     "confidence": "Model confidence {{value}}",
     "confidenceNote": "— journalled, not consulted by any gate.",
-    "activity": "WHAT IT IS DOING"
+    "activity": "WHAT IT IS DOING",
+    "holding": "HOLDING",
+    "holdingNone": "Nothing open.",
+    "asOf": "as of {{when}}",
+    "dte": "{{days}} DTE",
+    "unpriced": "not yet priced"
   },
   "ledger": {
     "allRan": "ALL {{n}} GATES RAN"

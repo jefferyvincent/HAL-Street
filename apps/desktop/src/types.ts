@@ -103,6 +103,19 @@ export interface Position {
   /** Those that run against the exposure. A list to read, never a verdict to act on. */
   against: Pattern[];
   confirming: Pattern[];
+  /**
+   * The agent's own most recent judgement of this position, from the journal.
+   * Null until a cycle has priced it. A cycle old, not live — the snapshot must
+   * not reach the broker, and `as_of` says when it was taken.
+   */
+  read: {
+    mark: string | null;
+    unrealized_usd: string | null;
+    dte: number | null;
+    action: string;
+    reason: string;
+    as_of: string;
+  } | null;
 }
 
 export interface ClosedStructure {

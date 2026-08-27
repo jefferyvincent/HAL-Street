@@ -469,3 +469,35 @@ def test_an_expiry_inside_the_dte_floor_is_never_tried():
     chain = {f"SPY{(ASOF + timedelta(days=d)):%y%m%d}P00700000": {} for d in (3, 5, 40)}
     found = C.expiries_by_distance(chain, 45, asof=ASOF, min_dte=21)
     assert [(e - ASOF).days for e in found] == [40]
+
+
+# --- what a structure is called -----------------------------------------------------
+
+def test_every_structure_names_its_underlying_first():
+    """The name is the structure's identity everywhere it appears afterwards.
+
+    The journal, the ledger, the panel, the closing order and the write-up's
+    results all carry it, and it used to read "2026-10-16 765/775 call credit
+    spread" — which says nothing about what is at risk. The events carry
+    `underlying` beside it, so nothing was *wrong*; anything rendering the name
+    alone simply could not tell, and a book holding three of those differing only
+    by strike is unreadable.
+    """
+    menu = _generate()
+    assert menu
+    for candidate in menu:
+        assert candidate.name.startswith("SPY "), candidate.name
+        # And still says what it is and when.
+        assert str(EXPIRY) in candidate.name
+        assert any(k in candidate.name for k in ("credit spread", "iron condor"))
+
+
+def test_the_name_matches_the_root_of_its_own_legs():
+    # Not a constant: it comes from the contracts the structure is actually built
+    # from, so a structure can never be labelled with a ticker it does not hold.
+    from halstreet.marketdata.occ import parse
+
+    for candidate in _generate():
+        roots = {parse(leg["symbol"]).root for leg in candidate.legs}
+        assert len(roots) == 1, f"{candidate.name} spans {roots}"
+        assert candidate.name.split()[0] == roots.pop()

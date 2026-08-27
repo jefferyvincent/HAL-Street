@@ -246,7 +246,14 @@ def credit_spread(quotes: list[Quote], right: Right, short_delta: Decimal,
     worst, oi, vol, slip = _stats([short, long_])
     prob = _spread_pop(kind, short, credit, dte, spot)
     return Candidate(
-        name=f"{short.contract.expiry} {short.contract.strike:g}/{long_.contract.strike:g} "
+        # The root leads. The name is the structure's identity everywhere it appears
+        # afterwards — the journal, the panel, the ledger, the write-up's results —
+        # and without it "2026-10-16 765/775 call credit spread" says nothing about
+        # which underlying is at risk. The event carries `underlying` beside it, but
+        # anything rendering the name alone had no way to know, and a book holding
+        # three names that differ only by strike is unreadable.
+        name=f"{short.contract.root} {short.contract.expiry} "
+             f"{short.contract.strike:g}/{long_.contract.strike:g} "
              f"{'call' if right is Right.CALL else 'put'} credit spread",
         kind=kind,
         legs=[_leg(short, "sell"), _leg(long_, "buy")],
@@ -309,7 +316,8 @@ def iron_condor(quotes: list[Quote], short_delta: Decimal, width_steps: int,
         )
 
     return Candidate(
-        name=f"{short_put.contract.expiry} {short_put.contract.strike:g}/"
+        name=f"{short_put.contract.root} {short_put.contract.expiry} "
+             f"{short_put.contract.strike:g}/"
              f"{short_call.contract.strike:g} iron condor",
         kind=P.IRON_CONDOR,
         legs=legs,

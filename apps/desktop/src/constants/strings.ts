@@ -62,6 +62,11 @@ export function makeStrings(t: Translate) {
 
     console: {
       activity: t("console.activity"),
+      holding: t("console.holding"),
+      holdingNone: t("console.holdingNone"),
+      asOf: (when: string) => t("console.asOf", { when }),
+      dte: (days: number) => t("console.dte", { days }),
+      unpriced: t("console.unpriced"),
       none: t("console.none"),
       approved: (n: number) => t("console.approved", { n }),
       rejected: (bad: number, n: number) => t("console.rejected", { bad, n }),

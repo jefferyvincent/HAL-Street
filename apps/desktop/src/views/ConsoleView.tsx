@@ -3,6 +3,7 @@ import { clock } from "@/lib/format";
 import { ICON } from "@/constants/icons";
 import { CLS, GRID, STROKE } from "@/constants/theme";
 import { ActivityFeed } from "@/components/ActivityFeed";
+import { Holding } from "@/components/Holding";
 import { GateLedger } from "@/components/GateLedger";
 import { Cross, Icon, Note, Tick } from "@/components/Icon";
 import { useDecisionFacts } from "@/hooks/useDecisionFacts";
@@ -29,6 +30,8 @@ export function ConsoleView() {
     // rather than a sentence that reads as "broken".
     return (
       <div className="mb-3 flex flex-col gap-3">
+        {/* What is actually at risk, before anything about what was decided. */}
+        <Holding />
         <div className="border border-edge bg-panel">
           <div className={CLS.empty}>{t.console.none}</div>
         </div>
@@ -42,7 +45,9 @@ export function ConsoleView() {
   const ok = current.approved;
 
   return (
-    <div className={cn("mb-3 border bg-panel", ok ? "border-edge" : "border-fail")}>
+    <div className="mb-3 flex flex-col gap-3">
+      <Holding />
+    <div className={cn("border bg-panel", ok ? "border-edge" : "border-fail")}>
       <div className={cn("flex items-center gap-[9px] border-b px-3 py-[9px]",
         ok ? "border-b-pass/40 bg-pass/12" : "border-b-fail/45 bg-fail/14")}>
         {ok ? <Tick /> : <Cross />}
@@ -119,6 +124,7 @@ export function ConsoleView() {
           </span>
         </div>
       )}
+    </div>
     </div>
   );
 }
