@@ -8,6 +8,7 @@ import { Scoreboard } from "@/components/Scoreboard";
 import { Holding } from "@/components/Holding";
 import { GateLedger } from "@/components/GateLedger";
 import { Cross, Icon, Note, Tick } from "@/components/Icon";
+import { Ticker } from "@/components/Ticker";
 import { useDecisionFacts } from "@/hooks/useDecisionFacts";
 import { useDecisions } from "@/hooks/useDecisions";
 import { useGateFamilies } from "@/hooks/useGateFamilies";
@@ -27,6 +28,8 @@ export function ConsoleView() {
   const { current } = useDecisions();
   const snap = useConnection((s) => s.snapshot);
   const chart = useUI((s) => s.chart);
+  const decisionOpen = useUI((s) => s.decisionOpen);
+  const toggleDecision = useUI((s) => s.toggleDecision);
   const families = useGateFamilies(current);
   const facts = useDecisionFacts(current);
 
@@ -58,9 +61,10 @@ export function ConsoleView() {
       {snap && <EquityChart curve={snap.equity_curve} pnl={snap.pnl} />}
       <Holding />
     <div className={cn("border bg-panel", ok ? "border-edge" : "border-fail")}>
-      <div className={cn("flex items-center gap-[9px] border-b px-3 py-[9px]",
+      <div className={cn("flex flex-wrap items-center gap-[9px] border-b px-3 py-[9px]",
         ok ? "border-b-pass/40 bg-pass/12" : "border-b-fail/45 bg-fail/14")}>
         {ok ? <Tick /> : <Cross />}
+        <Ticker symbol={current.underlying ?? "?"} />
         <span className={cn("font-mono text-[11px] font-bold leading-none tracking-[.1em]",
           ok ? "text-pass" : "text-fail")}>
           {ok ? t.console.approved(gates.length) : t.console.rejected(failed.length, gates.length)}
@@ -78,9 +82,24 @@ export function ConsoleView() {
           </button>
         )}
         <span className="font-mono text-[10.5px] font-medium leading-none text-ink/40">
-          {current.underlying} · {clock(current.ts)}
+          {clock(current.ts)}
         </span>
+        {/* The record is a rationale and sixteen verdicts. The verdict itself is in
+            this header, so the rest opens on request rather than pushing the run's
+            numbers and the open book off the top of the view. */}
+        <button
+          onClick={toggleDecision}
+          aria-expanded={decisionOpen}
+          className="flex items-center gap-[5px] font-mono text-[10px] font-bold leading-none
+                     tracking-[.08em] text-ink/45 transition-colors hover:text-ink
+                     focus-visible:outline focus-visible:outline-1 focus-visible:outline-amber">
+          <Icon d={ICON.chevron} size={12} stroke="currentColor" width={2.4}
+                className={decisionOpen ? "rotate-180" : ""} />
+          {decisionOpen ? t.console.collapse : t.console.expand}
+        </button>
       </div>
+
+      {decisionOpen && (<>
 
       <div className={GRID.decision}>
         <div className="min-w-0 border-r border-edge p-[14px]">
@@ -145,6 +164,7 @@ export function ConsoleView() {
           </span>
         </div>
       )}
+    </>)}
     </div>
     </div>
   );

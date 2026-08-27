@@ -1,4 +1,5 @@
 import { cn } from "@/lib/cn";
+import { Ticker } from "@/components/Ticker";
 import { clock, day } from "@/lib/format";
 import { CLS } from "@/constants/theme";
 import { Note } from "@/components/Icon";
@@ -55,7 +56,7 @@ export function JournalView() {
                       {r.decision.approved ? t.journal.approved : t.journal.rejected}
                     </span>
                   </td>
-                  <td className={CLS.td}>{r.decision.underlying ?? "—"}</td>
+                  <td className={CLS.td}>{r.decision.underlying ? <Ticker symbol={r.decision.underlying} /> : "—"}</td>
                   <td className={cn(CLS.td, "text-ink")}>{r.decision.structure ?? "—"}</td>
                   <td className={cn(CLS.td, "whitespace-nowrap tabular-nums")}>
                     {r.passedCount}/{r.total}

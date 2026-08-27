@@ -1,4 +1,5 @@
 import { cn } from "@/lib/cn";
+import { Ticker } from "@/components/Ticker";
 import { clock, day, money, premium, toClose } from "@/lib/format";
 import { CLS } from "@/constants/theme";
 import { useStructureChartCanvas } from "@/hooks/useStructureChartCanvas";
@@ -59,9 +60,7 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
           names carried a ticker has none, and this view is where someone decides
           what a position is doing — the least good place to have to infer it. */}
       <div className="mb-2 flex items-baseline gap-[9px]">
-        <span className="font-mono text-[13px] font-bold leading-none text-amber">
-          {chart.underlying}
-        </span>
+        <Ticker symbol={chart.underlying} size="md" />
         <span className="min-w-0 font-mono text-[12px] font-semibold leading-[1.3] text-ink">
           {chart.name.startsWith(`${chart.underlying} `)
             ? chart.name.slice(chart.underlying.length + 1)
@@ -81,10 +80,14 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
             {t.chart.noEntry}
           </div>
         )}
+        {/* Coloured by whether the position is winning, not by the price's own
+            sign — every credit structure marks negative, so a sign-based colour
+            would paint them all red for the whole of their life. */}
         <Level
           label={t.chart.last}
           value={now === null ? "—" : toClose(now)}
-          tone="text-ink"
+          tone={pnl === null ? "text-ink"
+                : Number(pnl) >= 0 ? "text-pass" : "text-fail"}
           note={now === null ? null : isLive ? t.chart.liveTag : t.chart.barTag}
         />
         <Level

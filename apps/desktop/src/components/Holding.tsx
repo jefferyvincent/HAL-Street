@@ -4,6 +4,7 @@ import { ICON } from "@/constants/icons";
 import { STROKE } from "@/constants/theme";
 import { Icon } from "@/components/Icon";
 import { PatternBadge } from "@/components/PatternBadge";
+import { Ticker } from "@/components/Ticker";
 import { useStrings } from "@/hooks/useStrings";
 import { useMarks } from "@/hooks/useMarks";
 import { useConnection } from "@/stores/connection";
@@ -66,9 +67,7 @@ export function Holding() {
                       from its name. Structures opened before the name carried a
                       ticker still have none, and rewriting the ledger to match code
                       written after the trade would be editing a record. */}
-                  <span className="font-mono text-[12px] font-bold leading-[1.3] text-amber">
-                    {p.underlying}
-                  </span>
+                  <Ticker symbol={p.underlying} />
                   <span className="min-w-0 font-mono text-[12px] font-semibold leading-[1.3] text-ink">
                     {stripRoot(p.name, p.underlying)}
                   </span>

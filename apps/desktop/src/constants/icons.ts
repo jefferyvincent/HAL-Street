@@ -12,6 +12,7 @@ export const ICON = {
   committee: "M5 20v-2a3 3 0 013-3h1 M12 20v-3a3 3 0 013-3h1a3 3 0 013 3v3 M8.5 8a2 2 0 104 0 2 2 0 10-4 0 M15 5a2 2 0 104 0 2 2 0 10-4 0 M3 7a2 2 0 104 0 2 2 0 10-4 0",
   candles: "M6 4v3 M6 15v5 M4 7h4v8H4z M17 3v5 M17 17v4 M15 8h4v9h-4z",
   back: "M15 5l-7 7 7 7",
+  chevron: "M6 9l6 6 6-6",
   tick: "M4 12l5 5L20 6",
   cross: "M6 6l12 12 M18 6L6 18",
   // The opening/closing bell. Struck, not a notification bell — flared skirt, clapper.

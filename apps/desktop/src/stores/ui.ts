@@ -25,6 +25,16 @@ interface UI {
   /** Audio cues off. Persisted, because a console that forgets is one you mute daily. */
   muted: boolean;
   setMuted: (muted: boolean) => void;
+  /**
+   * Whether the decision record is open.
+   *
+   * Collapsed by default: it is a rationale and sixteen verdicts, and it sits under
+   * the run's numbers, the equity curve and the open book. What a reader wants from
+   * it at a glance is the verdict, which stays in the header — the rest is there
+   * when they go looking.
+   */
+  decisionOpen: boolean;
+  toggleDecision: () => void;
 }
 
 /**
@@ -56,6 +66,8 @@ export const useUI = create<UI>((set) => ({
   select: (selected) => set({ selected }),
   open: (selected) => set({ selected, view: "console" }),
   chart: (charting) => set({ charting, view: "book" }),
+  decisionOpen: false,
+  toggleDecision: () => set((s) => ({ decisionOpen: !s.decisionOpen })),
   muted: storedMute(),
   setMuted: (muted) => {
     try {

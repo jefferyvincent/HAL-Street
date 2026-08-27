@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { openLink, type Transport } from "@/lib/ws";
-import type { Snapshot } from "@/types";
+import type { Marks, Snapshot } from "@/types";
 
 /**
  * The run, as the server last sent it.
@@ -19,6 +19,15 @@ interface Connection {
   error: string | null;
   /** When the last push or poll landed — the footer's clock. */
   at: string | null;
+  /**
+   * Live marks, polled once for the whole app rather than per component.
+   *
+   * Two views want them — the holdings strip and the structure chart — and each
+   * calling its own hook meant two independent timers and two MCP subprocess
+   * spawns every interval, for one number. Held here so the broker is asked once.
+   */
+  marks: Marks | null;
+  setMarks: (marks: Marks) => void;
   /** Opens the link. Returns the closer, for the effect that called it. */
   connect: () => () => void;
 }
@@ -29,6 +38,8 @@ export const useConnection = create<Connection>((set) => ({
   transport: null,
   error: null,
   at: null,
+  marks: null,
+  setMarks: (marks) => set({ marks }),
   connect: () =>
     openLink({
       onSnapshot: (snapshot, transport) =>

@@ -6,6 +6,8 @@ import json
 from decimal import Decimal
 from pathlib import Path
 
+import pytest
+
 from halstreet.telemetry import server
 
 
@@ -504,3 +506,43 @@ def test_a_structure_that_cannot_be_fully_priced_reports_the_missing_legs(monkey
     body = json.loads(asyncio.run(server.api_marks()).body)
     assert body["marks"]["s1"]["missing"] == ["QQQ261016C00775000"]
     assert "mark" not in body["marks"]["s1"]
+
+
+# --- what the browser is allowed to keep ------------------------------------------
+
+def test_the_page_is_never_cached():
+    """Otherwise a fix ships and the panel goes on running yesterday's build.
+
+    Vite emits a content-hashed bundle and names it from index.html, so the new hash
+    is only ever seen by a browser that fetched index.html again. `FileResponse`
+    sends `etag` and `last-modified` with no `Cache-Control`, which browsers treat
+    as heuristically fresh and reuse without asking — and every subsequent change
+    appears not to have happened.
+    """
+    from fastapi.testclient import TestClient
+
+    with TestClient(server.app) as client:
+        response = client.get("/")
+    if response.status_code == 503:
+        pytest.skip("no built panel to serve")
+    assert "no-store" in response.headers.get("cache-control", "")
+
+
+def test_the_hashed_assets_are_cached_forever():
+    # The other half of the pair. Their names change whenever their contents do, so
+    # keeping them indefinitely is what makes `no-store` on the page cheap rather
+    # than a full bundle download every time it is opened.
+    from pathlib import Path
+
+    from fastapi.testclient import TestClient
+
+    assets = server.DIST / "assets"
+    if not assets.is_dir():
+        pytest.skip("no built panel to serve")
+    name = next((p.name for p in assets.iterdir() if p.suffix == ".js"), None)
+    if name is None:
+        pytest.skip("no bundle built")
+    with TestClient(server.app) as client:
+        response = client.get(f"/assets/{name}")
+    assert response.status_code == 200, Path(name)
+    assert "immutable" in response.headers.get("cache-control", "")

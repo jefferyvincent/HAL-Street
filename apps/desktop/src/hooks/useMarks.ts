@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { MARKS_INTERVAL_MS } from "@/constants/theme";
+import { useConnection } from "@/stores/connection";
 import type { Marks } from "@/types";
 
 /**
@@ -14,8 +15,8 @@ import type { Marks } from "@/types";
  * mark, which the journal already carries and which the panel labels with its age —
  * a stale number that says it is stale beats a blank space that looks like a bug.
  */
-export function useMarks(): Marks | null {
-  const [marks, setMarks] = useState<Marks | null>(null);
+export function usePollMarks(): void {
+  const setMarks = useConnection((s) => s.setMarks);
 
   useEffect(() => {
     let alive = true;
@@ -35,7 +36,10 @@ export function useMarks(): Marks | null {
       alive = false;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [setMarks]);
+}
 
-  return marks;
+/** Read the marks. One poller, any number of readers. */
+export function useMarks(): Marks | null {
+  return useConnection((s) => s.marks);
 }

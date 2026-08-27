@@ -659,7 +659,25 @@ async def index() -> FileResponse | JSONResponse:
         return JSONResponse(
             {"error": "panel not built", "fix": "cd apps/desktop && npm install && npm run build"},
             status_code=503)
-    return FileResponse(page)
+    # Never cached. Vite emits a content-hashed bundle and names it from this file,
+    # so the hash is only ever seen by a browser that fetched this file again — and
+    # FileResponse sends `etag` and `last-modified` with no `Cache-Control`, which
+    # browsers treat as heuristically fresh and reuse without asking. The panel then
+    # goes on running whatever build was current the first time it was opened, and
+    # every subsequent fix appears not to have happened.
+    #
+    # The assets themselves are the opposite case and are handled below: their names
+    # change whenever their contents do, so they can be cached forever.
+    return FileResponse(page, headers={"Cache-Control": "no-store, must-revalidate"})
+
+
+class _ImmutableAssets(StaticFiles):
+    """Static files whose names already encode their contents."""
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Any:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
 
 
 def _mount_assets() -> None:
@@ -671,7 +689,11 @@ def _mount_assets() -> None:
     """
     assets = DIST / "assets"
     if assets.is_dir():
-        app.mount("/assets", StaticFiles(directory=assets), name="assets")
+        # Content-hashed filenames, so a changed file is a different URL and an
+        # unchanged one can be kept indefinitely. This is the half of the pair that
+        # makes `no-store` on index.html cheap rather than a reload of the whole
+        # bundle every time the page is opened.
+        app.mount("/assets", _ImmutableAssets(directory=assets), name="assets")
 
 
 _mount_assets()

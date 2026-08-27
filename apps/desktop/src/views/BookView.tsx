@@ -5,6 +5,7 @@ import { CLS } from "@/constants/theme";
 import { Icon, Note } from "@/components/Icon";
 import { StructureChart } from "@/components/StructureChart";
 import { PatternBadge } from "@/components/PatternBadge";
+import { Ticker } from "@/components/Ticker";
 import { useBook } from "@/hooks/useBook";
 import { useStructureChart } from "@/hooks/useStructureChart";
 import { useStrings } from "@/hooks/useStrings";
@@ -88,7 +89,7 @@ export function BookView() {
                         </div>
                       )}
                     </td>
-                    <td className={CLS.td}>{r.underlying}</td>
+                    <td className={CLS.td}><Ticker symbol={r.underlying} /></td>
                     <td className={cn(CLS.td, "tabular-nums")}>{r.qty}</td>
                     <td className={cn(CLS.td, "whitespace-nowrap tabular-nums")}>
                       {r.entry ? premium(r.entry) : "—"}

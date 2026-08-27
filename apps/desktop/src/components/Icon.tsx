@@ -2,14 +2,17 @@ import { ICON } from "@/constants/icons";
 import { STROKE } from "@/constants/theme";
 
 /** One stroke icon. `d` may hold several subpaths, separated by " M". */
-export function Icon({ d, size = 13, stroke = "currentColor", width = 2 }: {
+export function Icon({ d, size = 13, stroke = "currentColor", width = 2, className }: {
   d: string;
   size?: number;
   stroke?: string;
   width?: number;
+  /** For state the icon shows by itself — a chevron that turns when a panel opens. */
+  className?: string;
 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke} strokeWidth={width}>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={stroke}
+         strokeWidth={width} className={className}>
       {d.split(" M").map((seg, i) => (
         <path key={i} d={i === 0 ? seg : "M" + seg} />
       ))}

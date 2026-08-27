@@ -3,6 +3,7 @@ import { clock } from "@/lib/format";
 import { ICON } from "@/constants/icons";
 import { CLS, STROKE } from "@/constants/theme";
 import { Icon } from "@/components/Icon";
+import { Ticker } from "@/components/Ticker";
 import { useCommittee } from "@/hooks/useCommittee";
 import { useStrings } from "@/hooks/useStrings";
 
@@ -44,9 +45,7 @@ export function CommitteeView() {
       {cards.map(({ key, session, verdict, gated, missing }) => (
         <article key={key} className="border border-edge bg-panel">
           <header className="flex items-center gap-[9px] border-b border-edge px-3 py-[9px]">
-            <span className="font-mono text-[12px] font-bold leading-none text-ink">
-              {session.underlying}
-            </span>
+            <Ticker symbol={session.underlying} size="md" />
             <span className="font-mono text-[10px] leading-none text-ink/40">
               {t.committee.headlines(session.headlines)}
             </span>

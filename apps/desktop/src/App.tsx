@@ -6,6 +6,7 @@ import { Tape } from "@/components/Tape";
 import { GRID } from "@/constants/theme";
 import { useAudioCues } from "@/hooks/useAudioCues";
 import { useConnect } from "@/hooks/useConnect";
+import { usePollMarks } from "@/hooks/useMarks";
 import { useDecisions } from "@/hooks/useDecisions";
 import { useGateFamilies } from "@/hooks/useGateFamilies";
 import { useShortcuts } from "@/hooks/useShortcuts";
@@ -30,6 +31,8 @@ export default function App() {
   const families = useGateFamilies(decisions.current);
 
   useConnect();
+  // One poll for the whole app; the views read it from the store.
+  usePollMarks();
   useShortcuts(decisions);
   // Sounds the bell and the trade cues. Silent until the operator turns audio on,
   // and silent on the first snapshot whatever the setting — opening a dashboard is

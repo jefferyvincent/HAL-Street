@@ -87,6 +87,8 @@ export function makeStrings(t: Translate) {
     console: {
       activity: t("console.activity"),
       holding: t("console.holding"),
+      expand: t("console.expand"),
+      collapse: t("console.collapse"),
       openTrade: t("console.openTrade"),
       live: t("console.live"),
       partial: (count: number) => t("console.partial", { count }),

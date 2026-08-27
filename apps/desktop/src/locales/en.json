@@ -54,7 +54,9 @@
     "unpriced": "not yet priced",
     "openTrade": "OPEN THE TRADE →",
     "live": "live",
-    "partial": "cannot price {{count}} leg(s)"
+    "partial": "cannot price {{count}} leg(s)",
+    "expand": "SHOW THE RECORD",
+    "collapse": "HIDE"
   },
   "ledger": {
     "allRan": "ALL {{n}} GATES RAN"
