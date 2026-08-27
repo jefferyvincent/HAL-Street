@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { STROKE } from "@/constants/theme";
 import type { StructureChart } from "@/types";
@@ -39,8 +39,39 @@ export interface Candle {
  * entry, so a chart auto-scaled to the price series alone would put it off-screen —
  * and a stop line you cannot see is the one thing this view exists to show.
  */
-export function useStructureLevels(chart: StructureChart | null) {
+/**
+ * The candle for the bucket the clock is in, when the broker has not published a
+ * bar for it yet.
+ *
+ * There is always a gap: a 15-minute bar for 18:00 does not exist at 18:03, so the
+ * newest candle is the *previous* bucket and nothing on the chart is forming — even
+ * though a live mark for right now is in hand. This builds that candle out of the
+ * marks as they arrive, keeping its high and low across polls so it grows the way a
+ * real one does rather than resetting to a dot every twenty seconds.
+ *
+ * Reset whenever the bucket turns over, so yesterday's extremes never leak into
+ * today's candle.
+ */
+function useFormingCandle(live: number | null, bucketMs: number) {
+  const held = useRef<Candle | null>(null);
+  if (live === null || !Number.isFinite(live)) return null;
+
+  const time = Math.floor(Date.now() / bucketMs) * (bucketMs / 1000);
+  const current = held.current;
+  held.current = current && current.time === time
+    ? { ...current, high: Math.max(current.high, live), low: Math.min(current.low, live),
+        close: live }
+    : { time, open: live, high: live, low: live, close: live, forming: true };
+  return held.current;
+}
+
+export function useStructureLevels(chart: StructureChart | null, live: number | null = null) {
   const { t } = useTranslation();
+  // The bucket the server grouped by, inferred from what it sent: hourly stamps
+  // carry a time, daily ones do not. Reading it off the data avoids a second place
+  // that has to agree with `resolution()`.
+  const hourly = (chart?.candles?.[0]?.t ?? "").length > 11;
+  const forming = useFormingCandle(live, hourly ? 3_600_000 : 86_400_000);
   return useMemo(() => {
     if (!chart) {
       return {
@@ -95,9 +126,11 @@ export function useStructureLevels(chart: StructureChart | null) {
 
     return {
       series,
-      candles,
+      candles: forming && (candles.length === 0 || forming.time > candles[candles.length - 1]!.time)
+        ? [...candles, forming]
+        : candles,
       lines: lines.filter((l) => Number.isFinite(l.value)),
       last: series.length ? series[series.length - 1]!.value : null,
     };
-  }, [chart, t]);
+  }, [chart, t, forming]);
 }

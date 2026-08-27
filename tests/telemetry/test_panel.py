@@ -306,3 +306,24 @@ def test_the_forming_candle_is_drawn_differently_and_moves():
     forming = canvas[canvas.index("c.forming\n"):canvas.index("c.forming\n") + 700]
     assert "CHART_COLOR.up" in forming and "CHART_COLOR.down" in forming, \
         "a forming candle must still be green or red"
+
+
+def test_a_forming_candle_exists_even_before_the_broker_publishes_its_bar():
+    """There is always a gap, and it is exactly when someone is watching.
+
+    A 15-minute bar for 18:00 does not exist at 18:03, so the newest candle the
+    server can send is the *previous* bucket and nothing on the chart is forming —
+    while a live mark for right now is already in hand. The panel builds that candle
+    out of the marks as they arrive.
+
+    Its high and low are kept across polls so it grows the way a real one does
+    rather than resetting to a dot every twenty seconds, and it resets when the
+    bucket turns over so one period's extremes never leak into the next.
+    """
+    hook = (SRC / "hooks" / "useStructureLevels.ts").read_text()
+    assert "useFormingCandle" in hook
+    assert "Math.max(current.high, live)" in hook and "Math.min(current.low, live)" in hook
+    assert "current.time === time" in hook, "it must reset when the bucket turns over"
+    # Appended only when it is newer than what the server sent, or it would sit on
+    # top of a real candle for the same period.
+    assert "forming.time > candles[candles.length - 1]" in hook
