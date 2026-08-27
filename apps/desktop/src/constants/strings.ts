@@ -53,6 +53,7 @@ export function makeStrings(t: Translate) {
       label: t("news.label"),
       title: t("news.title"),
       age: (n: number) => t("news.age", { n }),
+      read: (source: string) => t("news.read", { source }),
     },
 
     tabs: {

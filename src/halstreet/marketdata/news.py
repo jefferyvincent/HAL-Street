@@ -37,6 +37,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlsplit
 
 #: Headlines per underlying. Enough for a read on the tape, few enough that the
 #: catalyst analyst is looking at today rather than skimming a week.
@@ -78,6 +79,9 @@ class Headline:
     summary: str = ""
     #: Every symbol the publisher tagged — the article may be about a peer, not us.
     symbols: tuple[str, ...] = ()
+    #: Where to read it. Empty unless it passed `safe_url` — see there for why this is
+    #: the one piece of untrusted input that gets an allowlist rather than a scrub.
+    url: str = ""
 
     @property
     def age_hours(self) -> float | None:
@@ -130,6 +134,10 @@ class Headline:
             "source": self.source,
             "headline": self.headline[:180],
             "symbols": list(self.symbols),
+            # The publisher's own page. We link to it rather than reproducing the
+            # article: the body is theirs, and a headline plus a way to the source is
+            # both the honest presentation and the useful one.
+            "url": self.url,
         }
 
     def to_prompt(self) -> dict[str, Any]:
@@ -143,6 +151,51 @@ class Headline:
             # model reading it as company news would be reading it wrong.
             "also_tagged": list(self.symbols),
         }
+
+
+#: Schemes a headline may link to. An allowlist, not a blocklist.
+#:
+#: The URL is publisher-supplied and ends up in an `href` the reader clicks, which
+#: makes it the one piece of untrusted input in this system that a browser will
+#: *execute* rather than merely display: `javascript:` in an anchor runs on click.
+#: Blocklisting the schemes one can think of is the losing side of that; naming the
+#: two that are ever correct is not.
+LINK_SCHEMES = ("https", "http")
+
+#: A URL longer than this is not a link to an article.
+MAX_URL = 2048
+
+
+def safe_url(value: Any) -> str:
+    """A publisher's link, or "" if it is not one we will put behind a click.
+
+    Validated here rather than in the panel, and once: this is a security control, and
+    a control implemented in two places is a control implemented in whichever place
+    someone forgets. The panel renders what this returns and adds nothing.
+
+    **The allowlist is the control.** Not the strip above it, which is what an earlier
+    version of this comment claimed — mutation testing said otherwise, and a comment
+    naming the wrong line is how the right one comes to be deleted. `urlsplit` already
+    removes tab, newline and carriage return before reading the scheme, exactly as a
+    browser does, so `java\tscript:alert(1)` arrives here with a scheme of
+    `javascript` and is refused for being `javascript` rather than for containing a
+    tab. Turn the allowlist into a blocklist and every one of those tests fails.
+
+    The strip stays, and earns its place elsewhere: it removes whitespace and
+    unprintables from the middle of an otherwise valid URL, which `urlsplit` is happy
+    to leave in and which have no business in an `href`. `netloc` is required for the
+    same reason — `https:alert(1)` has the right scheme and no host.
+    """
+    raw = "".join(ch for ch in str(value or "") if ch.isprintable() and not ch.isspace())
+    if not raw or len(raw) > MAX_URL:
+        return ""
+    try:
+        parts = urlsplit(raw)
+    except ValueError:
+        return ""
+    if parts.scheme.lower() not in LINK_SCHEMES or not parts.netloc:
+        return ""
+    return raw
 
 
 def parse(payload: Any, *, limit: int = DEFAULT_LIMIT) -> list[Headline]:
@@ -172,6 +225,7 @@ def parse(payload: Any, *, limit: int = DEFAULT_LIMIT) -> list[Headline]:
             source=_clean(row.get("source") or row.get("author"), 40),
             summary=_clean(row.get("summary") or row.get("content"), MAX_SUMMARY),
             symbols=tuple(str(s) for s in symbols if s)[:12],
+            url=safe_url(row.get("url")),
         ))
     return out
 

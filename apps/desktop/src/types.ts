@@ -364,6 +364,12 @@ export interface NewsItem {
   symbols: string[];
   /** Which of our own underlyings' reads picked it up. */
   roots: string[];
+  /**
+   * The publisher's page. Empty unless it passed the server's scheme allowlist —
+   * this is the one piece of untrusted input a browser will *execute* rather than
+   * display, so it is validated once, on the server, and taken as given here.
+   */
+  url: string;
 }
 
 export interface Snapshot {

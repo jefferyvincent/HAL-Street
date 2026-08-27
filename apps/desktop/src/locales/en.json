@@ -256,6 +256,7 @@
   "news": {
     "label": "TAPE",
     "age": "{{n}}h",
-    "title": "Headlines the catalyst read this cycle, newest first. Untrusted publisher text — it reaches the model inside an explicit fence and nothing downstream treats it as an instruction. Hover to pause."
+    "title": "Headlines the catalyst read this cycle, newest first. Untrusted publisher text — it reaches the model inside an explicit fence and nothing downstream treats it as an instruction. Hover to pause, click to read at the source.",
+    "read": "Read it at {{source}} — opens in a new tab"
   }
 }

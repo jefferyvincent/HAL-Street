@@ -44,20 +44,21 @@ export function NewsTicker() {
       <div className="relative min-w-0 flex-1 overflow-hidden py-[6px]">
         <div className="ticker-track flex w-max items-center gap-[26px] group-hover:[animation-play-state:paused]">
           {track.map((h, i) => (
-            <span key={`${h.headline}-${i}`}
-                  className="flex shrink-0 items-baseline gap-[7px] font-sans text-[11px] leading-none">
+            <Item key={`${h.headline}-${i}`} url={h.url} title={t.news.read(h.source)}>
               {/* Which of the three reads picked it up. A macro story tagged with all
                   of them is a different kind of story from one about a single name,
                   and that is visible here before the words are. */}
               {h.roots.map((root) => <Ticker key={root} symbol={root} />)}
-              <span className="text-ink/70">{h.headline}</span>
+              <span className={cn("text-ink/70", h.url && "group-hover/item:text-ink group-hover/item:underline")}>
+                {h.headline}
+              </span>
               <span className="font-mono text-[9.5px] text-ink/30">{h.source}</span>
               {h.age_hours !== null && (
                 <span className="font-mono text-[9.5px] tabular-nums text-ink/25">
                   {t.news.age(Math.round(h.age_hours))}
                 </span>
               )}
-            </span>
+            </Item>
           ))}
         </div>
         {/* The right edge only. The left is where the label sits, and fading into a
@@ -66,5 +67,34 @@ export function NewsTicker() {
           "bg-gradient-to-l from-sunk to-transparent")} />
       </div>
     </div>
+  );
+}
+
+/**
+ * One headline: a link to the publisher when there is a safe one, plain text when not.
+ *
+ * We link out rather than reproducing the article. The body is the publisher's, and a
+ * headline plus a way to the source is both the honest presentation and the useful
+ * one — it also means nothing of theirs is ever rendered by this page.
+ *
+ * `url` is empty unless it passed the server's scheme allowlist. That check is not
+ * repeated here on purpose: it is a security control, and a control implemented in
+ * two places is one implemented in whichever place someone forgets. `safe_url` in
+ * `marketdata/news.py` is the single place, and it has the tests.
+ *
+ * `noopener` and `noreferrer` regardless — the opened page gets no handle back to
+ * this one, which matters more than usual for a page showing a live trading account.
+ */
+function Item({ url, title, children }: {
+  url: string; title: string; children: React.ReactNode;
+}) {
+  const inner = "flex shrink-0 items-baseline gap-[7px] font-sans text-[11px] leading-none";
+  if (!url) return <span className={inner}>{children}</span>;
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" title={title}
+       className={cn(inner, "group/item cursor-pointer",
+         "focus-visible:outline focus-visible:outline-1 focus-visible:outline-amber")}>
+      {children}
+    </a>
   );
 }
