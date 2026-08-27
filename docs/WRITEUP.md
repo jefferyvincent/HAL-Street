@@ -38,12 +38,68 @@ IV-regime fit, liquidity, reward/risk, probability of profit, and an event-risk 
 candidate carries its own **score breakdown** into the journal, so "why was this one top of the
 menu?" has an answer that is six numbers rather than one.
 
-**What the LLM does.** Exactly one probabilistic step per cycle: pick one structure from a menu of
-at most six, size it, and justify it — emitted as closed-schema JSON. It also has a first-class
-way to **decline**: `action: "pass"`, counted separately from proposals and from failures. That
-matters more than it sounds. An earlier version told the model "if no candidate is worth taking,
-propose nothing" against a schema that required a priced structure; both cannot be satisfied, and
-what came back was `qty: 0` — which read as a broken model rather than the considered pass it was.
+The event term used to be a constant. It read "index ETFs do not report earnings" and returned
+the same value for every candidate in the entire traded universe — a weighted term contributing
+nothing, which is worse than an absent one because it looks like diligence. It now resolves per
+expiry against a **calendar of scheduled reporters**, keyless from Nasdaq, covering the dominant
+holdings that actually move an index ETF. A hole in the calendar poisons the window rather than
+reading as "no events": not knowing is not the same as knowing there is nothing, and only one of
+those is safe to price as zero.
+
+**The one input a rules engine cannot derive.** Everything above is arithmetic over numbers the
+market published, and it is deliberately blind to *why* a price moved: a vol crush after a Fed
+statement and a vol crush after nothing at all look identical to a realized-volatility rank. So
+each cycle also reads the tape — recent headlines for the underlying, via Alpaca's own `get_news`
+rather than a second data path with its own rate limits and its own idea of which symbols an
+article is about. The mapping from headline to ticker is the publisher's, not a regex over a
+title.
+
+**What the LLM does.** Pick one structure from a menu of at most six, size it, and justify it —
+emitted as closed-schema JSON. It also has a first-class way to **decline**: `action: "pass"`,
+counted separately from proposals and from failures. That matters more than it sounds. An earlier
+version told the model "if no candidate is worth taking, propose nothing" against a schema that
+required a priced structure; both cannot be satisfied, and what came back was `qty: 0` — which
+read as a broken model rather than the considered pass it was.
+
+**A committee, not one opinion.** By default the proposal is reached by four calls rather than
+one: a **catalyst analyst** reads the headlines, a **bull** and a **bear** argue the same evidence
+in parallel, and a **judge** decides. Reflection is not a call — closed structures on that
+underlying come straight from the ledger with their realized P&L, because an agent reasoning about
+its own past trades from a model's recollection is reasoning about a story.
+
+The shape is adapted from a prior codebase's take on the TradingAgents pattern, but two of its
+four analysts did not survive the port, and the reason is the whole difference between the two
+projects. That codebase asks a model to read volatility and judge whether a chain offers a clean
+structure. Here both are arithmetic that has already run — `regime` computes the HV rank, `bias`
+counts indicator votes, `scoring` ranks every candidate on six weighted terms. Replacing that with
+a model's opinion of the same numbers would be a downgrade dressed as sophistication, so they
+arrive as **evidence** rather than as agents. The only analyst that runs is the one asking a
+question no rules engine can answer.
+
+The bull and bear run **concurrently and neither sees the other's argument**, because a bear that
+has read the bull's case argues with the case rather than with the trade — and the resulting
+agreement looks like corroboration to a judge. The judge is told so explicitly: they were
+instructed to disagree, so their agreeing is not evidence.
+
+**The committee cannot approve anything.** It produces a proposal, and a proposal meets the same
+sixteen gates whichever path built it. A committee that agreed unanimously and enthusiastically
+still has its structure checked against the menu, its loss against the cap, and its size against
+buying power. More deliberation is allowed to make a *better* proposal; it is never allowed to
+make a *permitted* one. `COMMITTEE=false` falls back to the single call for a cheap demo.
+
+**The headlines are untrusted, and the design says so.** Alpaca's own envelope stamps them
+`trust: untrusted_tool_output`. Anyone who can get an article published can put a sentence in
+front of a model that is about to size a trade. Three things follow. Nothing in a headline is
+ever parsed for meaning — it never becomes a symbol, a strike, a size or a limit. Fields are
+truncated hard and stripped of the constructs injection leans on: URLs, code fences, and lines
+opening `system:` or `assistant:`. And they reach exactly one place, the catalyst analyst's user
+turn, fenced and labelled, where what comes back is a constrained JSON verdict rather than prose
+that flows onward.
+
+None of that is the security boundary. The gates are. A successful injection reaches a lean, a
+sentence of note, and from there a worse trade proposal — which is the case sixteen deterministic
+gates already exist for. That is the point of putting the model between two deterministic layers:
+it is what makes reading untrusted input safe enough to do at all.
 
 **What the LLM does not control.** Strike-selection bounds, position-size ceilings, the trading
 environment, order type, whether gates run, or what they check. A limit a confident model can talk
@@ -65,7 +121,7 @@ attempt, and an unattended loop must not spend an unbounded budget arguing with 
 
 ## Risk gates
 
-**Fifteen gates. All of them run on every proposal — evaluation never short-circuits**, because
+**Sixteen gates. All of them run on every proposal — evaluation never short-circuits**, because
 "rejected by four gates" is a more useful artifact than "rejected by the first one we checked."
 Every gate **fails closed**: a missing greek, an absent quote, an unreadable open-interest figure
 is a rejection, never a skip. A gate that silently stops protecting you when the data is bad stops
@@ -77,6 +133,7 @@ protecting you exactly when you need it most.
 | `entry-rate-throttle` | Entries per rolling hour | a runaway loop submitting outside the schedule |
 | `open-position-count` | Broker positions held at once | a book bigger than the exit path can work through |
 | `contract-validation` | Leg must exist in the chain fetched this cycle | hallucinated or stale contracts |
+| `from-the-menu` | Structure must be one the strategy engine actually built and scored | a real but unscored structure the ranking never saw |
 | `defined-risk-only` | Every short leg must be covered | naked / unbounded structures |
 | `dte-floor` | Minimum days to expiry | short gamma into expiry |
 | `max-loss-per-position` | Worst case vs the per-position cap | oversized single trades |
@@ -90,7 +147,19 @@ protecting you exactly when you need it most.
 | `assignment-proximity` | Short leg near the money near expiry | operational assignment risk |
 | *(environment assertion)* | Paper-only, three independent signals | any non-paper credential |
 
-Three of these are worth a sentence each, because they came from things that actually happened.
+Four of these are worth a sentence each, because they came from things that actually happened.
+
+**`from-the-menu` exists because this project's own thesis was, for a long time, a sentence in a
+prompt.** "Legs come from the candidates given to you. Do not invent strikes or expiries." The
+model complied. Nothing made it. And `contract-validation` does not cover this — it asks whether
+each leg exists in the chain, so a model that assembled real, listed strikes into a structure the
+ranking never scored would pass it cleanly. That trade would carry no score breakdown, no
+liquidity screen, no viability check against friction, and no reason in the journal beyond the
+model's own sentence about it: the one trade in the run that nothing deterministic ever looked at,
+which is precisely the case this project exists to make impossible. It compares leg *signatures*
+rather than names, so it also catches the subtler version — legs borrowed from two candidates and
+recombined into a third that was never on the menu. Finding this was the argument for the
+committee being harmless: more deliberation cannot reach a structure the engine never built.
 
 **`correlated-exposure` exists because the shipped universe walked into it.** A live scan approved
 put credit spreads on SPY, QQQ *and* IWM in one cycle. That is one bullish bet at triple size, and
@@ -124,9 +193,10 @@ outright.
 **Gates are deterministic Python.** No model call, no network, no clock beyond an injected date,
 and nothing the agent can rewrite at runtime. Every gate has a test proving it **rejects**, which
 is the only kind of test that shows a safety layer is load-bearing rather than decorative.
-347 tests, and the per-gate rejection count for the window is in Results below — generated from
+600 tests, and the per-gate rejection count for the window is in Results below — generated from
 the journal rather than asserted here, because a safety layer's own write-up is the last place a
-number should be taken on trust.
+number should be taken on trust. Coverage is not the standard used: a test is accepted when the
+defect it names, planted back into the source, actually makes it fail.
 
 **Exits are never gated.** Nothing in `gates/` applies on the way out. A latched halt, a breached
 concentration cap, an account in drawdown — every one of those is a reason to be *more* able to
@@ -194,16 +264,20 @@ it was the one item on that list this project genuinely lacked, and the measurem
 that followed found options buying power to be a quarter of the headline figure.
 
 **Telemetry.** Append-only JSONL journal: every cycle, market view, candidate menu with score
-breakdowns, proposal, all fifteen gate verdicts, order, fill, exit. `./start.sh report` exports
+breakdowns, the committee session, proposal, all sixteen gate verdicts, order, fill, exit. `./start.sh report` exports
 `summary.json`, `positions.csv` and `results.txt`. Realized P&L comes from the ledger rather than
 the broker, because Alpaca can tell you what a *contract* did but never what a *condor* did.
 Drawdown is labelled "over N scan samples" — it is scan-resolution, not tick-resolution, and the
 output should not imply otherwise.
 
 **The panel, and why it cannot trade.** `./start.sh panel` serves a React/TypeScript app that
-reads the same journal: one decision with all fifteen verdicts grouped by family, the full
-decision history, the chain with each gate's actual rejection count, and an equity curve. A
-WebSocket pushes it within half a second of the agent writing a record.
+reads the same journal: one decision with all sixteen verdicts grouped by family, the full
+decision history, the chain with each gate's actual rejection count, an equity curve, and — on
+clicking a position — a chart of that structure's own net price with its entry, target and stop
+drawn on it. Those three lines are derived from the same `ExitPolicy` the position manager acts
+on, and a test walks a structure across each boundary to prove the action flips exactly where the
+chart says it will; two derivations of one rule is how a chart starts lying while looking
+confident. A WebSocket pushes it within half a second of the agent writing a record.
 
 It is read-only, and the interesting part is that this is enforced rather than promised. Every
 HTTP route is a GET. The socket is *send-only* — the server never calls `receive` and the client
@@ -285,3 +359,40 @@ Kept here because a build log with no mistakes in it is a build log nobody shoul
 - **A sign error worth $0 and nearly a lot more.** `evaluate_exit` negated a mark that was already
   in the right convention, reporting a profitable debit spread as a 254% loss — which the stop
   would have closed at the worst possible moment.
+- **A lint autofix that stopped the agent trading.** A rule flagged `.replace("Z", "+00:00")` on
+  a broker timestamp; the suggested `removesuffix` was taken without checking the values. On what
+  Alpaca actually sends — `…-04:00` — it produced `…-04:00+00:00`, which fails to parse, which the
+  clock parser swallowed, which left `next_open=None`, and the scheduler waited forever. The
+  substitution had been dead code since Python 3.11 parses a trailing `Z` natively. There is now
+  a test over all three timestamp forms the broker emits.
+- **A lint rule that was never on.** The timezone rule was removed from ruff's `ignore` list and
+  the suite went green, which was true and meaningless: it had never been in `select`. Nine
+  host-calendar reads sat behind it. The rule is enabled now, confirmed by planting a violation
+  and watching it fire, and the trading path takes the exchange's own date from the broker —
+  no timezone database, no hardcoded venue.
+- **A default that quietly switched off the news.** The committee shipped off, for the honest
+  reason that four model calls per underlying is a real cost. What that missed is that the news
+  fetch lives on the committee path alone, so the cheap setting was also the one where the agent
+  never read the tape — trading the only genuinely new input in the system for a smaller token
+  bill. On by default now.
+- **A researcher lost to a token ceiling.** The first live committee cycle journalled
+  `bull: no text block` and decided having heard only the bear. The model had not been silent:
+  adaptive thinking spends from the same budget as the answer, and it ran out mid-thought at a
+  measured 1270 tokens against a 1600 ceiling. Budgets raised to ~2.5× observed, truncation named
+  as truncation rather than as silence, and a partial argument is discarded rather than passed on
+  — half a bull case reads to a judge as a *weak* one.
+- **A malformed timestamp that would have abandoned a scan.** `age_hours` parsed the timestamp
+  inside a `try` and did the arithmetic outside it, so a naive value raised one line later, escaped
+  the catalyst stage, and was caught at the cycle level — one off-contract article would have
+  killed the whole scan for that underlying, every cycle, until it aged out of the 48-hour window.
+  Found by writing the tests for the module that reads untrusted text, which had none.
+- **A soak that reported on a journal it never wrote.** `scripts/soak.py` took `--journal`, printed
+  it, read it for the coverage table, and did not pass it to the agent. Both defaulted to the same
+  path so it was invisible until someone kept a session's record separate — the exact thing you do
+  for a run you intend to cite. The worse shape is silent: with a file left from an earlier run it
+  reports that run's coverage as this one's.
+- **A write-up nothing was checking.** This document counted fifteen gates against sixteen in three
+  places, spelled as a word so no search for "16" would find it, and had never heard of the
+  committee, the news feed, the earnings calendar or the chart. `tests/test_writeup.py` now pins
+  every checkable claim in it — the gate table against `ALL_GATES`, the count, the quoted limits
+  against the shipped defaults, the test total, and every file path it names.
