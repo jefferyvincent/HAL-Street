@@ -7,6 +7,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import { CHART_COLOR } from "@/constants/theme";
+import { chartShape } from "@/lib/chartShape";
 import type { Candle, Line, Series } from "./useStructureLevels";
 
 /**
@@ -37,6 +38,8 @@ export function useStructureChartCanvas(
   const chart = useRef<IChartApi | null>(null);
   const line = useRef<ISeriesApi<"Line"> | null>(null);
   const bars = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  //: The shape of the data the time scale was last fitted to. See below.
+  const fitted = useRef<string>("");
 
   useEffect(() => {
     if (!host.current) return;
@@ -151,10 +154,28 @@ export function useStructureChartCanvas(
       }),
     );
 
-    if (series.length) {
+    // Fit only when the data behind the chart actually changed — a new structure, a
+    // new bar size, a new bar — and never merely because the live mark ticked.
+    //
+    // It used to fit on every run of this effect, which is every render. Two things
+    // came of that: a scroll or a zoom was undone within seconds, and the view was
+    // reset continuously rather than at the moments a reset means something. The
+    // symptom is the opposite of what it sounds like — a chart that re-fits constantly
+    // reads as one that never settles where you left it.
+    //
+    // Keyed on the shape rather than the values, so the forming candle growing by a
+    // cent is not a new chart while a switch from 1Hour to 15Min is. See `chartShape`.
+    const shape = chartShape(series, candles, lines);
+    const reshaped = shape !== fitted.current;
+    fitted.current = shape;
+
+    if (series.length && reshaped) {
       chart.current?.timeScale().fitContent();
       // `fitContent` collapses the offset it was given; put it back.
       chart.current?.timeScale().applyOptions({ rightOffset: 6 });
+    }
+
+    if (series.length) {
       // Prices first, then whichever levels can join them without flattening the
       // chart. Including everything is geometry, not preference: a stop four times
       // the candle range away *must* squash the candles into a fifth of the height,

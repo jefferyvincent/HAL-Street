@@ -56,7 +56,12 @@ export function BookView() {
         loading ? (
           <div className={cn(CLS.empty, "border border-line bg-panel")}>{t.chart.loading}</div>
         ) : chart ? (
-          <StructureChart chart={chart} error={error} />
+          // Keyed, so a bar-size change builds a new canvas rather than reusing one
+          // that still holds the old chart's zoom, scroll and price-scale override.
+          // The loading branch above already unmounts it today; this makes that a
+          // property of the code rather than a consequence of how the fetch renders.
+          <StructureChart key={`${charting}:${timeframe ?? "auto"}`}
+                          chart={chart} error={error} />
         ) : (
           <div className={cn(CLS.empty, "border border-line bg-panel")}>{error}</div>
         )

@@ -53,16 +53,38 @@ export interface Candle {
  * today's candle.
  */
 function useFormingCandle(live: number | null, bucketMs: number) {
-  const held = useRef<Candle | null>(null);
+  const held = useRef<{ candle: Candle; bucketMs: number } | null>(null);
   if (live === null || !Number.isFinite(live)) return null;
 
   const time = Math.floor(Date.now() / bucketMs) * (bucketMs / 1000);
   const current = held.current;
-  held.current = current && current.time === time
-    ? { ...current, high: Math.max(current.high, live), low: Math.min(current.low, live),
-        close: live }
-    : { time, open: live, high: live, low: live, close: live, forming: true };
-  return held.current;
+
+  // A different bar size is a different candle, not the same one continued. Without
+  // this, switching the timeframe kept growing the candle built under the old one and
+  // carried its high and low across — so the chart you came back to was not the chart
+  // you left.
+  const same = current && current.bucketMs === bucketMs && current.candle.time === time;
+
+  if (same) {
+    const candle = current.candle;
+    const high = Math.max(candle.high, live);
+    const low = Math.min(candle.low, live);
+    // The identity matters as much as the values. This is a `useMemo` dependency, and
+    // returning a fresh object every render re-derived the entire series and re-ran
+    // the canvas effect — which calls `fitContent`. The chart was being re-fitted on
+    // every render whether or not anything had moved, so it never held still and any
+    // scroll or zoom was undone within seconds.
+    if (high === candle.high && low === candle.low && candle.close === live) {
+      return candle;
+    }
+    held.current = { bucketMs, candle: { ...candle, high, low, close: live } };
+  } else {
+    held.current = {
+      bucketMs,
+      candle: { time, open: live, high: live, low: live, close: live, forming: true },
+    };
+  }
+  return held.current.candle;
 }
 
 export function useStructureLevels(chart: StructureChart | null, live: number | null = null) {

@@ -330,11 +330,47 @@ def test_a_forming_candle_exists_even_before_the_broker_publishes_its_bar():
     """
     hook = (SRC / "hooks" / "useStructureLevels.ts").read_text()
     assert "useFormingCandle" in hook
-    assert "Math.max(current.high, live)" in hook and "Math.min(current.low, live)" in hook
-    assert "current.time === time" in hook, "it must reset when the bucket turns over"
+    # Grown rather than replaced, so it does not reset to a dot every poll. Matched on
+    # the arithmetic rather than on a variable name — the previous version of this
+    # pinned `current.high` and failed on a rename that changed nothing.
+    assert "Math.max(" in hook and "Math.min(" in hook
+    assert "candle.high, live" in hook and "candle.low, live" in hook
+    assert "candle.time === time" in hook, "it must reset when the bucket turns over"
+    # And when the bar size changes. A different bar size is a different candle, not
+    # the same one continued — without this, switching the timeframe carried the old
+    # candle's high and low across and the chart you came back to was not the one you
+    # left.
+    assert "current.bucketMs === bucketMs" in hook
     # Appended only when it is newer than what the server sent, or it would sit on
     # top of a real candle for the same period.
     assert "forming.time > candles[candles.length - 1]" in hook
+
+
+def test_the_forming_candle_keeps_its_identity_when_nothing_moved():
+    """It is a `useMemo` dependency, and that makes object identity load-bearing.
+
+    Returning a fresh object every render re-derived the whole series and re-ran the
+    canvas effect — which calls `fitContent`. The chart was re-fitted on every render
+    whether or not anything had moved, so it never held still, and any scroll or zoom
+    was undone within seconds. The symptom reads as the opposite of the cause: a chart
+    that re-fits constantly looks like one that never returns to where it was.
+    """
+    hook = (SRC / "hooks" / "useStructureLevels.ts").read_text()
+    assert "return candle;" in hook, "no early return means a new object every render"
+
+
+def test_the_chart_refits_only_when_its_shape_changes():
+    """`chartShape` decides, and it has its own tests under vitest."""
+    canvas = (SRC / "hooks" / "useStructureChartCanvas.ts").read_text()
+    assert "chartShape(series, candles, lines)" in canvas
+    assert "series.length && reshaped" in canvas, "it must not fit on every render"
+
+
+def test_switching_the_bar_size_builds_a_new_canvas():
+    """Rather than reusing one that still holds the old chart's zoom, scroll and
+    price-scale override."""
+    book = (SRC / "views" / "BookView.tsx").read_text()
+    assert 'key={`${charting}:${timeframe ?? "auto"}`}' in book
 
 
 def test_the_bar_sizes_offered_come_from_the_server():
