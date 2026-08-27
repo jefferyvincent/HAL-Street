@@ -24,12 +24,12 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from datetime import UTC, datetime
 from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from halstreet import clock as session_clock
 from halstreet.execution.paper_assert import (
     PaperConfig,
     assert_paper_account,
@@ -346,7 +346,11 @@ class AlpacaMCP:
             "adjustment": "all",
         })
         bars = ((payload or {}).get("bars") or {}).get(underlying.upper()) or []
-        today = datetime.now(UTC).date().isoformat()
+        # The exchange's date, not the host's. These agree during a session — the
+        # NYSE day sits inside one UTC day at either offset — so this was right by
+        # arithmetic rather than by construction, and only while the agent ran during
+        # market hours. `clock.today()` is the one place that answers this question.
+        today = session_clock.today().isoformat()
         closes: list[float] = []
         for bar in bars:
             if str(bar.get("t") or "")[:10] >= today:

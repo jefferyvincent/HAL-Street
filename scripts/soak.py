@@ -86,7 +86,13 @@ async def main_async(args: argparse.Namespace) -> int:
     from halstreet.agent.run import build_parser
     from halstreet.agent.run import main_async as run_agent
 
-    argv = ["--until-close", "--env", args.env]
+    # Forwarded, not merely reported on. These defaulted to the same path, so the
+    # mismatch was invisible until someone passed --journal to keep a session's record
+    # separate: the agent went on writing the default file and `report` read the one
+    # that had been asked for, so a soak that placed orders all day reported every
+    # lifecycle event as never reached — or, worse, reported a previous run's coverage
+    # as if it were this one's.
+    argv = ["--until-close", "--env", args.env, "--journal", args.journal]
     if args.submit:
         argv.append("--submit")
     if args.committee is not None:

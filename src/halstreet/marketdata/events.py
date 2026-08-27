@@ -37,7 +37,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import date, timedelta
 
 import httpx
 
@@ -220,6 +220,3 @@ def describe(events: list[Event] | None) -> str:
     return (f"{len(events)} event(s), next {first.symbol} {first.kind} "
             f"{first.on.isoformat()}{where}")
 
-
-def today() -> date:
-    return datetime.now(UTC).date()
