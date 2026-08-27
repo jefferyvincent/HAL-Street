@@ -153,6 +153,7 @@ class Journal:
         )
 
     def order(self, *, structure: str, submitted: bool, intent: str = "open",
+              structure_id: str | None = None,
               order_id: str | None = None,
               status: str | None = None, filled_qty: Any = None,
               filled_avg_price: Any = None, error: str | None = None) -> dict:
@@ -165,6 +166,12 @@ class Journal:
         record with a gap in it, and the exits were the half nobody could see.
         """
         return self.write("order", structure=structure, submitted=submitted,
+                          # Which structure this order belongs to. The order id is the
+                          # broker's handle and the structure id is ours, and without
+                          # both written down nothing reading the journal can get from
+                          # a decision to the position it became — the names are all
+                          # that connected them, and a name is not an identifier.
+                          structure_id=structure_id,
                           intent=intent, order_id=order_id, status=status,
                           filled_qty=filled_qty, filled_avg_price=filled_avg_price,
                           error=error)

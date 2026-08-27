@@ -49,9 +49,12 @@
     "activity": "WHAT IT IS DOING",
     "holding": "HOLDING",
     "holdingNone": "Nothing open.",
-    "asOf": "as of {{when}}",
+    "asOf": "priced {{when}}",
     "dte": "{{days}} DTE",
-    "unpriced": "not yet priced"
+    "unpriced": "not yet priced",
+    "openTrade": "OPEN THE TRADE →",
+    "live": "live",
+    "partial": "cannot price {{count}} leg(s)"
   },
   "ledger": {
     "allRan": "ALL {{n}} GATES RAN"
@@ -70,7 +73,8 @@
     },
     "approved": "APPROVED",
     "rejected": "REJECTED",
-    "note": "Every proposal the model made is here, approved or not. Rejections are records, not errors — a gate that never fires is a gate that was never load-bearing."
+    "note": "Every proposal the model made is here, approved or not. Rejections are records, not errors — a gate that never fires is a gate that was never load-bearing.",
+    "traded": "traded"
   },
   "gates": {
     "title": "GATE CHAIN",
@@ -118,8 +122,8 @@
       "structure": "STRUCTURE",
       "underlying": "UNDERLYING",
       "qty": "QTY",
-      "entry": "ENTRY",
-      "exit": "EXIT",
+      "entry": "OPENED FOR",
+      "exit": "CLOSED FOR",
       "realized": "REALIZED"
     },
     "open": "OPEN",
@@ -141,10 +145,10 @@
     "loading": "fetching price history…",
     "noHistory": "No price history for these contracts. The levels below are still exact — they come from the ledger and the exit policy, not from the tape.",
     "noEntry": "No entry price recorded, so there is nothing to measure a target or a stop from.",
-    "entry": "ENTRY",
-    "target": "TARGET",
-    "stop": "STOP",
-    "last": "LAST",
+    "entry": "OPENED FOR",
+    "target": "TAKE PROFIT AT",
+    "stop": "STOP AT",
+    "last": "NOW",
     "legend": "target = {{tp}}% of the credit taken · stop = {{sl}}% of it",
     "credit": "credit structure — the mark rises toward zero as it wins",
     "debit": "debit structure — the mark rises as it wins",

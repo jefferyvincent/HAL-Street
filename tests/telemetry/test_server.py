@@ -372,3 +372,135 @@ def test_a_position_the_agent_has_not_priced_yet_reports_nothing(tmp_path):
                             ledger_path=str(tmp_path / "ledger.json"),
                             breaker_path=str(tmp_path / "circuit.json"))
     assert state["positions"][0]["read"] is None
+
+
+def test_an_approved_decision_carries_the_position_it_became(tmp_path):
+    """A verdict and its trade were connected by nothing but a name.
+
+    So the panel could show that something was approved and offer no way through to
+    the position — and a name is not an identifier: two spreads a week apart can
+    share one. The id was generated at submission and never written down.
+    """
+    state = _run(tmp_path, [
+        ("gate_decision", {"underlying": "QQQ", "structure": "QQQ 765/775 call spread",
+                           "approved": True, "rejected_by": [], "gates": []}),
+        ("order", {"structure": "QQQ 765/775 call spread", "submitted": True,
+                   "intent": "open", "structure_id": "ca119ed388d3",
+                   "order_id": "1a05"}),
+    ])
+    assert state["decisions"][0]["structure_id"] == "ca119ed388d3"
+
+
+def test_a_rejected_decision_links_to_nothing(tmp_path):
+    # There is no position, so offering a way to one would be a dead link at best
+    # and someone else's trade at worst.
+    state = _run(tmp_path, [
+        ("gate_decision", {"underlying": "IWM", "structure": "IWM 316/320",
+                           "approved": False, "rejected_by": ["underlying-concentration"],
+                           "gates": []}),
+        ("order", {"structure": "SPY something else", "submitted": True,
+                   "intent": "open", "structure_id": "other"}),
+    ])
+    assert state["decisions"][0]["structure_id"] is None
+
+
+def test_a_closing_order_is_never_mistaken_for_the_position_being_opened(tmp_path):
+    state = _run(tmp_path, [
+        ("gate_decision", {"underlying": "QQQ", "structure": "QQQ spread",
+                           "approved": True, "rejected_by": [], "gates": []}),
+        ("order", {"structure": "close QQQ spread", "submitted": True,
+                   "intent": "close", "structure_id": "older"}),
+    ])
+    assert state["decisions"][0]["structure_id"] is None
+
+
+def test_a_dry_run_approval_links_to_nothing(tmp_path):
+    # Approved and deliberately not sent. There is no trade to open.
+    state = _run(tmp_path, [
+        ("gate_decision", {"underlying": "QQQ", "structure": "QQQ spread",
+                           "approved": True, "rejected_by": [], "gates": []}),
+        ("order", {"structure": "QQQ spread", "submitted": False, "intent": "open",
+                   "error": "dry run"}),
+    ])
+    assert state["decisions"][0]["structure_id"] is None
+
+
+# --- live marks ------------------------------------------------------------------
+
+def test_the_marks_route_is_a_get_like_everything_else():
+    from fastapi.routing import APIRoute
+    route = next(r for r in server.app.routes
+                 if isinstance(r, APIRoute) and r.path == "/api/marks")
+    assert route.methods <= {"GET", "HEAD"}
+
+
+def test_marks_are_empty_and_quiet_when_nothing_is_open(tmp_path):
+    # And crucially it does not launch anything: there is nothing to price, so the
+    # broker is never asked.
+    import asyncio
+
+    server.PATHS.ledger = str(tmp_path / "ledger.json")
+    body = asyncio.run(server.api_marks())
+    assert json.loads(body.body) == {"marks": {}, "as_of": json.loads(body.body)["as_of"]}
+
+
+def test_a_broker_failure_leaves_the_panel_its_last_known_number(tmp_path, monkeypatch):
+    """Not an error state.
+
+    The caller falls back to the agent's own mark, which the journal already carries
+    and which the panel labels with its age. A stale number that says it is stale
+    beats a blank space that looks like a bug.
+    """
+    import asyncio
+    from decimal import Decimal
+
+    from halstreet.agent.ledger import Ledger, OpenStructure
+
+    ledger = Ledger.load(tmp_path / "ledger.json")
+    ledger.structures.append(OpenStructure(
+        structure_id="s1", name="QQQ spread", underlying="QQQ", qty=1,
+        legs={"QQQ261016C00765000": -1}, opened_at="2026-08-27T16:40:00",
+        entry_price=Decimal("-1.51")))
+    ledger.save()
+    server.PATHS.ledger = str(tmp_path / "ledger.json")
+
+    import halstreet.execution.mcp_client as mcp
+
+    def boom(_env="dev"):
+        raise RuntimeError("broker unreachable")
+
+    monkeypatch.setattr(mcp.AlpacaMCP, "from_env", staticmethod(boom))
+    body = json.loads(asyncio.run(server.api_marks()).body)
+    assert body["marks"] == {}
+    assert "broker unreachable" in body["error"]
+
+
+def test_a_structure_that_cannot_be_fully_priced_reports_the_missing_legs(monkeypatch,
+                                                                         tmp_path):
+    # The same refusal `evaluate_exit` makes. A mark from three of four legs is not
+    # a mark, and showing one would put a number on screen the exit policy would not
+    # act on.
+    import asyncio
+    from decimal import Decimal
+
+    from halstreet.agent.ledger import Ledger, OpenStructure
+
+    ledger = Ledger.load(tmp_path / "ledger.json")
+    ledger.structures.append(OpenStructure(
+        structure_id="s1", name="QQQ spread", underlying="QQQ", qty=1,
+        legs={"QQQ261016C00765000": -1, "QQQ261016C00775000": 1},
+        opened_at="2026-08-27T16:40:00", entry_price=Decimal("-1.51")))
+    ledger.save()
+    server.PATHS.ledger = str(tmp_path / "ledger.json")
+
+    import halstreet.execution.mcp_client as mcp
+
+    class _Half:
+        async def get_option_snapshot(self, symbols, **_):
+            return {"snapshots": {"QQQ261016C00765000": {
+                "latestQuote": {"bp": 4.4, "ap": 4.6}}}}
+
+    monkeypatch.setattr(mcp.AlpacaMCP, "from_env", staticmethod(lambda _e="dev": _Half()))
+    body = json.loads(asyncio.run(server.api_marks()).body)
+    assert body["marks"]["s1"]["missing"] == ["QQQ261016C00775000"]
+    assert "mark" not in body["marks"]["s1"]

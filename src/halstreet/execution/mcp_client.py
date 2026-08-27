@@ -24,6 +24,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
+import sys
+from pathlib import Path
 from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
@@ -74,6 +77,32 @@ def _describe(exc: BaseException, depth: int = 0) -> str:
                 "Is `uvx` on PATH? start.sh exports .venv/bin for exactly this; "
                 "invoking a script directly does not.")
     return f"{type(exc).__name__}: {detail}" if detail else type(exc).__name__
+
+
+def resolve_command(command: str) -> str:
+    """An absolute path to the launcher, found beside this interpreter first.
+
+    `uvx` is installed into the project's own virtualenv — `install.sh` puts it
+    there deliberately, so the repo stays self-contained — and it therefore sits in
+    the same directory as the Python that is running. Looking there first means the
+    MCP server can be launched by anything that can import this module, rather than
+    only by a process someone remembered to give the right PATH.
+
+    That distinction was not theoretical. `start.sh` exports `.venv/bin`, so every
+    documented entry point worked; the panel launched directly did not, and its
+    structure-chart route failed with a bare "No such file or directory" naming
+    nothing — and then the chart drew no price line and its NOW field read as a
+    dash, which looks like missing market data rather than a missing binary.
+
+    Falls back to PATH, and then to the name unchanged so the existing error message
+    still gets its chance to explain what is wrong.
+    """
+    if os.path.sep in command:
+        return command
+    beside = Path(sys.executable).parent / command
+    if beside.is_file() and os.access(beside, os.X_OK):
+        return str(beside)
+    return shutil.which(command) or command
 
 
 _CALL_TIMEOUT = 60.0
@@ -127,7 +156,7 @@ class AlpacaMCP:
     def __init__(self, cfg: PaperConfig, command: str, args: tuple[str, ...],
                  option_feed: str = DEFAULT_OPTION_FEED) -> None:
         self._cfg = cfg
-        self._command = command
+        self._command = resolve_command(command)
         self._args = args
         self._option_feed = option_feed
 

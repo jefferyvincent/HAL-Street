@@ -14,6 +14,45 @@ export const money = (v: string | number | null | undefined, dp = 2): string => 
   );
 };
 
+/**
+ * A premium, said the way a desk says it.
+ *
+ * Prices here are *position values* on one sign convention — negative means the
+ * structure is held for a credit — which is right internally and reads as a loss on
+ * a screen. A spread opened at -1.51 was opened for $1.51 of credit received, and
+ * rendering that as "-$1.51" beside a P&L column invites exactly the wrong reading.
+ *
+ * The sign is not flipped anywhere; only the label changes.
+ */
+export const premium = (v: string | number | null | undefined, dp = 2): string => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  if (n === 0) return money(0, dp);
+  return `${money(Math.abs(n), dp)} ${n < 0 ? "credit" : "debit"}`;
+};
+
+/**
+ * A mark, which is what it would cost to close — the number the exit policy watches.
+ *
+ * Same convention, same problem: a credit spread marked at -1.635 is one you can buy
+ * back for $1.64, and it is *winning* as that falls toward zero. "-$1.64" says none
+ * of that.
+ */
+export const toClose = (v: string | number | null | undefined, dp = 2): string => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return `${money(Math.abs(n), dp)} to close`;
+};
+
+/** How long ago, in words, for a number that is a scan old rather than live. */
+export const ago = (t?: string | null): string => {
+  if (!t) return "";
+  const seconds = Math.max(0, (Date.now() - new Date(t).getTime()) / 1000);
+  if (seconds < 90) return "just now";
+  const minutes = Math.round(seconds / 60);
+  return minutes < 60 ? `${minutes}m ago` : `${Math.round(minutes / 60)}h ago`;
+};
+
 export const plain = (v: string | number | null | undefined, dp = 2): string => {
   const n = Number(v);
   return Number.isFinite(n)

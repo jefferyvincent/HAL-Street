@@ -1,5 +1,5 @@
 import { cn } from "@/lib/cn";
-import { clock, day, money } from "@/lib/format";
+import { clock, day, money, premium, toClose } from "@/lib/format";
 import { CLS } from "@/constants/theme";
 import { useStructureChartCanvas } from "@/hooks/useStructureChartCanvas";
 import { useStructureLevels } from "@/hooks/useStructureLevels";
@@ -53,9 +53,9 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
       <div className="mb-3 grid grid-cols-2 gap-px bg-line min-[701px]:grid-cols-4">
         {levels ? (
           <>
-            <Level label={t.chart.entry} value={money(levels.entry)} tone="text-ink" />
-            <Level label={t.chart.target} value={money(levels.target)} tone="text-pass" />
-            <Level label={t.chart.stop} value={money(levels.stop)} tone="text-fail" />
+            <Level label={t.chart.entry} value={premium(levels.entry)} tone="text-ink" />
+            <Level label={t.chart.target} value={toClose(levels.target)} tone="text-pass" />
+            <Level label={t.chart.stop} value={toClose(levels.stop)} tone="text-fail" />
           </>
         ) : (
           <div className="col-span-3 bg-void px-[10px] py-[9px] font-sans text-[11.5px] leading-[1.5] text-ink/40">
@@ -64,7 +64,7 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
         )}
         <Level
           label={t.chart.last}
-          value={last === null ? "—" : money(last)}
+          value={last === null ? "—" : toClose(last)}
           tone={levels && last !== null && last >= Number(levels.target) ? "text-pass" : "text-ink"}
         />
       </div>

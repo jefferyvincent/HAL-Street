@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -36,7 +37,7 @@ from fastapi.staticfiles import StaticFiles
 from halstreet import paths
 from halstreet.agent.breaker import CircuitState
 from halstreet.agent.ledger import Ledger
-from halstreet.agent.manager import ExitPolicy
+from halstreet.agent.manager import CONTRACT_MULTIPLIER, ExitPolicy, mark_structure
 from halstreet.gates import ALL_GATES
 from halstreet.gates.base import FAMILIES, Limits, family_of
 from halstreet.strategy.exposure import agrees, exposure_of
@@ -200,6 +201,44 @@ def _activity(events: list[dict]) -> list[dict]:
     return out[-RECENT_ACTIVITY:]
 
 
+def _decisions_with_positions(events: list[dict]) -> list[dict]:
+    """Gate decisions, each carrying the structure it became if it became one.
+
+    An approved decision and the position it opened were connected by nothing but a
+    name, so the panel could show the verdict and could not offer a way through to
+    the trade. Names are not identifiers — two spreads a week apart can share one —
+    and the id was being generated at submission and never written to the journal.
+
+    Joined on the order that follows: `_submit` journals the order and then records
+    the structure under the same id, so an approved decision is followed within a
+    couple of records by the order that carries it. A decision that was rejected, or
+    approved in a dry run, gets `None` and the panel offers nothing rather than a
+    link to a position that does not exist.
+    """
+    out: list[dict] = []
+    for i, event in enumerate(events):
+        if event.get("event") != "gate_decision":
+            continue
+        # Only an approved decision can have become a position. A rejected one is
+        # never submitted, so the next order in the file belongs to a different
+        # decision entirely — and joining on proximity alone handed a rejection
+        # somebody else's trade.
+        opened = next(
+            (e for e in events[i + 1:i + 4]
+             if e.get("event") == "order" and e.get("intent", "open") == "open"
+             and e.get("submitted") and e.get("structure_id")
+             and e.get("structure") == event.get("structure")),
+            None,
+        ) if event.get("approved") else None
+        out.append({**event,
+                    "structure_id": opened.get("structure_id") if opened else None})
+    return out
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
 def _dec(value: Any) -> Decimal | None:
     try:
         return Decimal(str(value))
@@ -333,7 +372,7 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
         sid: mark for sid, read in latest_marks.items()
         if (mark := _dec(read.get("mark"))) is not None
     })
-    decisions = [e for e in events if e.get("event") == "gate_decision"][-RECENT_DECISIONS:]
+    decisions = _decisions_with_positions(events)[-RECENT_DECISIONS:]
     views = {e["underlying"]: e for e in events if e.get("event") == "market_view"}
     latest_menu: dict[str, dict] = {}
     for e in events:
@@ -523,6 +562,59 @@ async def api_structure_chart(structure_id: str) -> JSONResponse:
         payload["error"] = f"{type(exc).__name__}: {exc}"
         return JSONResponse(_plain(payload))
     return JSONResponse(_plain(structure_chart.build(structure, bars, ExitPolicy.from_env())))
+
+
+@app.get("/api/marks")
+async def api_marks() -> JSONResponse:
+    """Live marks for every open structure. The only other route that reaches Alpaca.
+
+    Its own route, and not part of the snapshot, for the same reason the structure
+    chart is: the snapshot is polled every five seconds and launches nothing, while
+    this spawns an MCP subprocess and waits on the broker. Folding it in would put a
+    round trip on the critical path of every update whether anyone was looking at a
+    position or not.
+
+    The panel calls it on a much slower cadence and falls back to the agent's own
+    last mark when it fails, which is what the journal already carries.
+
+    Narrow in the same three ways as the chart route. The symbols come from *our*
+    ledger rather than from the caller, so this is not a market-data proxy wearing a
+    dashboard. It reads one read-only tool. And it prices with `mark_structure` —
+    the very function `evaluate_exit` uses — so the number on the screen cannot
+    disagree with the number the exit policy is acting on.
+    """
+    ledger = Ledger.load(PATHS.ledger)
+    structures = ledger.open_structures
+    if not structures:
+        return JSONResponse({"marks": {}, "as_of": _now()})
+
+    symbols = sorted({sym for st in structures for sym in st.legs})
+    try:
+        from halstreet.execution.mcp_client import AlpacaMCP
+
+        client = AlpacaMCP.from_env()
+        payload = await client.get_option_snapshot(symbols)
+    except Exception as exc:
+        # The panel keeps showing the agent's last mark, labelled with its age. A
+        # stale number that says so beats an empty space that looks like a bug.
+        return JSONResponse({"marks": {}, "as_of": _now(),
+                             "error": f"{type(exc).__name__}: {exc}"})
+
+    chain = payload.get("snapshots", payload) if isinstance(payload, dict) else {}
+    out: dict[str, Any] = {}
+    for structure in structures:
+        mark = mark_structure(structure, chain)
+        if not mark.complete:
+            # Reported, not guessed. A mark from three of four legs is not a mark,
+            # and this is the same refusal `evaluate_exit` makes.
+            out[structure.structure_id] = {"missing": mark.missing[:4]}
+            continue
+        unrealized = None
+        if structure.entry_price is not None:
+            unrealized = ((mark.value - structure.entry_price)
+                          * CONTRACT_MULTIPLIER * structure.qty)
+        out[structure.structure_id] = {"mark": mark.value, "unrealized_usd": unrealized}
+    return JSONResponse(_plain({"marks": out, "as_of": _now()}))
 
 
 @app.websocket("/ws")

@@ -285,6 +285,7 @@ class Agent:
                                                  f"filled_avg_price {fill!r}")
         self.journal.order(
             structure=order.name, submitted=True, intent="close",
+            structure_id=structure.structure_id,
             order_id=response.get("id"), status=response.get("status"),
             filled_qty=response.get("filled_qty"), filled_avg_price=fill,
         )
@@ -580,7 +581,8 @@ class Agent:
         # would let an unfilled storm through unmeasured.
         self.breaker.record_entry()
         self.journal.order(
-            structure=proposal.structure.name, submitted=True, order_id=result.order_id,
+            structure=proposal.structure.name, submitted=True,
+            structure_id=structure_id, order_id=result.order_id,
             status=response.get("status"), filled_qty=response.get("filled_qty"),
             filled_avg_price=response.get("filled_avg_price"),
         )

@@ -1,10 +1,11 @@
 import { cn } from "@/lib/cn";
-import { clock, money } from "@/lib/format";
+import { ago, money } from "@/lib/format";
 import { ICON } from "@/constants/icons";
 import { STROKE } from "@/constants/theme";
 import { Icon } from "@/components/Icon";
 import { PatternBadge } from "@/components/PatternBadge";
 import { useStrings } from "@/hooks/useStrings";
+import { useMarks } from "@/hooks/useMarks";
 import { useConnection } from "@/stores/connection";
 import { useUI } from "@/stores/ui";
 
@@ -26,6 +27,7 @@ export function Holding() {
   const t = useStrings();
   const positions = useConnection((s) => s.snapshot?.positions) ?? [];
   const chart = useUI((s) => s.chart);
+  const live = useMarks();
 
   return (
     <div className="border border-line bg-panel">
@@ -46,8 +48,15 @@ export function Holding() {
       ) : (
         <ul>
           {positions.map((p) => {
+            // Live where the broker answered, the agent's own last mark otherwise.
+            // Never both, and always labelled with which — a number whose age is
+            // unknown is worth less than a stale one that says so.
+            const now = live?.marks[p.structure_id];
             const read = p.read;
-            const pnl = read?.unrealized_usd == null ? null : Number(read.unrealized_usd);
+            const unpriceable = now?.missing?.length ?? 0;
+            const value = now?.unrealized_usd ?? read?.unrealized_usd ?? null;
+            const fresh = now?.unrealized_usd != null;
+            const pnl = value == null ? null : Number(value);
             return (
               <li key={p.structure_id}
                   onClick={() => chart(p.structure_id)}
@@ -69,12 +78,12 @@ export function Holding() {
                   <span className="flex-1" />
                   {pnl === null ? (
                     <span className="font-mono text-[10px] leading-none text-ink/30">
-                      {t.console.unpriced}
+                      {unpriceable ? t.console.partial(unpriceable) : t.console.unpriced}
                     </span>
                   ) : (
                     <span className={cn("font-mono text-[12px] font-bold leading-none tabular-nums",
                       pnl >= 0 ? "text-pass" : "text-fail")}>
-                      {money(read!.unrealized_usd!)}
+                      {money(value!)}
                     </span>
                   )}
                 </div>
@@ -86,9 +95,12 @@ export function Holding() {
                       {t.console.dte(read.dte)}
                     </span>
                   )}
-                  {read && (
-                    <span className="font-mono text-[10px] leading-none text-ink/25">
-                      {t.console.asOf(clock(read.as_of))}
+                  {(fresh || read) && (
+                    <span className={cn("font-mono text-[10px] leading-none",
+                      fresh ? "text-pass/70" : "text-ink/25")}>
+                      {fresh
+                        ? t.console.asOf(t.console.live)
+                        : t.console.asOf(ago(read!.as_of))}
                     </span>
                   )}
                 </div>

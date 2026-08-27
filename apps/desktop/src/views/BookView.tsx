@@ -1,5 +1,5 @@
 import { cn } from "@/lib/cn";
-import { day, money } from "@/lib/format";
+import { day, money, premium } from "@/lib/format";
 import { ICON } from "@/constants/icons";
 import { CLS } from "@/constants/theme";
 import { Icon, Note } from "@/components/Icon";
@@ -91,10 +91,10 @@ export function BookView() {
                     <td className={CLS.td}>{r.underlying}</td>
                     <td className={cn(CLS.td, "tabular-nums")}>{r.qty}</td>
                     <td className={cn(CLS.td, "whitespace-nowrap tabular-nums")}>
-                      {r.entry ? money(r.entry) : "—"}
+                      {r.entry ? premium(r.entry) : "—"}
                     </td>
                     <td className={cn(CLS.td, "whitespace-nowrap tabular-nums")}>
-                      {r.exit ? money(r.exit) : "—"}
+                      {r.exit ? premium(r.exit) : "—"}
                     </td>
                     <td className={cn(CLS.td, "whitespace-nowrap tabular-nums")}>
                       {r.realized ? (

@@ -59,3 +59,13 @@ export const CLS = {
  * one unreadable chord — the point of separate cues is that you can count them.
  */
 export const CUE_GAP_MS = 700;
+
+/**
+ * How often the panel asks for live marks.
+ *
+ * Not the five-second snapshot cadence. Each call spawns an MCP subprocess and
+ * waits on Alpaca, and an option mark on a 45-DTE index spread does not move
+ * meaningfully in five seconds — polling it that fast would spend a round trip per
+ * tick to redraw the same number.
+ */
+export const MARKS_INTERVAL_MS = 20_000;

@@ -13,6 +13,7 @@ import { useDecisions } from "@/hooks/useDecisions";
 import { useGateFamilies } from "@/hooks/useGateFamilies";
 import { useStrings } from "@/hooks/useStrings";
 import { useConnection } from "@/stores/connection";
+import { useUI } from "@/stores/ui";
 
 /**
  * One decision, in full.
@@ -25,6 +26,7 @@ export function ConsoleView() {
   const t = useStrings();
   const { current } = useDecisions();
   const snap = useConnection((s) => s.snapshot);
+  const chart = useUI((s) => s.chart);
   const families = useGateFamilies(current);
   const facts = useDecisionFacts(current);
 
@@ -64,6 +66,17 @@ export function ConsoleView() {
           {ok ? t.console.approved(gates.length) : t.console.rejected(failed.length, gates.length)}
         </span>
         <span className="flex-1" />
+        {/* Through to the position, when the decision became one. The only way
+            here used to be BOOK, and nothing said the two were the same trade. */}
+        {current.structure_id && (
+          <button
+            onClick={() => chart(current.structure_id!)}
+            className="font-mono text-[10px] font-bold leading-none tracking-[.08em] text-amber
+                       transition-opacity hover:opacity-70 focus-visible:outline
+                       focus-visible:outline-1 focus-visible:outline-amber">
+            {t.console.openTrade}
+          </button>
+        )}
         <span className="font-mono text-[10.5px] font-medium leading-none text-ink/40">
           {current.underlying} · {clock(current.ts)}
         </span>

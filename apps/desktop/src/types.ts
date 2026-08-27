@@ -41,6 +41,12 @@ export interface StructureDetail {
 }
 
 export interface Decision {
+  /**
+   * The position this decision became, when it became one. Null for a rejection, a
+   * dry run, or an order that was never sent — the panel then offers no link rather
+   * than one to a trade that does not exist.
+   */
+  structure_id: string | null;
   ts: string;
   event: string;
   approved: boolean;
@@ -273,6 +279,18 @@ export interface Snapshot {
   market: Market | null;
   activity: Activity[];
   committees: Committee[];
+}
+
+/** Live marks for open structures, from the one route that reaches the broker. */
+export interface Marks {
+  marks: Record<string, {
+    mark?: string;
+    unrealized_usd?: string | null;
+    /** Legs that could not be priced. A partial mark is not a mark. */
+    missing?: string[];
+  }>;
+  as_of: string;
+  error?: string;
 }
 
 /** What the socket sends between snapshots — proof of life, not data. */

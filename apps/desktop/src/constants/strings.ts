@@ -87,6 +87,9 @@ export function makeStrings(t: Translate) {
     console: {
       activity: t("console.activity"),
       holding: t("console.holding"),
+      openTrade: t("console.openTrade"),
+      live: t("console.live"),
+      partial: (count: number) => t("console.partial", { count }),
       holdingNone: t("console.holdingNone"),
       asOf: (when: string) => t("console.asOf", { when }),
       dte: (days: number) => t("console.dte", { days }),
