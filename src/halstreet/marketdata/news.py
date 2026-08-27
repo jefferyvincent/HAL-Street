@@ -81,11 +81,30 @@ class Headline:
 
     @property
     def age_hours(self) -> float | None:
+        """Hours since publication, or None when the timestamp cannot be trusted.
+
+        The subtraction is inside the `try` because it is the half that actually
+        failed. `fromisoformat` accepts a naive timestamp happily and returns a naive
+        datetime; subtracting that from an aware one raises `TypeError` one line later,
+        outside the guard. That propagated out of `to_prompt`, out of the catalyst
+        stage, and was caught at the cycle level — so a single off-contract article
+        abandoned the entire scan for that underlying, and went on doing it every cycle
+        until the article aged out of the 48-hour window.
+
+        Which is the exact outcome this module's own docstring rules out: news is an
+        enrichment, and a news problem must never become a trading problem.
+
+        A naive timestamp is off-contract — Alpaca sends RFC-3339 with a `Z` — so it is
+        reported as unknown rather than assumed to be UTC. Assuming would be a guess
+        that can be wrong by hours; unknown is true, renders as "unknown" in the
+        prompt, and simply does not count toward the freshness tally. That understates
+        how new an article is, which is the safe direction: the catalyst treats it as
+        context rather than as breaking news.
+        """
         try:
-            when = datetime.fromisoformat(self.ts)
+            return (datetime.now(UTC) - datetime.fromisoformat(self.ts)).total_seconds() / 3600
         except (TypeError, ValueError):
             return None
-        return (datetime.now(UTC) - when).total_seconds() / 3600
 
     def to_prompt(self) -> dict[str, Any]:
         age = self.age_hours
