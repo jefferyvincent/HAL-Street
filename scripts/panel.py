@@ -38,13 +38,27 @@ def main() -> int:
     p.add_argument("--env", default="dev", choices=["dev", "comp"],
                    help="which credentials the structure chart reads")
     p.add_argument("--port", type=int, default=8787, help="localhost port for the panel")
-    p.add_argument("--journal", default=str(paths.RUN_JOURNAL),
-                   help="append-only run journal")
-    p.add_argument("--ledger", default=str(paths.LEDGER),
-                   help="structure ledger — what the broker cannot tell us")
-    p.add_argument("--breaker", default=str(paths.CIRCUIT),
-                   help="circuit-breaker state (equity baseline, halt latch)")
+    # None, not a literal, so the account can decide — the same reason the agent and
+    # the report take theirs this way. `--env comp` on a panel wired to the dev
+    # journal would show a rehearsal while claiming to watch the judged run, which is
+    # a worse failure here than anywhere else: this screen is what a human looks at
+    # to decide whether the agent is behaving.
+    p.add_argument("--journal", default=None,
+                   help="append-only run journal (default: follows --env)")
+    p.add_argument("--ledger", default=None,
+                   help="structure ledger — what the broker cannot tell us "
+                        "(default: follows --env)")
+    p.add_argument("--breaker", default=None,
+                   help="circuit-breaker state (equity baseline, halt latch) "
+                        "(default: follows --env)")
     args = p.parse_args()
+    journal, ledger, breaker = paths.for_env(args.env)
+    if args.journal is None:
+        args.journal = str(journal)
+    if args.ledger is None:
+        args.ledger = str(ledger)
+    if args.breaker is None:
+        args.breaker = str(breaker)
     # The panel reads the journal, the ledger and the circuit file — none of which
     # need credentials. The one exception is the structure chart, which asks Alpaca
     # for a contract's price history, so the environment is loaded if it is there and

@@ -59,11 +59,76 @@ if ! "$PY" -c 'import ensurepip' 2>/dev/null; then
 fi
 
 # --- 2. Virtualenv ------------------------------------------------------------
-if [ ! -x .venv/bin/python ]; then
+#
+# An existing .venv is reused, but only after it is checked. It used to be reused on
+# the strength of `-x .venv/bin/python` alone, and the next line then ran
+# `.venv/bin/python -m pip`, so any unusable venv surfaced as
+#
+#     .venv/bin/python: No module named pip
+#
+# which names neither the cause nor the fix. A venv goes stale in ordinary ways: it is
+# not portable, so it breaks when the repo is copied between machines, when the distro
+# upgrades Python underneath it, or when it was built by a different interpreter than
+# the one on PATH today — and `.venv/` is gitignored precisely because it is disposable.
+#
+# So: check that it runs, that its version matches the Python we just chose, and that
+# it has pip. Any of those failing means rebuild, which is cheap and always correct.
+venv_ok() {
+  [ -x .venv/bin/python ] || return 1
+  .venv/bin/python -c 'import sys' >/dev/null 2>&1 || return 1
+  local have
+  have="$(.venv/bin/python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null)" || return 1
+  [ "$have" = "$PYMM" ] || { VENV_WHY="built with Python $have, but $PY is $PYMM"; return 1; }
+  .venv/bin/python -m pip --version >/dev/null 2>&1 || { VENV_WHY="has no pip"; return 1; }
+  return 0
+}
+
+VENV_WHY="cannot run"
+if [ ! -e .venv/bin/python ]; then
   say "Creating .venv"
   "$PY" -m venv .venv
-else
+elif venv_ok; then
   say "Reusing existing .venv"
+else
+  warn "Existing .venv is unusable ($VENV_WHY) — rebuilding it."
+  # Anything running out of this venv dies here — a soak, the panel, a scheduled
+  # agent. Worth stopping for, rather than a puzzling failure ten minutes later.
+  #
+  # argv[0] only, never the whole command line. These are launched relative
+  # (`.venv/bin/python scripts/soak.py`), so a pattern anchored to $PWD matches
+  # nothing; but `pgrep -f .venv/bin/python` matches far too much — any shell whose
+  # command *text* happens to mention the path, this installer included. Their `exe`
+  # is no help either: it resolves through the symlink to the system interpreter,
+  # outside the venv entirely. What is left is the first field of cmdline.
+  running=""
+  for proc in /proc/[0-9]*; do
+    pid="${proc#/proc/}"
+    argv0="$(tr '\0' '\n' < "$proc/cmdline" 2>/dev/null | head -1)"
+    case "$argv0" in
+      .venv/bin/python*|"$PWD/.venv/bin/python"*) ;;
+      *) continue ;;
+    esac
+    [ "$(readlink -f "$proc/cwd" 2>/dev/null)" = "$PWD" ] || continue
+    running="$running $pid"
+  done
+  if [ -n "$running" ]; then
+    warn "Something is still running from this .venv. Stop it first, then re-run:"
+    for pid in $running; do
+      printf '      %s  %s\n' "$pid" \
+        "$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | cut -c1-90)" >&2
+    done
+    exit 1
+  fi
+  rm -rf .venv
+  "$PY" -m venv .venv
+fi
+
+if ! .venv/bin/python -m pip --version >/dev/null 2>&1; then
+  warn "The virtualenv has no pip, and rebuilding did not give it one."
+  warn "Debian and Ubuntu ship that separately:"
+  warn "    sudo apt-get install -y python${PYMM}-venv python3-pip"
+  warn "Then delete .venv and run ./install.sh again."
+  exit 1
 fi
 .venv/bin/python -m pip install --quiet --upgrade pip
 
