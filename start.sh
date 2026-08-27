@@ -92,6 +92,36 @@ say "env=$ENV_NAME  key=${KEY:0:6}…  mode=$MODE  log=$LOG"
 
 run() { say "$*"; "$@" 2>&1 | tee -a "$LOG"; return "${PIPESTATUS[0]}"; }
 
+# --- Can the virtualenv actually run this? ------------------------------------
+#
+# Every mode below shells into .venv/bin/python, so a venv that cannot import the
+# package fails seven different ways depending on which one you typed. Checked once,
+# here, and the real error is *shown* rather than swallowed.
+#
+# That last part is the point. This used to live inside the `loop` branch as
+#
+#     if ! .venv/bin/python -c 'import halstreet.agent.run' 2>/dev/null; then
+#       warn "The agent loop isn't built yet (halstreet.agent.run does not exist)."
+#
+# — scaffolding from before the loop existed, kept long after it did. With stderr
+# discarded, *any* import failure printed that line, so a stale virtualenv reported
+# itself as a missing feature and sent a reader looking through the source for code
+# that was sitting right there. A diagnostic that can state something false about the
+# codebase is worse than no diagnostic.
+if ! import_error="$(.venv/bin/python -c 'import halstreet' 2>&1)"; then
+  warn "The virtualenv cannot import halstreet, so no mode can run. Python said:"
+  printf '%s\n' "$import_error" | sed 's/^/      /' >&2
+  case "$import_error" in
+    *"No module named 'halstreet'"*)
+      warn "halstreet is not installed in .venv. Run ./install.sh." ;;
+    *"No module named"*)
+      warn "A dependency is missing from .venv. Run ./install.sh." ;;
+    *)
+      warn "Run ./install.sh. If this survives a rebuild it is a code error, not setup." ;;
+  esac
+  exit 2
+fi
+
 case "$MODE" in
   verify)
     run .venv/bin/python -m scripts.verify_multileg --env "$ENV_NAME" "${ARGS[@]}"
@@ -116,13 +146,6 @@ case "$MODE" in
     run .venv/bin/python scripts/panel.py "${ARGS[@]}"
     ;;
   loop)
-    if ! .venv/bin/python -c 'import halstreet.agent.run' 2>/dev/null; then
-      warn "The agent loop isn't built yet (halstreet.agent.run does not exist)."
-      warn "Until it lands, the working entry points are:"
-      warn "    ./start.sh verify        multi-leg orders against a live chain"
-      warn "    ./start.sh preflight     competition-account checks"
-      exit 2
-    fi
     run .venv/bin/python -m halstreet.agent.run --env "$ENV_NAME" "${ARGS[@]}"
     ;;
 esac
