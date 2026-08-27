@@ -358,3 +358,92 @@ def test_a_pass_that_stays_unexplained_is_still_a_pass(monkeypatch):
     assert result.abstained
     assert result.error is None
     assert not result.ok
+
+
+# --- the size the model is allowed to ask for -------------------------------------
+
+def test_the_prompt_states_every_limit_the_gates_enforce_on_a_proposal():
+    """Six of sixteen were shown, and the omission cost the soak its first trade.
+
+    `underlying-concentration` rejected the first live proposal — `qty: 2` on a
+    two-leg spread against a two-contract cap — and nothing in the prompt could have
+    told the model not to. It would have made the same proposal every cycle for the
+    rest of the session, and re-running would have produced the same rejection.
+
+    Not every limit belongs here: a daily-loss halt or an entry-rate throttle is not
+    something a proposal can be written to avoid. These are the ones that are.
+    """
+    from halstreet.agent.llm import _limits_view
+    from halstreet.gates.base import Limits
+
+    shown = set(_limits_view(Limits(), underlying="SPY", positions=[]))
+    for avoidable in ("max_loss_per_position_usd", "max_portfolio_risk_pct", "min_dte",
+                      "min_open_interest", "min_daily_volume", "max_bid_ask_width_pct",
+                      "max_legs", "max_positions_per_underlying",
+                      "max_correlated_positions", "max_open_positions", "max_qty"):
+        assert avoidable in shown, f"the model is judged on {avoidable} and never told"
+
+
+def test_the_stated_max_qty_is_the_one_the_gate_actually_allows():
+    """One rule, two readings, and they must not drift.
+
+    The prompt tells the model a number; the gate decides. If they ever disagree the
+    agent proposes trades it cannot make — which reads as a broken model and is not
+    — or leaves size on the table it was entitled to.
+    """
+    from halstreet.agent.llm import max_qty_for
+    from halstreet.agent.proposal import parse_proposal
+    from halstreet.gates.base import GateContext, Limits
+    from halstreet.gates.portfolio import underlying_concentration
+
+    limits = Limits()
+    stated = max_qty_for("SPY", [], limits)
+    assert stated == 1, "the shipped default of one position per underlying means qty 1"
+
+    def verdict(qty: int):
+        result = parse_proposal({
+            "underlying": "SPY", "name": f"spread x{qty}", "qty": qty,
+            "limit_price": "-1.00", "rationale": "sizing check", "confidence": 0.5,
+            "legs": [{"symbol": "SPY261016C00765000", "side": "sell"},
+                     {"symbol": "SPY261016C00770000", "side": "buy"}],
+        })
+        assert result.ok, result.reason
+        return underlying_concentration(
+            result.proposal,
+            GateContext(account={"equity": "100000"}, positions=[], limits=limits))
+
+    assert verdict(stated).passed, "the number we told the model must actually clear"
+    assert not verdict(stated + 1).passed, "and one more must not, or it is not the cap"
+
+
+def test_holding_contracts_lowers_the_size_the_model_is_offered():
+    # The reason this is computed rather than described: the cap depends on the book,
+    # so a static sentence in the prompt would be wrong as soon as anything is open.
+    from halstreet.agent.llm import max_qty_for
+    from halstreet.gates.base import Limits
+
+    held = [{"symbol": "SPY261016C00765000", "qty": "-1"},
+            {"symbol": "SPY261016C00770000", "qty": "1"}]
+    assert max_qty_for("SPY", held, Limits()) == 0
+    assert max_qty_for("QQQ", held, Limits()) == 1, "another name is unaffected"
+
+
+def test_a_disabled_concentration_cap_offers_no_size_rather_than_unlimited():
+    # Fail closed: a cap of zero means the gate is off, and a prompt that read that as
+    # "unlimited" would be inventing permission out of an absent rule.
+    from dataclasses import replace
+
+    from halstreet.agent.llm import max_qty_for
+    from halstreet.gates.base import Limits
+
+    assert max_qty_for("SPY", [], replace(Limits(), max_positions_per_underlying=0)) == 0
+
+
+def test_the_size_note_reaches_the_turn_the_model_reads():
+    from halstreet.agent.llm import ProposalWriter
+    turn = ProposalWriter.build_user_turn(
+        object(), underlying="IWM", spot="298", candidates=[{"name": "x"}],
+        account={"equity": "100000"}, positions=[], limits=__import__(
+            "halstreet.gates.base", fromlist=["Limits"]).Limits())
+    assert '"max_qty": 1' in turn
+    assert "IWM" in turn

@@ -41,6 +41,7 @@ import anthropic
 
 from halstreet.agent.proposal import SCHEMA, ParseResult, parse_proposal
 from halstreet.gates.base import Limits
+from halstreet.gates.portfolio import _gross_by_root
 
 DEFAULT_MODEL = "claude-opus-5"
 DEFAULT_EFFORT = "high"
@@ -276,7 +277,7 @@ class ProposalWriter:
             "You cannot change these. They are shown so you do not waste the cycle "
             "proposing something that is certain to be rejected.\n"
             "```json\n"
-            f"{json.dumps(_limits_view(limits), indent=2)}\n"
+            f"{json.dumps(_limits_view(limits, underlying=underlying, positions=positions), indent=2)}\n"
             "```\n\n"
             "Emit one JSON object matching the required schema."
         )
@@ -412,13 +413,76 @@ class ProposalWriter:
         return LLMResult(parse_proposal(text), raw=text, **counts)
 
 
-def _limits_view(limits: Limits) -> dict[str, Any]:
-    return {
+def max_qty_for(underlying: str, positions: list[dict], limits: Limits) -> int:
+    """The largest `qty` that will clear `underlying-concentration` for this name.
+
+    The gate caps *contracts*, not structures, because the broker nets legs across
+    structures and has no idea which one a leg belongs to. Its rule is
+
+        cap_contracts = max_positions_per_underlying * len(legs)
+        adding        = sum(leg.ratio_qty) * qty
+
+    and for the 1:1 structures this agent builds, `sum(ratio_qty) == len(legs)`. The
+    leg count therefore cancels: the answer is `max_positions_per_underlying` less
+    whatever is already held, and it is the same number for a two-leg spread and a
+    four-leg condor.
+
+    Which is worth stating out loud, because it is not what anyone guesses. Under the
+    shipped default of 1 the only tradeable size is 1, and a model that reaches for 2
+    is rejected every single cycle.
+    """
+    cap = limits.max_positions_per_underlying
+    if cap <= 0:
+        return 0
+    root = underlying.upper()
+    held = sum(abs(qty) for symbol_root, qty in _gross_by_root(positions).items()
+               if symbol_root == root)
+    # Held contracts are spread across however many legs those structures had; the
+    # conservative reading is the one the gate takes, so mirror it at two legs.
+    return max(0, cap - int(held // 2))
+
+
+def _limits_view(limits: Limits, *, underlying: str = "",
+                 positions: list[dict] | None = None) -> dict[str, Any]:
+    """What the model is judged against, in terms it can act on.
+
+    This used to list six of the sixteen limits the gates enforce, and the omission
+    that mattered was `max_positions_per_underlying`. Its gate rejected the first
+    live proposal of the soak -- the model sized `qty: 2` on a two-leg spread against
+    a two-contract cap -- and nothing in the prompt could have told it not to. It
+    would have made the same proposal every cycle for the rest of the session.
+
+    The docstring on `build_user_turn` already stated the principle: showing the
+    limits "saves a wasted cycle proposing a $4,000-risk condor into a $1,000 cap".
+    The same argument applies to size, and size is the one dimension where the limit
+    cannot be read off the candidate -- it depends on what is already held.
+
+    So `max_qty` is computed rather than described. A cap expressed as "1 position per
+    underlying" requires knowing the leg count, the ratio quantities and the current
+    book to turn into a number, and asking a model to do that arithmetic under a
+    schema is how you get 2.
+
+    Still not negotiable, and still enforced afterwards in Python: this changes what
+    the model knows, never what it is allowed to do.
+    """
+    view: dict[str, Any] = {
         "max_loss_per_position_usd": str(limits.max_loss_per_position_usd),
         "max_portfolio_risk_pct": str(limits.max_portfolio_risk_pct),
         "min_dte": limits.min_dte,
         "min_open_interest": limits.min_open_interest,
+        "min_daily_volume": limits.min_daily_volume,
         "max_bid_ask_width_pct": str(limits.max_bid_ask_width_pct),
         "max_legs": 4,
-        "note": "Enforced in deterministic Python after you respond. Not negotiable.",
+        "max_positions_per_underlying": limits.max_positions_per_underlying,
+        "max_correlated_positions": limits.max_correlated_positions,
+        "max_open_positions": limits.max_open_positions,
     }
+    if underlying:
+        view["max_qty"] = max_qty_for(underlying, positions or [], limits)
+        view["max_qty_note"] = (
+            f"The largest qty that clears the concentration gate for {underlying.upper()} "
+            "right now, given what is already held. Propose this or less; more is "
+            "rejected outright, not trimmed."
+        )
+    view["note"] = "Enforced in deterministic Python after you respond. Not negotiable."
+    return view
