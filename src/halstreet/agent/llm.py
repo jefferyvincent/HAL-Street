@@ -310,20 +310,7 @@ class ProposalWriter:
             return first
 
         if first.unexplained_pass:
-            # Asking for the reasoning that a pass omitted. Told plainly that the
-            # decision itself is accepted, so the model corrects the rationale rather
-            # than reconsidering the trade — the risk otherwise is talking it into a
-            # position it had already, correctly, declined.
-            correction = (
-                f"{user_turn}\n\n"
-                "### Your pass was accepted, but it gave no reason\n"
-                "You set `action` to \"pass\" and left `rationale` empty. On a passing "
-                "cycle the rationale is the only record that survives — there is no "
-                "position to inspect afterwards. Return the same `pass` decision with "
-                "a real rationale: name the candidate you came closest to taking and "
-                "the number that stopped you. Do not reconsider the trade; explain it. "
-                "Return only the JSON."
-            )
+            correction = explain_the_pass(user_turn)
         else:
             correction = (
                 f"{user_turn}\n\n"
@@ -440,6 +427,33 @@ def max_qty_for(underlying: str, positions: list[dict], limits: Limits) -> int:
     # Held contracts are spread across however many legs those structures had; the
     # conservative reading is the one the gate takes, so mirror it at two legs.
     return max(0, cap - int(held // 2))
+
+
+def explain_the_pass(turn: str) -> str:
+    """Ask for the reasoning a pass omitted, without reopening the decision.
+
+    The decision is accepted in as many words, so the model corrects the rationale
+    rather than reconsidering the trade — the risk otherwise is talking it into a
+    position it had already, correctly, declined.
+
+    Shared, because both proposal paths reach the same outcome and only one of them
+    used to handle it. `propose_with_retry` has always corrected an unexplained pass;
+    the committee's judge called the model once and returned whatever came back, so
+    when the committee became the default the correction quietly stopped happening.
+    Nine consecutive passes were journalled as "(no reason given)" before anyone
+    looked, and on a passing cycle the rationale is the only record that survives —
+    there is no position to inspect afterwards.
+    """
+    return (
+        f"{turn}\n\n"
+        "### Your pass was accepted, but it gave no reason\n"
+        "You set `action` to \"pass\" and left `rationale` empty. On a passing "
+        "cycle the rationale is the only record that survives — there is no "
+        "position to inspect afterwards. Return the same `pass` decision with "
+        "a real rationale: name the candidate you came closest to taking and "
+        "the number that stopped you. Do not reconsider the trade; explain it. "
+        "Return only the JSON."
+    )
 
 
 def _limits_view(limits: Limits, *, underlying: str = "",

@@ -709,3 +709,103 @@ def test_the_committee_uses_the_dedicated_llm_key_when_there_is_one(monkeypatch)
     assert C.Committee.from_env()._client.api_key == "dedicated-key"
     monkeypatch.setenv("LLM_API_KEY", "   ")
     assert C.Committee.from_env()._client.api_key == "fallback-key"
+
+
+# --- a pass that says nothing -------------------------------------------------------
+
+def _pass(rationale: str = "") -> str:
+    """A decline in the shape the constrained decoder actually produces.
+
+    Every required field is present — the schema cannot express "these are needed
+    unless you are passing", so a pass carries the same envelope with `action` set
+    and the structure fields empty. `rationale` is the only part that varies, and
+    it is the whole point of the record.
+    """
+    return json.dumps({
+        "action": "pass", "underlying": "SPY", "name": "no trade", "qty": 0,
+        "limit_price": "0", "confidence": 0.0, "legs": [], "rationale": rationale,
+    })
+
+
+_PASS_NO_REASON = _pass()
+_PASS_EXPLAINED = _pass(
+    "Closest was the 733/729 put spread; $29 of gain against $14.50 of entry "
+    "slippage is not a trade."
+)
+
+
+def test_a_pass_with_no_reason_is_asked_to_explain_itself():
+    """The correction the single-call path always made and the judge did not.
+
+    On a passing cycle the rationale is the only record that survives — there is no
+    position to inspect afterwards — so an unexplained pass and a broken model are
+    indistinguishable to anyone reading the journal later. Nine consecutive passes
+    reached it as "(no reason given)" before this was noticed, which is exactly how
+    long a silent gap between two proposal paths can last.
+    """
+    client = _Scripted(_ok(_PASS_NO_REASON, out=40), _ok(_PASS_EXPLAINED, out=60))
+    result, counts = C.Committee(client).judge(system="SYS", brief="the menu")
+
+    assert len(client.calls) == 2, "an unexplained pass must be asked once"
+    assert result.abstained and not result.unexplained_pass
+    assert "slippage" in result.parsed.rationale
+    assert counts["out"] == 100, "both calls are paid for and both must be counted"
+
+
+def test_the_correction_asks_for_the_reason_and_not_for_the_trade():
+    # The failure to avoid is arguing a model into a position it had already,
+    # correctly, declined. The turn says the decision is accepted, in as many words.
+    client = _Scripted(_ok(_PASS_NO_REASON), _ok(_PASS_EXPLAINED))
+    C.Committee(client).judge(system="SYS", brief="the menu")
+    second = client.calls[1]["messages"][0]["content"]
+    assert "pass was accepted" in second
+    assert "Do not reconsider the trade" in second
+    assert "the menu" in second, "the evidence goes back with it"
+
+
+def test_an_explained_pass_is_left_alone():
+    # Retrying one would be arguing with a model that did exactly what was asked.
+    client = _Scripted(_ok(_PASS_EXPLAINED))
+    result, _ = C.Committee(client).judge(system="SYS", brief="the menu")
+    assert len(client.calls) == 1
+    assert result.abstained
+
+
+def test_a_proposal_is_never_second_guessed():
+    client = _Scripted(_ok(json.dumps(_GOOD_PROPOSAL)))
+    result, _ = C.Committee(client).judge(system="SYS", brief="the menu")
+    assert len(client.calls) == 1 and result.ok
+
+
+def test_the_pass_survives_a_model_that_will_not_explain_twice():
+    """Still a decline. Recording it as a cycle failure would misreport a correct
+    decision as a broken one.
+
+    The *first* answer is what is kept, which matters less for the outcome — both
+    are unexplained passes — than for the raw text carried into the journal beside
+    it. Asserting it pins the intent the code states, rather than leaving "either
+    will do" to be discovered later as a difference.
+    """
+    first_raw = _pass()
+    second_raw = _pass("   ")  # whitespace: still no reason, but a different string
+    client = _Scripted(_ok(first_raw), _ok(second_raw))
+    result, _ = C.Committee(client).judge(system="SYS", brief="the menu")
+    assert result.abstained, "the decision stands even unexplained"
+    assert result.unexplained_pass
+    assert result.raw == first_raw, "the answer that was asked for is the one kept"
+
+
+def test_the_pass_survives_an_outage_on_the_second_call():
+    import anthropic
+    client = _Scripted(_ok(_PASS_NO_REASON), anthropic.APIConnectionError(request=None))
+    result, counts = C.Committee(client).judge(system="SYS", brief="the menu")
+    assert result.abstained
+    assert result.error is None, "the first answer was fine; the follow-up was not"
+    assert counts["out"] == 100
+
+
+def test_the_correction_is_asked_once_and_only_once():
+    # An unattended loop must not spend an unbounded budget arguing with itself.
+    client = _Scripted(_ok(_PASS_NO_REASON), _ok(_PASS_NO_REASON))
+    C.Committee(client).judge(system="SYS", brief="the menu")
+    assert len(client.calls) == 2

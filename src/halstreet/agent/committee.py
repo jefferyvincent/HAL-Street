@@ -58,7 +58,13 @@ from typing import Any
 
 import anthropic
 
-from halstreet.agent.llm import DEFAULT_EFFORT, DEFAULT_MODEL, LLMResult, parse_proposal
+from halstreet.agent.llm import (
+    DEFAULT_EFFORT,
+    DEFAULT_MODEL,
+    LLMResult,
+    explain_the_pass,
+    parse_proposal,
+)
 from halstreet.agent.llm import response_schema as proposal_schema
 from halstreet.marketdata.news import Headline
 
@@ -372,12 +378,41 @@ class Committee:
         return out["bull"][0], out["bear"][0], counts, errors
 
     def judge(self, *, system: str, brief: str) -> tuple[LLMResult, dict[str, int]]:
-        """The decision, in the same schema the single-call path produces."""
-        text, counts, error = self._call(system + _JUDGE_SYS_SUFFIX, brief,
-                                         max_tokens=JUDGE_TOKENS, schema=proposal_schema())
+        """The decision, in the same schema the single-call path produces.
+
+        Including the one correction that path makes. A pass with no rationale is
+        asked to explain itself, once — the single-call path has always done this,
+        and the judge did not, so when the committee became the default the
+        correction silently stopped happening. Nine consecutive passes reached the
+        journal as "(no reason given)", and a decline with no reason cannot be told
+        from a broken model by anyone reading it afterwards.
+
+        Only the rationale is reopened, never the decision: `explain_the_pass` says
+        so plainly, because the failure to avoid is arguing a model into a position
+        it had already, correctly, declined.
+
+        The pass survives a second refusal. A model that will not explain itself
+        twice still declined, and recording that as a cycle failure would misreport
+        a correct decision as a broken one.
+        """
+        system = system + _JUDGE_SYS_SUFFIX
+        text, counts, error = self._call(system, brief, max_tokens=JUDGE_TOKENS,
+                                         schema=proposal_schema())
         if error:
             return LLMResult(None, error=error), counts
-        return LLMResult(parse_proposal(text), raw=text), counts
+
+        first = LLMResult(parse_proposal(text), raw=text)
+        if not first.unexplained_pass:
+            return first, counts
+
+        again, more, error = self._call(system, explain_the_pass(brief),
+                                        max_tokens=JUDGE_TOKENS, schema=proposal_schema())
+        spent = {k: counts[k] + more[k] for k in counts}
+        if error:
+            return first, spent
+        second = LLMResult(parse_proposal(again), raw=again)
+        explained = second.abstained and not second.unexplained_pass
+        return (second if explained else first), spent
 
 
 #: Prepended for the debate only. The base turn is written to elicit a proposal, and
