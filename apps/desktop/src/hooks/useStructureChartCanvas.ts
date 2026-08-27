@@ -50,7 +50,13 @@ export function useStructureChartCanvas(
       },
       grid: { vertLines: { color: CHART_COLOR.grid }, horzLines: { color: CHART_COLOR.grid } },
       rightPriceScale: { borderColor: CHART_COLOR.border },
-      timeScale: { borderColor: CHART_COLOR.border, timeVisible: true, secondsVisible: false },
+      timeScale: {
+        borderColor: CHART_COLOR.border, timeVisible: true, secondsVisible: false,
+        // Room to the right of the newest bar, so the candle still being written is
+        // not pressed against the frame — which is where it is hardest to read and
+        // where its wick gets clipped.
+        rightOffset: 6,
+      },
       crosshair: {
         horzLine: { color: CHART_COLOR.crosshair, labelBackgroundColor: CHART_COLOR.crosshair },
         vertLine: { color: CHART_COLOR.crosshair, labelBackgroundColor: CHART_COLOR.crosshair },
@@ -147,6 +153,8 @@ export function useStructureChartCanvas(
 
     if (series.length) {
       chart.current?.timeScale().fitContent();
+      // `fitContent` collapses the offset it was given; put it back.
+      chart.current?.timeScale().applyOptions({ rightOffset: 6 });
       // Prices first, then whichever levels can join them without flattening the
       // chart. Including everything is geometry, not preference: a stop four times
       // the candle range away *must* squash the candles into a fifth of the height,

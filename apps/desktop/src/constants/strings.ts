@@ -201,6 +201,8 @@ export function makeStrings(t: Translate) {
       barTag: t("chart.barTag"),
       seriesNote: t("chart.seriesNote"),
       forming: t("chart.forming"),
+      auto: t("chart.auto"),
+      timeframeTitle: t("chart.timeframeTitle"),
       fitPrice: t("chart.fitPrice"),
       fitLevels: t("chart.fitLevels"),
       fitTitle: t("chart.fitTitle"),

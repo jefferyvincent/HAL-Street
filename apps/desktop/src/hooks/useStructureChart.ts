@@ -8,11 +8,12 @@ import type { StructureChart } from "@/types";
  * subprocess and waits on Alpaca, and a chart nobody opened has no business on the
  * critical path of a five-second update.
  *
- * Fetched once per structure and not refreshed. An hourly series does not change
- * mid-look, and a chart that redraws under the cursor while someone is reading it is
- * worse than one that is a few minutes stale.
+ * Fetched once per structure, and again when the bar size changes. Not on a timer:
+ * an hourly series does not change mid-look, a chart that redraws under the cursor is
+ * worse than one a few minutes stale, and the live edge is the forming candle's job.
  */
-export function useStructureChart(structureId: string | null) {
+export function useStructureChart(structureId: string | null,
+                                 timeframe: string | null = null) {
   const [chart, setChart] = useState<StructureChart | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +28,9 @@ export function useStructureChart(structureId: string | null) {
     setLoading(true);
     setError(null);
 
-    fetch(`/api/structure/${encodeURIComponent(structureId)}/chart`, { cache: "no-store" })
+    const query = timeframe ? `?timeframe=${encodeURIComponent(timeframe)}` : "";
+    fetch(`/api/structure/${encodeURIComponent(structureId)}/chart${query}`,
+          { cache: "no-store" })
       .then(async (r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return (await r.json()) as StructureChart;
@@ -45,7 +48,7 @@ export function useStructureChart(structureId: string | null) {
     return () => {
       cancelled = true;
     };
-  }, [structureId]);
+  }, [structureId, timeframe]);
 
   return { chart, loading, error };
 }

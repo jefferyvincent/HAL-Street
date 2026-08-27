@@ -58,6 +58,40 @@ _RESOLUTIONS = (
 )
 
 
+#: Bar sizes a caller may ask for, and the bucket each groups into.
+#:
+#: No sub-minute. Alpaca's bars endpoint does not serve them, and an option contract
+#: does not print often enough to fill them — a five-second series on a 45-DTE index
+#: spread would be mostly gaps, and a chart of gaps is worse than a coarser one that
+#: is continuous.
+#:
+#: **Finer is not denser here, and that surprises everyone including me.** `net_series`
+#: keeps only timestamps present on *every* leg, because a net computed from one leg
+#: is not a net. Two option contracts rarely print in the same minute, so the
+#: intersection shrinks as the bars get finer: measured on a live QQQ spread, 15-minute
+#: bars gave 47 usable points and 1-minute bars gave 37. The automatic choice avoids
+#: this; the finer options are offered because they are occasionally what you want on a
+#: liquid pair, not because they are better.
+OFFERED: dict[str, tuple[str, int]] = {
+    "1Min": ("1Min", 13),
+    "5Min": ("5Min", 13),
+    "15Min": ("15Min", 13),
+    "1Hour": ("1Hour", 10),
+    "1Day": ("1Day", 10),
+}
+
+
+def chosen(timeframe: str | None, days: float) -> tuple[str, int]:
+    """The bar size to fetch: what was asked for, or what the window suggests.
+
+    An unknown request falls back to automatic rather than erroring. This is a query
+    string on a read-only route; a typo should give the right chart, not a 400.
+    """
+    if timeframe and timeframe in OFFERED:
+        return OFFERED[timeframe]
+    return resolution(days)
+
+
 def resolution(days: float) -> tuple[str, int]:
     """The bar size and bucket width for a window this long."""
     for limit, timeframe, width in _RESOLUTIONS:

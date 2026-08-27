@@ -45,6 +45,16 @@ interface UI {
   chartFit: "working" | "levels";
   toggleFit: () => void;
   /**
+   * Bar size for the structure chart, or null to let the window decide.
+   *
+   * Held here rather than in the chart so it survives closing one and opening
+   * another — someone who wanted five-minute bars wants them for the next position
+   * too, and re-picking it every time is the kind of small friction that makes a
+   * control not worth having.
+   */
+  chartTimeframe: string | null;
+  setTimeframe: (timeframe: string | null) => void;
+  /**
    * Select a decision *and* show it.
    *
    * `select` alone stopped being enough the moment the record became collapsible:
@@ -84,6 +94,8 @@ export const useUI = create<UI>((set) => ({
   chart: (charting) => set({ charting, view: "book" }),
   decisionOpen: false,
   chartFit: "working",
+  chartTimeframe: null,
+  setTimeframe: (chartTimeframe) => set({ chartTimeframe }),
   toggleFit: () => set((s) => ({ chartFit: s.chartFit === "working" ? "levels" : "working" })),
   toggleDecision: () => set((s) => ({ decisionOpen: !s.decisionOpen })),
   showDecision: (selected) => set({ selected, decisionOpen: true, view: "console" }),

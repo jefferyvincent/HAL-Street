@@ -56,6 +56,8 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
   const { series, candles, lines, last } = useStructureLevels(chart, mark);
   const fit = useUI((s) => s.chartFit);
   const toggleFit = useUI((s) => s.toggleFit);
+  const timeframe = useUI((s) => s.chartTimeframe);
+  const setTimeframe = useUI((s) => s.setTimeframe);
   const host = useStructureChartCanvas(series, candles, lines, mark, fit);
   const now = live?.mark ?? (last === null ? null : String(last));
   const isLive = live?.mark != null;
@@ -122,6 +124,24 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
       )}
 
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[9.5px] leading-[1.4] text-ink/40">
+        {/* Offered from what the server actually serves, so the panel cannot drift
+            from the real set. AUTO matches the bar to the window, which is what
+            this did before it was selectable. */}
+        <span className="flex items-center gap-[6px]" title={t.chart.timeframeTitle}>
+          {[null, ...(chart.timeframes ?? [])].map((tf) => (
+            <button
+              key={tf ?? "auto"}
+              onClick={() => setTimeframe(tf)}
+              aria-pressed={timeframe === tf}
+              className={cn("font-mono text-[9.5px] font-bold leading-none tracking-[.06em]",
+                "transition-colors hover:text-ink focus-visible:outline",
+                "focus-visible:outline-1 focus-visible:outline-amber",
+                timeframe === tf ? "text-amber" : "text-ink/35")}>
+              {tf ?? t.chart.auto}
+            </button>
+          ))}
+        </span>
+
         <button
           onClick={toggleFit}
           title={t.chart.fitTitle}

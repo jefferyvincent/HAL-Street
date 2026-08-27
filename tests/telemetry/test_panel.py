@@ -335,3 +335,22 @@ def test_a_forming_candle_exists_even_before_the_broker_publishes_its_bar():
     # Appended only when it is newer than what the server sent, or it would sit on
     # top of a real candle for the same period.
     assert "forming.time > candles[candles.length - 1]" in hook
+
+
+def test_the_bar_sizes_offered_come_from_the_server():
+    # A copy in the panel is a second list to keep in step, and the one that drifts
+    # is always the one nobody is testing.
+    chart = (SRC / "components" / "StructureChart.tsx").read_text()
+    assert "chart.timeframes" in chart, "the panel hardcodes its own list"
+    assert "t.chart.auto" in chart, "no way back to letting the window decide"
+
+
+def test_the_forming_candle_has_room_to_the_right():
+    """Pressed against the frame is where a candle is hardest to read.
+
+    Its wick gets clipped by the edge, which is the half that moves. `fitContent`
+    also collapses the offset it was given, so it has to be reapplied after.
+    """
+    canvas = (SRC / "hooks" / "useStructureChartCanvas.ts").read_text()
+    assert canvas.count("rightOffset") >= 2, \
+        "the offset must survive fitContent, which resets it"

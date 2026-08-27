@@ -182,6 +182,10 @@ export interface StructureChart {
   exit_filled: boolean;
   policy: { take_profit_pct: string; stop_loss_pct: string; force_close_dte: number };
   realized_usd: string | null;
+  /** The bar size actually used. */
+  timeframe?: string;
+  /** What else can be asked for. Served, so the panel cannot drift from the real set. */
+  timeframes?: string[];
   /** Present when the price history could not be fetched; levels are still drawable. */
   error?: string;
 }

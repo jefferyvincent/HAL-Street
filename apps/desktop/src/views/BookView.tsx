@@ -23,7 +23,8 @@ export function BookView() {
   const { rows, open, closed } = useBook();
   const charting = useUI((s) => s.charting);
   const chartFor = useUI((s) => s.chart);
-  const { chart, loading, error } = useStructureChart(charting);
+  const timeframe = useUI((s) => s.chartTimeframe);
+  const { chart, loading, error } = useStructureChart(charting, timeframe);
   const col = t.book.columns;
 
   const showing = rows.find((r) => r.structureId === charting);

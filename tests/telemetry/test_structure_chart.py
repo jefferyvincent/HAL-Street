@@ -308,3 +308,52 @@ def test_the_forming_flag_survives_serialisation_as_a_boolean():
     # And the prices stay strings, because a Decimal through a float is a different
     # number and this payload is what the chart is drawn from.
     assert all(isinstance(c["o"], str) for c in payload["candles"])
+
+
+# --- choosing the bar size --------------------------------------------------------
+
+def test_a_requested_bar_size_is_honoured():
+    from halstreet.telemetry.structure_chart import chosen
+
+    assert chosen("5Min", days=30) == ("5Min", 13)
+    assert chosen("1Day", days=1) == ("1Day", 10)
+
+
+def test_no_request_falls_back_to_the_window():
+    from halstreet.telemetry.structure_chart import chosen, resolution
+
+    assert chosen(None, days=2) == resolution(2)
+    assert chosen("", days=40) == resolution(40)
+
+
+def test_an_unknown_bar_size_gives_the_right_chart_rather_than_an_error():
+    """This is a query string on a read-only route.
+
+    A typo should draw the chart the window suggests, not return a 400 to someone
+    who only wanted to look at a position.
+    """
+    from halstreet.telemetry.structure_chart import chosen, resolution
+
+    assert chosen("5Sec", days=3) == resolution(3)
+    assert chosen("../etc/passwd", days=3) == resolution(3)
+
+
+def test_nothing_sub_minute_is_offered():
+    """Alpaca does not serve it, and an option would not fill it.
+
+    A five-second series on a 45-DTE index spread is mostly gaps, and a chart of
+    gaps is worse than a coarser one that is continuous.
+    """
+    from halstreet.telemetry.structure_chart import OFFERED
+
+    assert not any(unit in tf for tf in OFFERED for unit in ("Sec", "sec"))
+    assert set(OFFERED) == {"1Min", "5Min", "15Min", "1Hour", "1Day"}
+
+
+def test_every_offered_bar_size_carries_a_bucket_that_matches_it():
+    # A minute bar grouped by date would be one candle from four hundred points.
+    from halstreet.telemetry.structure_chart import OFFERED
+
+    for name, (bar, bucket) in OFFERED.items():
+        assert bar == name
+        assert bucket == (10 if name in ("1Hour", "1Day") else 13), name

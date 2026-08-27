@@ -167,7 +167,9 @@
     "fitPrice": "FIT PRICE",
     "fitLevels": "FIT STOP",
     "fitTitle": "Add the stop to the scale. It sits far from the price, so the candles compress.",
-    "offscreen": "{{name}} is off the chart at {{value}} — FIT STOP to see it"
+    "offscreen": "{{name}} is off the chart at {{value}} — FIT STOP to see it",
+    "auto": "AUTO",
+    "timeframeTitle": "Bar size. Finer is not always denser for a spread — both legs must print in the same bar for the net to exist."
   },
   "committee": {
     "title": "COMMITTEE",

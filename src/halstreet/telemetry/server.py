@@ -527,7 +527,7 @@ async def api_state() -> JSONResponse:
 
 
 @app.get("/api/structure/{structure_id}/chart")
-async def api_structure_chart(structure_id: str) -> JSONResponse:
+async def api_structure_chart(structure_id: str, timeframe: str | None = None) -> JSONResponse:
     """One structure's price history and the levels its exit policy acts on.
 
     The only route that reaches the broker, and it reaches it for market data alone.
@@ -550,11 +550,11 @@ async def api_structure_chart(structure_id: str) -> JSONResponse:
         from halstreet.execution.mcp_client import AlpacaMCP
 
         client = AlpacaMCP.from_env()
-        timeframe, bucket = structure_chart.resolution(
-            structure_chart.window_days(structure))
+        window = structure_chart.window_days(structure)
+        bar, bucket = structure_chart.chosen(timeframe, window)
         bars = await client.get_option_bars(
             sorted(structure.legs),
-            timeframe=timeframe,
+            timeframe=bar,
             start=structure_chart.start_of_window(structure),
         )
     except Exception as exc:
@@ -563,8 +563,12 @@ async def api_structure_chart(structure_id: str) -> JSONResponse:
         payload = structure_chart.build(structure, {}, ExitPolicy.from_env())
         payload["error"] = f"{type(exc).__name__}: {exc}"
         return JSONResponse(_plain(payload))
-    return JSONResponse(_plain(
-        structure_chart.build(structure, bars, ExitPolicy.from_env(), bucket)))
+    payload = structure_chart.build(structure, bars, ExitPolicy.from_env(), bucket)
+    # What was actually used, and what else could be asked for — so the panel offers
+    # the real set rather than a copy of it that has to be kept in step.
+    payload["timeframe"] = bar
+    payload["timeframes"] = list(structure_chart.OFFERED)
+    return JSONResponse(_plain(payload))
 
 
 @app.get("/api/marks")
