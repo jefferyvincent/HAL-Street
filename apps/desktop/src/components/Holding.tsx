@@ -53,8 +53,15 @@ export function Holding() {
                   onClick={() => chart(p.structure_id)}
                   className="cursor-pointer border-b border-line-soft px-3 py-[9px] last:border-b-0 hover:bg-sunk">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                  <span className="font-mono text-[12px] font-semibold leading-[1.3] text-ink">
-                    {p.name}
+                  {/* The root, always, from the position's own field rather than
+                      from its name. Structures opened before the name carried a
+                      ticker still have none, and rewriting the ledger to match code
+                      written after the trade would be editing a record. */}
+                  <span className="font-mono text-[12px] font-bold leading-[1.3] text-amber">
+                    {p.underlying}
+                  </span>
+                  <span className="min-w-0 font-mono text-[12px] font-semibold leading-[1.3] text-ink">
+                    {stripRoot(p.name, p.underlying)}
                   </span>
                   <span className="font-mono text-[10px] leading-none text-ink/40 tabular-nums">
                     ×{p.qty}
@@ -92,4 +99,15 @@ export function Holding() {
       )}
     </div>
   );
+}
+
+/**
+ * The structure's name without a leading ticker, so it is never printed twice.
+ *
+ * Names built after the root was added begin with it; older ones do not. The panel
+ * shows the underlying from its own field either way, and this keeps
+ * "QQQ QQQ 2026-10-16 ..." from happening on the new ones.
+ */
+function stripRoot(name: string, root: string): string {
+  return name.startsWith(`${root} `) ? name.slice(root.length + 1) : name;
 }

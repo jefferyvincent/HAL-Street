@@ -60,6 +60,30 @@ export function makeStrings(t: Translate) {
       detail: (reason: string) => t("halt.detail", { reason }),
     },
 
+    scoreboard: {
+      title: t("scoreboard.title"),
+      realized: t("scoreboard.realized"),
+      unrealized: t("scoreboard.unrealized"),
+      total: t("scoreboard.total"),
+      record: t("scoreboard.record"),
+      recordValue: (wins: number, losses: number) =>
+        t("scoreboard.recordValue", { wins, losses }),
+      recordNone: t("scoreboard.recordNone"),
+      rate: (pct: string, closed: number) => t("scoreboard.rate", { pct, closed }),
+      equity: t("scoreboard.equity"),
+      drawdown: t("scoreboard.drawdown"),
+      drawdownNote: (samples: number) => t("scoreboard.drawdownNote", { samples }),
+      turns: t("scoreboard.turns"),
+      turnsValue: (proposals: number, passed: number) =>
+        t("scoreboard.turnsValue", { proposals, passed }),
+      turnsNote: t("scoreboard.turnsNote"),
+      gated: t("scoreboard.gated"),
+      gatedValue: (approved: number, rejected: number) =>
+        t("scoreboard.gatedValue", { approved, rejected }),
+      orders: t("scoreboard.orders"),
+      unrealizedNote: t("scoreboard.unrealizedNote"),
+    },
+
     console: {
       activity: t("console.activity"),
       holding: t("console.holding"),

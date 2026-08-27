@@ -25,7 +25,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
@@ -200,6 +200,21 @@ def _activity(events: list[dict]) -> list[dict]:
     return out[-RECENT_ACTIVITY:]
 
 
+def _dec(value: Any) -> Decimal | None:
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+
+
+def _round(value: Any, places: int) -> Any:
+    """Quantize for display, leaving anything unparseable exactly as it came."""
+    number = _dec(value)
+    if number is None:
+        return value
+    return number.quantize(Decimal(10) ** -places)
+
+
 def _marks_by_structure(events: list[dict]) -> dict[str, dict]:
     """The agent's own latest read of each open position.
 
@@ -301,11 +316,23 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
     journal = Journal.open(journal_path)
     ledger = Ledger.load(ledger_path)
     breaker = CircuitState.load(breaker_path)
-    report = pnl.build(ledger, journal)
-
     events = list(journal.read())
     latest_patterns = _patterns_by_underlying(events)
     latest_marks = _marks_by_structure(events)
+
+    # The agent's own last marks, so the headline unrealized figure and the number
+    # beside each position come from one source. Without them `build` had no marks
+    # at all and reported unrealized as zero while a position it was showing read
+    # -$12.50 — two numbers contradicting each other on the same screen, which is
+    # worse than either being absent.
+    #
+    # This process still never asks the broker. The agent prices the whole book
+    # every cycle and writes the result down; the snapshot is polled every five
+    # seconds and reads it.
+    report = pnl.build(ledger, journal, marks={
+        sid: mark for sid, read in latest_marks.items()
+        if (mark := _dec(read.get("mark"))) is not None
+    })
     decisions = [e for e in events if e.get("event") == "gate_decision"][-RECENT_DECISIONS:]
     views = {e["underlying"]: e for e in events if e.get("event") == "market_view"}
     latest_menu: dict[str, dict] = {}
@@ -366,7 +393,10 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
             "equity_start": report.equity_start,
             "equity_last": report.equity_last,
             "max_drawdown_usd": report.max_drawdown_usd,
-            "max_drawdown_pct": report.max_drawdown_pct,
+            # Two places, because a raw ratio has twenty-eight significant figures
+            # and a percentage on a screen has two. The Decimal is kept exact
+            # everywhere it is computed; it is rounded once, here, at the edge.
+            "max_drawdown_pct": _round(report.max_drawdown_pct, 2),
             "equity_samples": report.equity_samples,
         },
         # The curve itself, not just its length: the chart plots equity against the

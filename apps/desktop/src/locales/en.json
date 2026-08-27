@@ -175,5 +175,25 @@
     "confidence": "confidence {{value}}",
     "tokens": "{{out}} tokens out",
     "note": "The committee cannot approve anything. Whichever path built a proposal, it meets the same sixteen gates."
+  },
+  "scoreboard": {
+    "title": "THE RUN",
+    "realized": "REALIZED",
+    "unrealized": "UNREALIZED",
+    "total": "TOTAL",
+    "record": "RECORD",
+    "recordValue": "{{wins}}W / {{losses}}L",
+    "recordNone": "nothing closed",
+    "rate": "{{pct}}% of {{closed}} closed",
+    "equity": "EQUITY",
+    "drawdown": "MAX DRAWDOWN",
+    "drawdownNote": "over {{samples}} scan samples — scan resolution, not tick",
+    "turns": "MODEL TURNS",
+    "turnsValue": "{{proposals}} proposed · {{passed}} passed",
+    "turnsNote": "A pass is a considered decline, counted separately.",
+    "gated": "GATED",
+    "gatedValue": "{{approved}} approved · {{rejected}} rejected",
+    "orders": "ORDERS",
+    "unrealizedNote": "Priced at the agent's last mark, not live."
   }
 }

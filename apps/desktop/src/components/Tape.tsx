@@ -6,7 +6,6 @@ import type { Row } from "@/lib/decisions";
 import { useStrings } from "@/hooks/useStrings";
 import { useConnection } from "@/stores/connection";
 import { useUI } from "@/stores/ui";
-import { EquityChart } from "./EquityChart";
 import { Cross, Icon, Tick } from "./Icon";
 
 /** The run as it happened, newest first, with the equity curve above it. */
@@ -18,10 +17,6 @@ export function Tape({ rows, selected }: { rows: Row[]; selected: string | null 
 
   return (
     <aside className="min-w-0 border-t border-line bg-sunk min-[1181px]:border-t-0 min-[1181px]:border-l">
-      <div className="p-3">
-        <EquityChart curve={snap.equity_curve} pnl={snap.pnl} />
-      </div>
-
       <div className="flex items-center gap-2 border-y border-line px-3 py-[9px]">
         <Icon d={ICON.pulse} stroke={STROKE.amber} width={2.2} />
         <span className="font-mono text-[10px] font-bold leading-none tracking-[.12em] text-ink/60">

@@ -297,3 +297,78 @@ def test_the_committee_list_is_bounded_and_newest_first(tmp_path):
     ])
     assert len(state["committees"]) == server.RECENT_COMMITTEES
     assert state["committees"][0]["headlines"] == 29, "newest first"
+
+
+# --- the numbers on the screen must not contradict each other ---------------------
+
+def test_the_headline_unrealized_matches_the_number_beside_the_position(tmp_path):
+    """One source, or two numbers argue on the same screen.
+
+    `build` was called with no marks at all, so it reported unrealized as zero
+    while the holdings strip beside it — reading the same journal — showed
+    -$12.50. Either being absent would have been better than both being present
+    and different.
+
+    This process still never asks the broker. The agent prices the whole book each
+    cycle and writes it down; the snapshot is polled every five seconds and reads.
+    """
+    from decimal import Decimal
+
+    from halstreet.agent.ledger import Ledger, OpenStructure
+
+    ledger = Ledger.load(tmp_path / "ledger.json")
+    ledger.structures.append(OpenStructure(
+        structure_id="s1", name="QQQ 2026-10-16 765/775 call credit spread",
+        underlying="QQQ", qty=1, legs={"QQQ261016C00765000": -1, "QQQ261016C00775000": 1},
+        opened_at="2026-08-27T16:40:00", entry_price=Decimal("-1.51"),
+        entry_filled=True))
+    ledger.save()
+
+    from halstreet.telemetry.journal import Journal
+    j = Journal.open(tmp_path / "run.jsonl")
+    j.write("exit_decision", structure_id="s1", structure="QQQ spread", action="hold",
+            reason="50 DTE", unrealized_usd=Decimal("-12.50"),
+            mark=Decimal("-1.635"), dte=50)
+
+    state = server.snapshot(journal_path=str(tmp_path / "run.jsonl"),
+                            ledger_path=str(tmp_path / "ledger.json"),
+                            breaker_path=str(tmp_path / "circuit.json"))
+    beside = state["positions"][0]["read"]["unrealized_usd"]
+    assert Decimal(state["pnl"]["unrealized"]) == Decimal(beside)
+    assert Decimal(state["pnl"]["unrealized"]) != 0
+
+
+def test_a_percentage_reaches_the_screen_rounded(tmp_path):
+    # A Decimal ratio carries twenty-eight significant figures. Exact everywhere it
+    # is computed, rounded once at the edge — 0.017869674294289820732% is not a
+    # number anyone reads.
+    from decimal import Decimal
+
+    state = _run(tmp_path, [
+        ("cycle_start", {"underlying": "SPY", "spot": "1", "dry_run": True,
+                         "equity": Decimal(100000)}),
+        ("cycle_start", {"underlying": "SPY", "spot": "1", "dry_run": True,
+                         "equity": Decimal("99982.13")}),
+    ])
+    shown = str(state["pnl"]["max_drawdown_pct"])
+    assert len(shown.rsplit(".", maxsplit=1)[-1]) <= 2, shown
+
+
+def test_a_position_the_agent_has_not_priced_yet_reports_nothing(tmp_path):
+    # Not zero. An unpriced position and a flat one are different facts, and the
+    # panel says "not yet priced" for one of them.
+    from decimal import Decimal
+
+    from halstreet.agent.ledger import Ledger, OpenStructure
+
+    ledger = Ledger.load(tmp_path / "ledger.json")
+    ledger.structures.append(OpenStructure(
+        structure_id="s1", name="QQQ spread", underlying="QQQ", qty=1,
+        legs={"QQQ261016C00765000": -1}, opened_at="2026-08-27T16:40:00",
+        entry_price=Decimal("-1.51")))
+    ledger.save()
+
+    state = server.snapshot(journal_path=str(tmp_path / "empty.jsonl"),
+                            ledger_path=str(tmp_path / "ledger.json"),
+                            breaker_path=str(tmp_path / "circuit.json"))
+    assert state["positions"][0]["read"] is None

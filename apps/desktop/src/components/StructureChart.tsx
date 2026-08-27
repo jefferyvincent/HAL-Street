@@ -36,6 +36,20 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
 
   return (
     <>
+      {/* Which underlying, from the chart's own field. A structure opened before
+          names carried a ticker has none, and this view is where someone decides
+          what a position is doing — the least good place to have to infer it. */}
+      <div className="mb-2 flex items-baseline gap-[9px]">
+        <span className="font-mono text-[13px] font-bold leading-none text-amber">
+          {chart.underlying}
+        </span>
+        <span className="min-w-0 font-mono text-[12px] font-semibold leading-[1.3] text-ink">
+          {chart.name.startsWith(`${chart.underlying} `)
+            ? chart.name.slice(chart.underlying.length + 1)
+            : chart.name}
+        </span>
+      </div>
+
       <div className="mb-3 grid grid-cols-2 gap-px bg-line min-[701px]:grid-cols-4">
         {levels ? (
           <>

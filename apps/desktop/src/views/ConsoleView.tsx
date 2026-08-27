@@ -3,6 +3,8 @@ import { clock } from "@/lib/format";
 import { ICON } from "@/constants/icons";
 import { CLS, GRID, STROKE } from "@/constants/theme";
 import { ActivityFeed } from "@/components/ActivityFeed";
+import { EquityChart } from "@/components/EquityChart";
+import { Scoreboard } from "@/components/Scoreboard";
 import { Holding } from "@/components/Holding";
 import { GateLedger } from "@/components/GateLedger";
 import { Cross, Icon, Note, Tick } from "@/components/Icon";
@@ -10,6 +12,7 @@ import { useDecisionFacts } from "@/hooks/useDecisionFacts";
 import { useDecisions } from "@/hooks/useDecisions";
 import { useGateFamilies } from "@/hooks/useGateFamilies";
 import { useStrings } from "@/hooks/useStrings";
+import { useConnection } from "@/stores/connection";
 
 /**
  * One decision, in full.
@@ -21,6 +24,7 @@ import { useStrings } from "@/hooks/useStrings";
 export function ConsoleView() {
   const t = useStrings();
   const { current } = useDecisions();
+  const snap = useConnection((s) => s.snapshot);
   const families = useGateFamilies(current);
   const facts = useDecisionFacts(current);
 
@@ -30,7 +34,9 @@ export function ConsoleView() {
     // rather than a sentence that reads as "broken".
     return (
       <div className="mb-3 flex flex-col gap-3">
-        {/* What is actually at risk, before anything about what was decided. */}
+        {/* How the run is going, then what is at risk, then what was decided. */}
+        <Scoreboard />
+        {snap && <EquityChart curve={snap.equity_curve} pnl={snap.pnl} />}
         <Holding />
         <div className="border border-edge bg-panel">
           <div className={CLS.empty}>{t.console.none}</div>
@@ -46,6 +52,8 @@ export function ConsoleView() {
 
   return (
     <div className="mb-3 flex flex-col gap-3">
+      <Scoreboard />
+      {snap && <EquityChart curve={snap.equity_curve} pnl={snap.pnl} />}
       <Holding />
     <div className={cn("border bg-panel", ok ? "border-edge" : "border-fail")}>
       <div className={cn("flex items-center gap-[9px] border-b px-3 py-[9px]",
