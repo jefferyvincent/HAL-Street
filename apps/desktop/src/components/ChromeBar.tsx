@@ -6,6 +6,8 @@ import { useStrings } from "@/hooks/useStrings";
 import { useTabs } from "@/hooks/useTabs";
 import { useConnection } from "@/stores/connection";
 import { Icon } from "./Icon";
+import { SessionBell } from "./SessionBell";
+import { SoundToggle } from "./SoundToggle";
 
 export function ChromeBar() {
   const t = useStrings();
@@ -48,9 +50,13 @@ export function ChromeBar() {
         {t.chrome.paper}
       </div>
 
+      <SessionBell />
+
       <div className="flex items-center gap-[7px] border-l border-line px-3 font-mono text-[11px] font-semibold leading-none tabular-nums text-ink">
         {t.chrome.equity} {snap ? money(snap.pnl.equity_last) : "—"}
       </div>
+
+      <SoundToggle />
     </div>
   );
 }

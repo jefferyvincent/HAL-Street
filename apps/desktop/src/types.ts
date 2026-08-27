@@ -167,6 +167,27 @@ export interface Menu {
   candidates?: unknown[];
 }
 
+/**
+ * The last session transition the scheduler wrote down.
+ *
+ * Null until a scheduled run has written one: a `--once` run never observes the
+ * closed half of a session, and the panel says nothing rather than inferring a
+ * session from a local clock that knows no holidays or early closes.
+ */
+export interface Market {
+  state: "open" | "closed";
+  /** When the transition was journalled. */
+  at: string;
+  session_date: string | null;
+  next_open: string | null;
+  next_close: string | null;
+  /**
+   * True when the scheduler merely *found* this state on startup rather than
+   * hearing it change. The difference between ringing a bell and labelling one.
+   */
+  observed: boolean;
+}
+
 export interface Snapshot {
   chain: ChainEntry[];
   families: string[];
@@ -179,6 +200,7 @@ export interface Snapshot {
   equity_curve: EquityPoint[];
   views: MarketView[];
   menus: Menu[];
+  market: Market | null;
 }
 
 /** What the socket sends between snapshots — proof of life, not data. */

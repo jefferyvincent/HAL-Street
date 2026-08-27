@@ -236,3 +236,65 @@ def test_the_scheduler_adopts_the_exchanges_date_before_running_a_cycle():
 # so a clock that never answers is unbounded by it. With the autouse fixture making
 # every sleep instant, such a test spins rather than fails. The date staying unadopted
 # in that case is covered by `test_clock.py` instead, where it needs no scheduler.
+
+
+# --- the bell ---------------------------------------------------------------------
+
+class _Recorder:
+    def __init__(self): self.events = []
+    def write(self, event, **fields): self.events.append((event, fields))
+
+
+def _clock(is_open: bool):
+    from datetime import datetime
+    return MarketClock(
+        is_open=is_open,
+        next_open=datetime.fromisoformat("2026-08-28T09:30:00-04:00"),
+        next_close=datetime.fromisoformat("2026-08-27T16:00:00-04:00"),
+        timestamp=datetime.fromisoformat("2026-08-27T10:00:00-04:00"),
+    )
+
+
+def _sched(journal):
+    from halstreet.agent.schedule import Scheduler
+    return Scheduler(client=None, interval_minutes=30, log=lambda _: None, journal=journal)
+
+
+def test_the_bell_is_written_once_per_transition_not_once_per_poll():
+    """The scheduler asks the clock every interval, all night.
+
+    Writing what it heard each time would fill an append-only file with noise and,
+    worse, leave a reader unable to tell the moment the session opened from the many
+    times it was already open.
+    """
+    j = _Recorder()
+    s = _sched(j)
+    for state in (True, True, True, False, False, True):
+        s._note_session(_clock(state))
+    assert [f["state"] for _, f in j.events] == ["open", "closed", "open"]
+
+
+def test_the_first_observation_is_marked_as_arrival_not_as_a_bell():
+    # A scheduler starting mid-session has no prior state, and neither does a reader
+    # joining mid-file. Sounding an opening bell for it would be a lie about when.
+    j = _Recorder()
+    s = _sched(j)
+    s._note_session(_clock(True))
+    s._note_session(_clock(False))
+    assert [f["observed"] for _, f in j.events] == [True, False]
+
+
+def test_the_bell_carries_the_exchanges_own_date_and_the_next_boundary():
+    j = _Recorder()
+    _sched(j)._note_session(_clock(True))
+    _, fields = j.events[0]
+    assert fields["session_date"] == "2026-08-27", "the exchange's date, not the host's"
+    assert fields["next_close"].startswith("2026-08-27 16:00")
+
+
+def test_a_scheduler_with_no_journal_still_runs():
+    # Headless is the default; the journal is an optional observer, never a
+    # dependency of the loop that trades.
+    from halstreet.agent.schedule import Scheduler
+    s = Scheduler(client=None, interval_minutes=30, log=lambda _: None)
+    s._note_session(_clock(True))  # must not raise

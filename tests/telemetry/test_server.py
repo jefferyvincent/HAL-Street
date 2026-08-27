@@ -113,7 +113,7 @@ def test_the_payload_carries_only_what_the_panel_renders(tmp_path):
                                              "dry_run": True}) for _ in range(50)])
     assert "events" not in state
     assert set(state) == {"circuit", "pnl", "positions", "closed", "decisions",
-                          "views", "menus", "equity_curve",
+                          "views", "menus", "equity_curve", "market",
                           "chain", "families", "limits"}
 
 
@@ -160,3 +160,28 @@ def test_limits_are_served_under_their_environment_variable_names():
                             breaker_path="/nonexistent")
     assert "MAX_LOSS_PER_POSITION_USD" in state["limits"]
     assert all(k.isupper() for k in state["limits"])
+
+
+def test_the_bell_is_absent_rather_than_guessed_when_nothing_wrote_one(tmp_path):
+    # A `--once` run never observes the closed half of a session, and the panel must
+    # not infer one from a local clock that knows no holidays or early closes.
+    assert _run(tmp_path, [])["market"] is None
+
+
+def test_the_latest_session_transition_is_the_one_served(tmp_path):
+    state = _run(tmp_path, [
+        ("session", {"state": "closed", "session_date": "2026-08-26", "observed": True}),
+        ("session", {"state": "open", "session_date": "2026-08-27", "observed": False}),
+    ])
+    assert state["market"]["state"] == "open"
+    assert state["market"]["session_date"] == "2026-08-27"
+    assert state["market"]["observed"] is False
+
+
+def test_a_bell_that_rang_is_distinguishable_from_the_state_we_arrived_in(tmp_path):
+    # `observed` is what lets a consumer sound the bell for one and merely label the
+    # other. Without it, starting the panel during a session would replay the open.
+    state = _run(tmp_path, [
+        ("session", {"state": "open", "session_date": "2026-08-27", "observed": True}),
+    ])
+    assert state["market"]["observed"] is True

@@ -80,6 +80,26 @@ def _plain(value: Any) -> Any:
     return value
 
 
+def _last_session(events: list[dict]) -> dict | None:
+    """The most recent session transition the scheduler wrote down.
+
+    `observed` distinguishes a bell that rang from the state the scheduler found on
+    startup — the difference between a sound and a label, for anything downstream
+    that makes noise about it.
+    """
+    for event in reversed(events):
+        if event.get("event") == "session":
+            return {
+                "state": event.get("state"),
+                "at": event.get("ts"),
+                "session_date": event.get("session_date"),
+                "next_open": event.get("next_open"),
+                "next_close": event.get("next_close"),
+                "observed": bool(event.get("observed")),
+            }
+    return None
+
+
 def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
     """Everything the panel needs, in one read.
 
@@ -119,6 +139,11 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
             "DAILY_LOSS_LIMIT_PCT": limits.daily_loss_limit_pct,
             "MAX_ENTRIES_PER_HOUR": limits.max_entries_per_hour,
         },
+        # The last bell, so the panel can ring one and can say which side of it we
+        # are on. `None` until a scheduled run has written one — a `--once` run never
+        # observes the closed half, and the panel should say nothing rather than
+        # guess from a local clock that knows no holidays.
+        "market": _last_session(events),
         "circuit": {
             "halted": breaker.halted,
             "halt_reason": breaker.halt_reason,

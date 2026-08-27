@@ -22,6 +22,28 @@ interface UI {
   open: (ts: string) => void;
   /** Clicking a position charts it; the book view swaps its list for the chart. */
   chart: (structureId: string | null) => void;
+  /** Audio cues off. Persisted, because a console that forgets is one you mute daily. */
+  muted: boolean;
+  setMuted: (muted: boolean) => void;
+}
+
+/**
+ * Muted by default, and remembered.
+ *
+ * Default-on would mean a page that makes noise the first time anyone opens it,
+ * which is the wrong first impression for a risk console and is what browsers
+ * refuse to allow anyway. Reading is wrapped because storage throws outright in a
+ * private window and in a thumbnail capture, and a preference is never worth a
+ * blank screen.
+ */
+const MUTE_KEY = "halstreet.muted";
+
+function storedMute(): boolean {
+  try {
+    return window.localStorage.getItem(MUTE_KEY) !== "false";
+  } catch {
+    return true;
+  }
 }
 
 export const useUI = create<UI>((set) => ({
@@ -34,4 +56,14 @@ export const useUI = create<UI>((set) => ({
   select: (selected) => set({ selected }),
   open: (selected) => set({ selected, view: "console" }),
   chart: (charting) => set({ charting, view: "book" }),
+  muted: storedMute(),
+  setMuted: (muted) => {
+    try {
+      window.localStorage.setItem(MUTE_KEY, String(muted));
+    } catch {
+      // Preference is per-browser and disposable; failing to save it is not a
+      // reason to fail to apply it.
+    }
+    set({ muted });
+  },
 }));

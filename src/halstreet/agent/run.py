@@ -155,7 +155,7 @@ async def main_async(args: argparse.Namespace) -> int:
         await one_pass()
     else:
         interval = int(os.environ.get("SCAN_INTERVAL_MINUTES") or 30)
-        scheduler = Scheduler(client, interval, log=log)
+        scheduler = Scheduler(client, interval, log=log, journal=journal)
         scheduler.install_signal_handlers()
         log(f"scheduled: every {interval}m while the market is open"
             f"{', until the close' if args.until_close else ''}. Ctrl-C to stop.")

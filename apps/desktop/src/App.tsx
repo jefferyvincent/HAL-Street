@@ -4,6 +4,7 @@ import { Rail } from "@/components/Rail";
 import { StatusBar } from "@/components/StatusBar";
 import { Tape } from "@/components/Tape";
 import { GRID } from "@/constants/theme";
+import { useAudioCues } from "@/hooks/useAudioCues";
 import { useConnect } from "@/hooks/useConnect";
 import { useDecisions } from "@/hooks/useDecisions";
 import { useGateFamilies } from "@/hooks/useGateFamilies";
@@ -29,6 +30,10 @@ export default function App() {
 
   useConnect();
   useShortcuts(decisions);
+  // Sounds the bell and the trade cues. Silent until the operator turns audio on,
+  // and silent on the first snapshot whatever the setting — opening a dashboard is
+  // not an event, and replaying the morning is not a notification.
+  useAudioCues(snap);
 
   const View = VIEWS[view];
   // The rails describe the selected decision, so they belong to the console. The

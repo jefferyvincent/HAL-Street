@@ -27,6 +27,7 @@ import signal
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
+from typing import Any
 
 from halstreet import clock as session_clock
 from halstreet.execution.mcp_client import AlpacaMCP, MCPError
@@ -92,14 +93,47 @@ class Scheduler:
 
     def __init__(self, client: AlpacaMCP, interval_minutes: int, *,
                  log: Callable[[str], None] = print,
+                 journal: Any = None,
                  max_sleep_seconds: float = 900.0) -> None:
         self.client = client
         self.interval = max(1, interval_minutes) * 60
         self.log = log
+        # Optional, so the scheduler still runs headless in tests. When it is here,
+        # the open/closed transition is written down — the loop only ever runs while
+        # the market is open, so this is the one place that observes the *closed*
+        # half at all, and nothing downstream could otherwise tell a session that
+        # ended from an agent that stopped.
+        self.journal = journal
+        self._was_open: bool | None = None
         # Never sleep longer than this in one go, so a stop signal is acted on promptly
         # even when the next open is fifteen hours away.
         self.max_sleep = max_sleep_seconds
         self._stop = asyncio.Event()
+
+    def _note_session(self, clock: MarketClock) -> None:
+        """Journal the bell, once, when the broker's answer changes.
+
+        On the transition only. Written every poll it would be noise in an
+        append-only file — the scheduler asks the clock every interval all night —
+        and a reader could not tell the moment the session opened from the many
+        times it was observed already open.
+
+        The first observation counts as a transition, because a reader joining
+        mid-file has no prior state either.
+        """
+        if self.journal is None or clock.is_open == self._was_open:
+            return
+        first, self._was_open = self._was_open is None, clock.is_open
+        self.journal.write(
+            "session",
+            state="open" if clock.is_open else "closed",
+            session_date=clock.session_date.isoformat() if clock.session_date else None,
+            next_open=str(clock.next_open) if clock.next_open else None,
+            next_close=str(clock.next_close) if clock.next_close else None,
+            # So a consumer can tell "the bell just rang" from "this is where we came
+            # in" — the difference between ringing it and drawing it greyed out.
+            observed=first,
+        )
 
     def request_stop(self, reason: str = "signal") -> None:
         if not self._stop.is_set():
@@ -144,6 +178,7 @@ class Scheduler:
             # so every DTE, every expiry check and the breaker's daily baseline are
             # measured against the market's calendar rather than this host's.
             session_clock.adopt(clock)
+            self._note_session(clock)
 
             if not clock.is_open:
                 if not wait_for_open:

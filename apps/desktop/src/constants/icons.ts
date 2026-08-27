@@ -12,6 +12,11 @@ export const ICON = {
   back: "M15 5l-7 7 7 7",
   tick: "M4 12l5 5L20 6",
   cross: "M6 6l12 12 M18 6L6 18",
+  // The opening/closing bell. Struck, not a notification bell — flared skirt, clapper.
+  bell: "M12 3a6 6 0 00-6 6c0 4-2 5-2 7h16c0-2-2-3-2-7a6 6 0 00-6-6z M10 19a2 2 0 004 0",
+  // Speaker with waves; the muted variant strikes them through.
+  sound: "M4 9v6h4l5 4V5L8 9H4z M16.5 8.5a5 5 0 010 7 M19 6a9 9 0 010 12",
+  muted: "M4 9v6h4l5 4V5L8 9H4z M17 9l5 6 M22 9l-5 6",
 } as const;
 
 /** One glyph per gate family, keyed by the family the server stamps. */

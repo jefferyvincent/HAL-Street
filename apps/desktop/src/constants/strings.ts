@@ -33,6 +33,12 @@ export function makeStrings(t: Translate) {
       equity: t("chrome.equity"),
       breakerArmed: t("chrome.breakerArmed"),
       breakerHalted: t("chrome.breakerHalted"),
+      soundOn: t("chrome.soundOn"),
+      soundOff: t("chrome.soundOff"),
+      soundTitle: t("chrome.soundTitle"),
+      marketOpen: t("chrome.marketOpen"),
+      marketClosed: t("chrome.marketClosed"),
+      marketUnknown: t("chrome.marketUnknown"),
     },
 
     tabs: {

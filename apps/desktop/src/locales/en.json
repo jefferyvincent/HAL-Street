@@ -7,7 +7,16 @@
     "paper": "PAPER",
     "equity": "EQUITY",
     "breakerArmed": "BREAKER ARMED",
-    "breakerHalted": "BREAKER HALTED"
+    "breakerHalted": "BREAKER HALTED",
+    "soundOn": "SOUND",
+    "soundOff": "MUTED",
+    "soundTitle": "Bell at the open and close, a till for a closed winner, a buzzer for a closed loser",
+    "marketOpen": "OPEN",
+    "marketClosed": "CLOSED",
+    "marketUnknown": "—",
+    "marketTitleOpen": "The broker's clock said the session was open at {{at}}",
+    "marketTitleClosed": "The broker's clock said the session was closed at {{at}}",
+    "marketTitleUnknown": "No scheduled run has recorded a session boundary yet"
   },
   "tabs": {
     "console": "CONSOLE",

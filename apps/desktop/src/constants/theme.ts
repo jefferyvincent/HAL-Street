@@ -51,3 +51,11 @@ export const CLS = {
   empty: "p-4 font-sans text-[13px] leading-[1.5] text-ink/40",
   dot: "h-[6px] w-[6px] rounded-full",
 } as const;
+
+/**
+ * Space between two cues arriving in the same push.
+ *
+ * A cycle can close three positions at once, and three sounds fired together are
+ * one unreadable chord — the point of separate cues is that you can count them.
+ */
+export const CUE_GAP_MS = 700;
