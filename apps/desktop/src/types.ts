@@ -162,7 +162,21 @@ export interface StructureChart {
   opened_at: string;
   closed_at: string | null;
   dte: number | null;
-  legs: { symbol: string; signed: number }[];
+  /**
+   * Each leg with the price it filled at on the way in, and — once closed — on the
+   * way out. Both come off the order's own `legs` array, so they belong to this
+   * structure rather than to whatever the broker has netted under that symbol.
+   */
+  legs: {
+    symbol: string;
+    /** Signed contracts per structure, before size. */
+    signed: number;
+    /** And after it: what the account actually holds for this structure. */
+    contracts: number;
+    basis: string | null;
+    exit: string | null;
+    realized_usd: string | null;
+  }[];
   /** The structure's own net price over time, not a single leg's. */
   series: { t: string; v: string }[];
   /**
@@ -295,6 +309,20 @@ export interface Snapshot {
   committees: Committee[];
 }
 
+/** One leg of an open structure, priced. All dollar figures are scaled by size. */
+export interface LegMark {
+  symbol: string;
+  signed: number;
+  contracts: number;
+  bid: string | null;
+  ask: string | null;
+  mid: string | null;
+  /** What it filled at per contract, from the opening order. Null if never recorded. */
+  basis: string | null;
+  value_usd: string | null;
+  unrealized_usd: string | null;
+}
+
 /** Live marks for open structures, from the one route that reaches the broker. */
 export interface Marks {
   marks: Record<string, {
@@ -302,6 +330,15 @@ export interface Marks {
     unrealized_usd?: string | null;
     /** Legs that could not be priced. A partial mark is not a mark. */
     missing?: string[];
+    /**
+     * Every leg priced individually. Sent even when the net refuses to price — a
+     * structure missing a quote is exactly when you want to see which leg is missing
+     * it and what the others are doing.
+     *
+     * `unrealized_usd` here sums to the structure's own, because the leg fills sum to
+     * the net fill and the leg mids sum to the net mark.
+     */
+    legs?: LegMark[];
   }>;
   as_of: string;
   error?: string;

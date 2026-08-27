@@ -37,7 +37,12 @@ from fastapi.staticfiles import StaticFiles
 from halstreet import paths
 from halstreet.agent.breaker import CircuitState
 from halstreet.agent.ledger import Ledger
-from halstreet.agent.manager import CONTRACT_MULTIPLIER, ExitPolicy, mark_structure
+from halstreet.agent.manager import (
+    CONTRACT_MULTIPLIER,
+    ExitPolicy,
+    mark_legs,
+    mark_structure,
+)
 from halstreet.gates import ALL_GATES
 from halstreet.gates.base import FAMILIES, Limits, family_of
 from halstreet.strategy.exposure import agrees, exposure_of
@@ -323,6 +328,40 @@ def _pattern_read(structure: Any, by_underlying: dict[str, list[dict]]) -> dict:
         "against": against,
         "confirming": confirming,
     }
+
+
+def _legs_view(structure: Any, chain: dict[str, dict]) -> list[dict]:
+    """Each leg of one structure: what it is, what it costs now, what it has done.
+
+    The question "the spread is ten dollars down — which leg?" had no answer anywhere
+    in this system until the opening order's per-leg fills were kept, because the
+    ledger recorded the net and discarded the rest.
+
+    Every figure here is scaled by the structure's size, like the P&L beside it, so a
+    two-contract position's legs add up to the two-contract total rather than to a
+    single spread. `basis` is the exception and is deliberately per contract: it is a
+    price, and a price does not change when you trade ten.
+
+    Nothing is computed twice. `mark_legs` is what `mark_structure` sums, so a leg
+    shown as unpriced here is a leg the net is refusing to include, and the P&L column
+    adds to the structure's own P&L exactly rather than approximately.
+    """
+    qty = structure.qty
+    return [
+        {
+            "symbol": leg.symbol,
+            "signed": leg.signed,
+            "contracts": leg.signed * qty,
+            "bid": leg.bid,
+            "ask": leg.ask,
+            "mid": leg.mid,
+            # What it filled at, per contract, and what it is worth now in dollars.
+            "basis": leg.basis,
+            "value_usd": leg.value(qty),
+            "unrealized_usd": leg.pnl(qty),
+        }
+        for leg in mark_legs(structure, chain)
+    ]
 
 
 def _last_session(events: list[dict]) -> dict | None:
@@ -611,16 +650,21 @@ async def api_marks() -> JSONResponse:
     out: dict[str, Any] = {}
     for structure in structures:
         mark = mark_structure(structure, chain)
+        # The legs go out either way. A structure the net refuses to price is exactly
+        # the one where a person wants to see which leg has no quote, and the old
+        # `{"missing": [...]}` said how many without saying which prices did arrive.
+        legs = _legs_view(structure, chain)
         if not mark.complete:
             # Reported, not guessed. A mark from three of four legs is not a mark,
             # and this is the same refusal `evaluate_exit` makes.
-            out[structure.structure_id] = {"missing": mark.missing[:4]}
+            out[structure.structure_id] = {"missing": mark.missing[:4], "legs": legs}
             continue
         unrealized = None
         if structure.entry_price is not None:
             unrealized = ((mark.value - structure.entry_price)
                           * CONTRACT_MULTIPLIER * structure.qty)
-        out[structure.structure_id] = {"mark": mark.value, "unrealized_usd": unrealized}
+        out[structure.structure_id] = {"mark": mark.value,
+                                       "unrealized_usd": unrealized, "legs": legs}
     return JSONResponse(_plain({"marks": out, "as_of": _now()}))
 
 

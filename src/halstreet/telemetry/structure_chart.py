@@ -223,10 +223,30 @@ def start_of_window(structure: OpenStructure) -> str:
     return (anchor - timedelta(days=lead)).strftime("%Y-%m-%d")
 
 
+def _price(value: Decimal | None) -> str | None:
+    """A per-contract price for the wire. Kept a string so no cent is rounded away."""
+    return None if value is None else str(value)
+
+
+def _leg_realized(entry: Decimal | None, exit_: Decimal | None,
+                  signed: int, qty: int) -> str | None:
+    """What one leg made or lost over the round trip, in dollars.
+
+    `(exit - entry) * signed`, which is the same shape as the unrealized figure the
+    marks route computes and gives a short leg the right sign without a special case:
+    sold at 4.51 and bought back at 3.00 is a gain, and `signed` is negative.
+    """
+    if entry is None or exit_ is None:
+        return None
+    return str((exit_ - entry) * signed * qty * 100)
+
+
 def build(structure: OpenStructure, bars: dict[str, list[dict]],
           policy: ExitPolicy, bucket: int = 10) -> dict[str, Any]:
     """Everything the chart needs, in the shape the panel renders."""
     series = net_series(structure, bars)
+    entry_legs = structure.entry_legs or {}
+    exit_legs = structure.exit_legs or {}
     entry = structure.entry_price
     levels = exit_levels(entry, policy) if entry is not None else None
 
@@ -239,7 +259,26 @@ def build(structure: OpenStructure, bars: dict[str, list[dict]],
         "opened_at": structure.opened_at,
         "closed_at": structure.closed_at,
         "dte": structure.dte(),
-        "legs": [{"symbol": s, "signed": n} for s, n in sorted(structure.legs.items())],
+        # Each leg with what it filled at on the way in and, once closed, on the way
+        # out. Those come off the order's own `legs` array and are the only per-leg
+        # cost basis that belongs to *this* structure — the broker's position list
+        # nets a shared contract across every structure holding it, so its
+        # `avg_entry_price` answers a different question than the one being asked.
+        #
+        # Realized rather than unrealized on a closed position: there is nothing left
+        # to mark, and the round trip is the whole story.
+        "legs": [
+            {
+                "symbol": symbol,
+                "signed": signed,
+                "contracts": signed * structure.qty,
+                "basis": _price(entry_legs.get(symbol)),
+                "exit": _price(exit_legs.get(symbol)),
+                "realized_usd": _leg_realized(
+                    entry_legs.get(symbol), exit_legs.get(symbol), signed, structure.qty),
+            }
+            for symbol, signed in sorted(structure.legs.items())
+        ],
         "series": [{"t": p.t, "v": str(p.value)} for p in series],
         # The same prices as candles, one per session. See `net_candles` for why they
         # are bucketed from the net rather than summed from the legs' own ranges.

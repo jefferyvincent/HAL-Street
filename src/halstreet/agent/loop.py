@@ -42,6 +42,7 @@ from halstreet.agent.manager import (
     closing_order,
     review,
 )
+from halstreet.execution.fills import leg_fills
 from halstreet.execution.mcp_client import AlpacaMCP, MCPError
 from halstreet.execution.paper_assert import LiveEnvironmentError
 from halstreet.execution.structures import StructureError
@@ -164,6 +165,10 @@ class Agent:
         # Real fill prices first: the exit thresholds below are percentages of the
         # entry price, so they must be measured from what we actually paid.
         await self.refresh_fills()
+        # After it, and separately: `refresh_fills` returns a count of corrected
+        # prices and callers read it as one, so a backfill that changes no price must
+        # not be added to it.
+        await self.refresh_leg_fills()
         decisions = review(self.ledger, chain, self.policy, asof=clock.today())
         for decision in decisions:
             self.journal.write(
@@ -242,7 +247,44 @@ class Agent:
                     side="entry" if entry else "exit",
                     limit_price=was, fill_price=price,
                 )
+            # Off the same order, at no extra cost. The net is what the policy acts
+            # on; the legs are what a person reads.
+            self.ledger.record_leg_fills(
+                structure.structure_id, leg_fills(order), entry=entry)
+
         return corrected
+
+    async def refresh_leg_fills(self) -> int:
+        """Fetch per-leg fills for structures whose net was confirmed without them.
+
+        A second pass rather than a wider first one, because the two ask different
+        questions. `refresh_fills` chases a price the ledger is still guessing at;
+        this chases a detail the ledger never asked for. Every position opened before
+        per-leg fills were recorded is in the second state and none of them is in the
+        first, so folding them together would have meant either never backfilling or
+        re-confirming net prices that were already confirmed.
+
+        Bounded by `awaiting_leg_prices`: a structure is asked once. An order with no
+        usable legs records `{}` and is never asked again, so this costs nothing on a
+        steady book.
+        """
+        learned = 0
+        for structure in self.ledger.awaiting_leg_prices():
+            entry = structure.is_open
+            order_id = structure.order_id if entry else structure.exit_order_id
+            try:
+                order = await self.client.get_order(order_id)
+            except MCPError:
+                # No journal entry. The net price is already known, nothing downstream
+                # is waiting on this, and a failure here costs a leg table its prices
+                # for one cycle — not a decision.
+                continue
+            if (order or {}).get("status") != "filled":
+                continue  # still working; `awaiting_leg_prices` will offer it again
+            if self.ledger.record_leg_fills(
+                    structure.structure_id, leg_fills(order), entry=entry):
+                learned += 1
+        return learned
 
     async def _close(self, decision: ExitDecision) -> None:
         """Submit the closing order for one structure and retire it in the ledger."""
@@ -294,6 +336,11 @@ class Agent:
         # the ledger would have the next cycle try to close it again.
         self.ledger.record_close(structure.structure_id, exit_price=exit_price,
                                  exit_order_id=response.get("id"))
+        # Only when the broker already answered with them. A closing order accepted
+        # but not yet filled has legs with no prices, and `leg_fills` returns nothing
+        # rather than a partial map — leaving this `None` so the next cycle asks.
+        if legs := leg_fills(response):
+            self.ledger.record_leg_fills(structure.structure_id, legs, entry=False)
         # Saved here rather than once after the sweep. The order is already with the
         # broker; between that and the write hitting disk, a crash or a kill leaves a
         # position the ledger thinks is still open and will close again on restart.
@@ -594,6 +641,11 @@ class Agent:
             entry_price=proposal.structure.limit_price, order_id=result.order_id,
             rationale=proposal.rationale,
         )
+        # Same rule as the close: record them only if this response already carries
+        # them. An order recorded at `pending_new` has none, and `refresh_leg_fills`
+        # is what picks them up once it fills.
+        if legs := leg_fills(response):
+            self.ledger.record_leg_fills(structure_id, legs, entry=True)
         self.ledger.save()
 
     # --- the universe -------------------------------------------------------------

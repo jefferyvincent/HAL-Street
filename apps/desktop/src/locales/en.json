@@ -169,7 +169,20 @@
     "fitTitle": "Add the stop to the scale. It sits far from the price, so the candles compress.",
     "offscreen": "{{name}} is off the chart at {{value}} — FIT STOP to see it",
     "auto": "AUTO",
-    "timeframeTitle": "Bar size. Finer is not always denser for a spread — both legs must print in the same bar for the net to exist."
+    "timeframeTitle": "Bar size. Finer is not always denser for a spread — both legs must print in the same bar for the net to exist.",
+    "legs": "LEGS",
+    "legQty": "QTY",
+    "legContract": "CONTRACT",
+    "legFill": "FILLED AT",
+    "legNow": "NOW",
+    "legPnl": "P&L",
+    "legNoQuote": "no quote",
+    "legNoBasis": "not recorded",
+    "legShort": "short",
+    "legLong": "long",
+    "legsNote": "Fill prices come from the opening order's own legs, so they belong to this structure — the broker nets a shared contract across every structure holding it. The P&L column adds up to the position's, exactly.",
+    "legsPending": "This position was opened before per-leg fills were recorded. The agent asks the broker for them once, on its next cycle.",
+    "exitAt": "CLOSED AT"
   },
   "committee": {
     "title": "COMMITTEE",

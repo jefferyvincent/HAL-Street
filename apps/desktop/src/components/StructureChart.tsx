@@ -1,4 +1,5 @@
 import { cn } from "@/lib/cn";
+import { LegTable } from "@/components/LegTable";
 import { Ticker } from "@/components/Ticker";
 import { Trend } from "@/components/Trend";
 import { clock, day, money, premium, toClose } from "@/lib/format";
@@ -169,20 +170,7 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
         ))}
       </div>
 
-      <div className="mt-3 border border-line bg-panel">
-        {chart.legs.map((leg) => (
-          <div key={leg.symbol}
-               className="flex items-center gap-[9px] border-b border-line-soft px-3 py-[7px] last:border-b-0">
-            <span className={cn("w-[34px] font-mono text-[10px] font-bold leading-none",
-              leg.signed < 0 ? "text-fail" : "text-pass")}>
-              {leg.signed > 0 ? `+${leg.signed}` : leg.signed}
-            </span>
-            <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] leading-[1.2] text-ink">
-              {leg.symbol}
-            </span>
-          </div>
-        ))}
-      </div>
+      <LegTable chart={chart} live={live} />
 
       <div className="mt-2 font-mono text-[9.5px] leading-[1.4] text-ink/35">
         opened {day(chart.opened_at)} {clock(chart.opened_at)}

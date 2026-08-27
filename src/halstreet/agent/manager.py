@@ -237,6 +237,90 @@ def exit_levels(entry_price: Decimal, policy: ExitPolicy) -> Levels:
                   stop_reachable=stop >= 0)
 
 
+@dataclass(frozen=True)
+class LegMark:
+    """One leg of a structure, priced — and its share of the position's P&L.
+
+    The panel wants this because "the spread is ten dollars down" invites exactly one
+    follow-up question, and until now nothing could answer it: the ledger recorded the
+    net and threw the legs away.
+
+    `basis` is what this leg actually filled at on the opening order, per contract,
+    positive on both sides — see `execution.fills`. It is `None` for a structure
+    opened before per-leg fills were kept, and the P&L is `None` with it rather than
+    being invented from the net.
+    """
+
+    symbol: str
+    #: Signed contracts *per structure*, before size. `qty` scales it, exactly as it
+    #: does for the net — keeping the two in step is why `pnl` takes the structure.
+    signed: int
+    bid: Decimal | None
+    ask: Decimal | None
+    basis: Decimal | None = None
+
+    @property
+    def mid(self) -> Decimal | None:
+        """The same mid `mark_structure` sums, or `None` on the same conditions.
+
+        A one-sided or zero-ask quote is not a price. This is the single definition of
+        that judgement; the net is built from these, so a leg the panel shows as
+        unpriced is a leg the net is refusing to include.
+        """
+        if self.bid is None or self.ask is None or self.ask <= 0:
+            return None
+        return (self.bid + self.ask) / 2
+
+    @property
+    def priced(self) -> bool:
+        return self.mid is not None
+
+    def value(self, qty: int) -> Decimal | None:
+        """What this leg contributes to the position's current value, in dollars.
+
+        Negative for a short leg: it is what you would have to pay to be rid of it.
+        """
+        mid = self.mid
+        return None if mid is None else mid * self.signed * qty * CONTRACT_MULTIPLIER
+
+    def pnl(self, qty: int) -> Decimal | None:
+        """This leg's unrealized P&L in dollars, from its own fill.
+
+        `(mid - basis) * signed`: a short leg carries a negative `signed`, so it makes
+        money when its mid falls below what it was sold for, which is the right sign
+        without a special case.
+
+        These sum to the structure's unrealized P&L exactly, because the leg fills sum
+        to the net fill and the leg mids sum to the net mark. That identity is pinned
+        by test — the instant it stops holding, one of the two numbers on the screen is
+        wrong and there is no way to tell which.
+        """
+        mid, basis = self.mid, self.basis
+        if mid is None or basis is None:
+            return None
+        return (mid - basis) * self.signed * qty * CONTRACT_MULTIPLIER
+
+
+def mark_legs(structure: OpenStructure, chain: dict[str, dict]) -> list[LegMark]:
+    """Every leg of a structure, priced from the chain, in the ledger's own order.
+
+    The parts `mark_structure` is built out of. Written this way round so the legs and
+    the net cannot disagree about what a mid is or which legs are missing: there is
+    one arithmetic, and the net is its sum.
+    """
+    fills = structure.entry_legs or {}
+    return [
+        LegMark(
+            symbol=symbol,
+            signed=signed,
+            bid=_dec(((chain.get(symbol) or {}).get("latestQuote") or {}).get("bp")),
+            ask=_dec(((chain.get(symbol) or {}).get("latestQuote") or {}).get("ap")),
+            basis=fills.get(symbol),
+        )
+        for symbol, signed in structure.legs.items()
+    ]
+
+
 def mark_structure(structure: OpenStructure, chain: dict[str, dict]) -> Mark:
     """Current net mark for an open structure, using leg mids.
 
@@ -244,16 +328,20 @@ def mark_structure(structure: OpenStructure, chain: dict[str, dict]) -> Mark:
     this position (a debit), negative means you hold it for a credit. Incomplete data
     is reported rather than guessed — a mark computed from three of four legs is not a
     mark, and acting on one would be worse than holding.
+
+    The sum of `mark_legs`, rather than its own second walk of the chain. When the
+    panel began showing per-leg prices there were briefly going to be two versions of
+    "what is a usable quote", and two versions of that rule is how a leg table comes to
+    show four prices under a mark that says it only has three.
     """
     total = Decimal(0)
     missing: list[str] = []
-    for symbol, signed in structure.legs.items():
-        quote = (chain.get(symbol) or {}).get("latestQuote") or {}
-        bid, ask = _dec(quote.get("bp")), _dec(quote.get("ap"))
-        if bid is None or ask is None or ask <= 0:
-            missing.append(symbol)
+    for leg in mark_legs(structure, chain):
+        mid = leg.mid
+        if mid is None:
+            missing.append(leg.symbol)
             continue
-        total += (bid + ask) / 2 * signed
+        total += mid * leg.signed
     return Mark(value=total, complete=not missing, missing=missing)
 
 

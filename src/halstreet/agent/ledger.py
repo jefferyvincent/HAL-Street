@@ -43,6 +43,28 @@ def _num(value: object) -> Decimal | None:
         return None
 
 
+def _prices(value: object) -> dict[str, Decimal] | None:
+    """A symbol -> price map back off disk, keeping `None` distinct from `{}`.
+
+    A row written before per-leg fills were recorded has no key at all, which must
+    read as "never asked" rather than "asked, and there were none" — those are the
+    two states the backfill switches on.
+    """
+    if not isinstance(value, dict):
+        return None
+    out = {}
+    for symbol, price in value.items():
+        number = _num(price)
+        if number is not None:
+            out[str(symbol)] = number
+    return out
+
+
+def _plain_prices(value: dict[str, Decimal] | None) -> dict[str, str] | None:
+    """The same map on its way to disk. `Decimal` is not JSON, and `float` is not exact."""
+    return None if value is None else {k: str(v) for k, v in value.items()}
+
+
 @dataclass
 class OpenStructure:
     """One structure the agent believes it holds."""
@@ -69,6 +91,17 @@ class OpenStructure:
     #: limit is indistinguishable from one that was never looked up at all.
     entry_filled: bool = False
     exit_filled: bool = False
+    #: What each leg filled at, per contract, positive on both sides — the broker's
+    #: own `legs` array off the order. See `execution.fills.leg_fills`.
+    #:
+    #: Three states, not two. `None` means the order has never been asked about;
+    #: `{}` means it was asked and carried no usable per-leg prices, so it is not
+    #: asked again. Without that distinction the backfill either never terminates on
+    #: an order that will never have legs, or never starts on a structure recorded
+    #: before this field existed — and the live position at the time it was added was
+    #: exactly the second case.
+    entry_legs: dict[str, Decimal] | None = None
+    exit_legs: dict[str, Decimal] | None = None
 
     @property
     def is_open(self) -> bool:
@@ -134,6 +167,8 @@ class Ledger:
                         **row,
                         "entry_price": _num(row.get("entry_price")),
                         "exit_price": _num(row.get("exit_price")),
+                        "entry_legs": _prices(row.get("entry_legs")),
+                        "exit_legs": _prices(row.get("exit_legs")),
                     }
                 )
                 for row in raw.get("structures", [])
@@ -147,6 +182,8 @@ class Ledger:
             row = asdict(s)
             row["entry_price"] = None if s.entry_price is None else str(s.entry_price)
             row["exit_price"] = None if s.exit_price is None else str(s.exit_price)
+            row["entry_legs"] = _plain_prices(s.entry_legs)
+            row["exit_legs"] = _plain_prices(s.exit_legs)
             rows.append(row)
         self.path.write_text(json.dumps({"structures": rows}, indent=2) + "\n")
 
@@ -278,6 +315,47 @@ class Ledger:
             if (s.is_open and not s.entry_filled and s.order_id)
             or (not s.is_open and not s.exit_filled and s.exit_order_id)
         ]
+
+    def awaiting_leg_prices(self) -> list[OpenStructure]:
+        """Structures whose order has never been asked for its per-leg fills.
+
+        Separate from `awaiting_fill_price` because the two ask about different
+        things off the same order. The net price is confirmed once; the per-leg
+        prices were not recorded at all until they were wanted for display, so a
+        structure can have a confirmed net fill and no legs — which is precisely the
+        state every position opened before this existed is in.
+
+        `None` is the only trigger. A structure that was asked and got nothing back
+        holds `{}` and is never asked again, so a single-leg order or one the broker
+        answers without a `legs` array costs one lookup and not one per cycle for as
+        long as it is held.
+        """
+        return [
+            s for s in self.structures
+            if (s.is_open and s.entry_legs is None and s.order_id)
+            or (not s.is_open and s.exit_legs is None and s.exit_order_id)
+        ]
+
+    def record_leg_fills(self, structure_id: str, legs: dict[str, Decimal], *,
+                         entry: bool) -> bool:
+        """Write the per-leg fills for one side, and stop asking about it.
+
+        `{}` is written as readily as a full map: it is the record that the order was
+        looked at and had nothing to give, and it is what bounds `awaiting_leg_prices`.
+
+        Returns whether anything was actually learned, so a caller can journal the
+        ones that carried prices and stay quiet about the ones that did not.
+        """
+        for s in self.structures:
+            if s.structure_id != structure_id:
+                continue
+            if entry:
+                s.entry_legs = dict(legs)
+            else:
+                s.exit_legs = dict(legs)
+            self.save()
+            return bool(legs)
+        return False
 
     def structures_holding(self, symbol: str) -> list[OpenStructure]:
         """Which open structures contribute to a contract.
