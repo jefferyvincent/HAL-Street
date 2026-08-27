@@ -55,8 +55,27 @@ def coverage(journal_path: str) -> tuple[Counter, list[str]]:
     return seen, missing
 
 
+def runs_in(journal_path: str) -> list[str]:
+    """Distinct agent runs that wrote to this file, oldest first."""
+    out: list[str] = []
+    for event in Journal.open(journal_path).read():
+        run = str(event.get("run") or "")
+        if run and run not in out:
+            out.append(run)
+    return out
+
+
 def report(journal_path: str) -> int:
     seen, missing = coverage(journal_path)
+    runs = runs_in(journal_path)
+    if len(runs) > 1:
+        # The table below counts events, and it cannot tell whose. Two soaks once
+        # shared a journal for an hour — one of them a version behind — and the
+        # coverage read as a single clean session. A soak whose only output is this
+        # table must not present two runs as one.
+        print(f"\n!! this journal was written by {len(runs)} runs: {', '.join(runs)}")
+        print("   The table below counts all of them together. Re-run against a fresh")
+        print("   --journal for a session you intend to cite.")
     width = max(len(n) for n in LIFECYCLE)
     print("\n--- what this run reached ---")
     for name, what in LIFECYCLE.items():

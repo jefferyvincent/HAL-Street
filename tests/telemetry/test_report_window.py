@@ -167,3 +167,39 @@ def test_a_record_written_before_session_date_existed_still_dates_correctly(tmp_
                                                   "equity": Decimal(100000)}))
     covered = pnl.sessions_covered(journal)
     assert len(covered) == 1 and len(covered[0]) == 10
+
+
+# --- whose figures are these -----------------------------------------------------
+
+def test_the_results_block_states_when_more_than_one_run_is_behind_it(tmp_path):
+    """A restart mid-window is ordinary. Two agents at once is not.
+
+    Both look identical in a file that does not record who wrote each line, and the
+    difference matters in the one section a judge reads first.
+    """
+    from halstreet.telemetry.journal import Journal
+
+    a = Journal.open(tmp_path / "run.jsonl")
+    b = Journal.open(tmp_path / "run.jsonl")
+    for j in (a, b):
+        j.write("cycle_start", underlying="SPY", session_date="2026-09-01",
+                equity=Decimal(100000))
+
+    report = pnl.build(Ledger.load(tmp_path / "ledger.json"),
+                       Journal.open(tmp_path / "run.jsonl"))
+    assert report.runs == (a.run_id, b.run_id)
+    assert "Agent runs in this window:** 2" in pnl.writeup_results(report)
+
+
+def test_a_single_run_is_not_announced(tmp_path):
+    # Stated only when it is worth stating; otherwise it is a line of noise above
+    # the numbers a judge came to read.
+    from halstreet.telemetry.journal import Journal
+
+    j = Journal.open(tmp_path / "run.jsonl")
+    j.write("cycle_start", underlying="SPY", session_date="2026-09-01",
+            equity=Decimal(100000))
+    report = pnl.build(Ledger.load(tmp_path / "ledger.json"),
+                       Journal.open(tmp_path / "run.jsonl"))
+    assert len(report.runs) == 1
+    assert "Agent runs in this window" not in pnl.writeup_results(report)

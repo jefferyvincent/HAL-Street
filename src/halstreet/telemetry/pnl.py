@@ -88,6 +88,8 @@ class Report:
     #: Every session date the journal covers, ascending. The window is a *finding*,
     #: not something the caller asserts — see `writeup_results`.
     sessions: tuple[str, ...] = ()
+    #: Every agent run behind these figures. Stated when there is more than one.
+    runs: tuple[str, ...] = ()
 
     @property
     def window(self) -> str:
@@ -138,6 +140,22 @@ def equity_series(journal: Journal) -> list[tuple[str, Decimal]]:
         if value is not None and value > 0 and ts:
             out.append((str(ts), value))
     return out
+
+
+def runs_covered(journal: Journal) -> tuple[str, ...]:
+    """Distinct agent runs behind these figures.
+
+    More than one is not an error — a restart mid-window is ordinary and its records
+    belong in the same report. It is worth *stating*, because the alternative is a
+    reader assuming one continuous run, which is how a stray agent's cycles get
+    counted as the judged session's.
+    """
+    seen: list[str] = []
+    for event in journal.read():
+        run = str(event.get("run") or "")
+        if run and run not in seen:
+            seen.append(run)
+    return tuple(seen)
 
 
 def sessions_covered(journal: Journal) -> tuple[str, ...]:
@@ -231,6 +249,7 @@ def build(ledger: Ledger, journal: Journal, *,
 
     curve = equity_curve(journal)
     report.sessions = sessions_covered(journal)
+    report.runs = runs_covered(journal)
     report.equity_samples = len(curve)
     if curve:
         report.equity_start = curve[0]
@@ -373,6 +392,12 @@ def writeup_results(report: Report, *, window: str = "") -> str:
             "- **Rejections by gate:** none. Not evidence the gates are inert — "
             "candidates are pre-filtered against the same limits before the model "
             "sees them, so the strategy layer absorbs most of what would be rejected."
+        )
+    if len(report.runs) > 1:
+        lines.append(
+            f"- **Agent runs in this window:** {len(report.runs)}. The figures cover "
+            "all of them. A restart mid-window is ordinary; two agents running at "
+            "once is not, and this is where that would show."
         )
     lines.append(f"- **Orders submitted:** {report.orders_submitted}")
     lines.append(

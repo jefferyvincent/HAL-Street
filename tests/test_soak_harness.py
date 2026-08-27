@@ -118,3 +118,44 @@ def test_the_report_covers_the_events_that_only_a_sequence_produces():
     # that created its precondition, so no unit test reaches them and their absence
     # from a run is the finding.
     assert {"fill_correction", "exit_decision", "divergence", "halt"} <= set(soak.LIFECYCLE)
+
+
+def test_a_journal_written_by_two_runs_says_so(tmp_path, capsys):
+    """The soak's only output is a coverage table, and it cannot tell whose events.
+
+    Two soaks once shared a journal for an hour — one of them a version behind, its
+    cycles producing nothing — and the table read as a single clean session. The
+    only evidence was that the cycle timings interleaved in a way one 30-minute
+    scheduler cannot produce, which is not a thing anyone should have to notice.
+    """
+    from halstreet.telemetry.journal import Journal
+
+    a = Journal.open(tmp_path / "run.jsonl")
+    b = Journal.open(tmp_path / "run.jsonl")
+    assert a.run_id != b.run_id, "each open is a distinct run"
+    a.write("cycle_start", underlying="SPY")
+    b.write("cycle_start", underlying="SPY")
+
+    assert soak.runs_in(str(tmp_path / "run.jsonl")) == [a.run_id, b.run_id]
+    soak.report(str(tmp_path / "run.jsonl"))
+    out = capsys.readouterr().out
+    assert "written by 2 runs" in out
+    assert a.run_id in out and b.run_id in out
+
+
+def test_one_run_says_nothing(tmp_path, capsys):
+    # The ordinary case must stay quiet, or the warning becomes wallpaper.
+    from halstreet.telemetry.journal import Journal
+
+    j = Journal.open(tmp_path / "run.jsonl")
+    j.write("cycle_start", underlying="SPY")
+    soak.report(str(tmp_path / "run.jsonl"))
+    assert "runs:" not in capsys.readouterr().out
+
+
+def test_records_written_before_run_ids_existed_are_not_miscounted(tmp_path):
+    # An older journal has no stamp at all. That is one unknown run, not many, and
+    # certainly not a warning about something that cannot be determined.
+    path = tmp_path / "old.jsonl"
+    path.write_text('{"ts": "2026-08-26T12:00:00+00:00", "event": "cycle_start"}\n')
+    assert soak.runs_in(str(path)) == []

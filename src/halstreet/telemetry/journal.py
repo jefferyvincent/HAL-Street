@@ -17,6 +17,7 @@ tenth rejected on volume" is the interesting sentence; "rejected" alone is not.
 from __future__ import annotations
 
 import json
+import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -46,16 +47,31 @@ class Journal:
     """Append-only event log for one agent."""
 
     path: Path
+    #: Which run wrote a record. Every event carries it.
+    #:
+    #: Because a file can be written by more than one agent and, until this existed,
+    #: say nothing about it. Two soaks once shared a journal for an hour — one on
+    #: current code and one on a version behind it — and the only evidence was that
+    #: the cycle timings interleaved in a way a single 30-minute scheduler cannot
+    #: produce. Everything reading the file, the coverage table and the judged
+    #: Results block included, treated it as one run.
+    #:
+    #: It is easy to arrive at: the writer opens the path per record rather than
+    #: holding a handle, which is what makes the log survive a crash — and also what
+    #: lets a process that was renamed out of the way quietly recreate the file and
+    #: carry on appending to it.
+    run_id: str = ""
 
     @classmethod
     def open(cls, path: str | Path) -> Journal:
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        return cls(path=p)
+        return cls(path=p, run_id=uuid.uuid4().hex[:8])
 
     def write(self, event: str, **fields: Any) -> dict:
         record = {
             "ts": datetime.now(UTC).isoformat(),
+            "run": self.run_id,
             "event": event,
             **_plain(fields),
         }
