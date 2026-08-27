@@ -36,10 +36,11 @@ interface UI {
   /**
    * What the structure chart's price axis is scaled to.
    *
-   * `price` shows the candles properly; `levels` pulls the stop into view, which on
-   * a credit spread sits three times the credit away and flattens everything else.
-   * Both are wanted and they cannot both be the default, so it is a control rather
-   * than a decision made for the reader.
+   * `levels` is the default, and that is a reversal. Scaling to the candles draws
+   * them beautifully and puts a stop three times the credit away off the bottom —
+   * which is the first thing anyone opening a position chart looks for, and losing
+   * it is worse than a compressed body. Zooming into the price action is the
+   * deliberate act, not the other way round.
    */
   chartFit: "price" | "levels";
   toggleFit: () => void;
@@ -82,7 +83,7 @@ export const useUI = create<UI>((set) => ({
   select: (selected) => set({ selected }),
   chart: (charting) => set({ charting, view: "book" }),
   decisionOpen: false,
-  chartFit: "price",
+  chartFit: "levels",
   toggleFit: () => set((s) => ({ chartFit: s.chartFit === "price" ? "levels" : "price" })),
   toggleDecision: () => set((s) => ({ decisionOpen: !s.decisionOpen })),
   showDecision: (selected) => set({ selected, decisionOpen: true, view: "console" }),

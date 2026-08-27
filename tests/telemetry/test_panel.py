@@ -278,6 +278,10 @@ def test_the_price_scale_is_a_control_rather_than_a_decision():
     """
     store = (SRC / "stores" / "ui.ts").read_text()
     assert "chartFit" in store and "toggleFit" in store
+    # Levels by default. Scaling to the candles draws them beautifully and puts the
+    # stop off the bottom, and the stop is the first thing anyone opening a position
+    # chart looks for — losing it is worse than a compressed body.
+    assert 'chartFit: "levels"' in store, "the default must show where the position closes"
 
     chart = (SRC / "components" / "StructureChart.tsx").read_text()
     assert "toggleFit" in chart, "the toggle is not reachable"
@@ -296,4 +300,9 @@ def test_the_forming_candle_is_drawn_differently_and_moves():
     canvas = (SRC / "hooks" / "useStructureChartCanvas.ts").read_text()
     assert "c.forming" in canvas
     assert "Math.max(c.high, live)" in canvas and "Math.min(c.low, live)" in canvas
-    assert 'color: "transparent"' in canvas
+    assert 'color: "transparent"' in canvas, "the body must be hollow"
+    # And it keeps its direction. Painting it a third colour said "unfinished" and
+    # took the direction with it, which is most of what a candle is for.
+    forming = canvas[canvas.index("c.forming\n"):canvas.index("c.forming\n") + 700]
+    assert "CHART_COLOR.up" in forming and "CHART_COLOR.down" in forming, \
+        "a forming candle must still be green or red"

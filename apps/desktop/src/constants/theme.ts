@@ -15,9 +15,6 @@ export const CHART_COLOR = {
   down: "#ff4d4f",
   /** The live mark. Amber, like everything in the chrome that means "now". */
   liveLine: "#e8a33d",
-  /** The candle still being written. Hollow amber, so it reads as unfinished at a
-   *  glance rather than as another green or red result. */
-  forming: "#e8a33d",
   line: "#e8a33d", // --color-amber
   fillTop: "rgba(232,163,61,.22)",
   fillBottom: "rgba(232,163,61,0)",

@@ -102,11 +102,15 @@ export function useStructureChartCanvas(
       return {
         time: c.time as UTCTimestamp,
         open: c.open, high, low, close,
-        // Hollow amber: unfinished, rather than a fifth interpretation of green
-        // and red. Per-point colours are why the candles are one series and not two.
+        // Hollow, but still green or red. Painting it amber said "unfinished" and
+        // took the direction with it — and direction is most of what a candle is
+        // for. A transparent body against a coloured border and wick says both.
         ...(c.forming
-          ? { color: "transparent", borderColor: CHART_COLOR.forming,
-              wickColor: CHART_COLOR.forming }
+          ? {
+              color: "transparent",
+              borderColor: close >= c.open ? CHART_COLOR.up : CHART_COLOR.down,
+              wickColor: close >= c.open ? CHART_COLOR.up : CHART_COLOR.down,
+            }
           : {}),
       };
     }));
