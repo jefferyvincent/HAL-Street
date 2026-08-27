@@ -43,8 +43,7 @@ function Level({ label, value, tone, note = null, lead = null }: {
  */
 export function StructureChart({ chart, error }: { chart: Chart; error: string | null }) {
   const t = useStrings();
-  const { series, lines, last } = useStructureLevels(chart);
-  const host = useStructureChartCanvas(series, lines);
+  const { series, candles, lines, last } = useStructureLevels(chart);
   const levels = chart.levels;
 
   // NOW should be a price, not the close of an hour that may be nearly over. The
@@ -53,6 +52,8 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
   // reached. Labelled either way: a number whose age is unknown is worth less than
   // a stale one that says so.
   const live = useMarks()?.marks[chart.structure_id];
+  const host = useStructureChartCanvas(
+    series, candles, lines, live?.mark == null ? null : Number(live.mark));
   const now = live?.mark ?? (last === null ? null : String(last));
   const isLive = live?.mark != null;
   const pnl = live?.unrealized_usd ?? null;

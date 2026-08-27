@@ -9,6 +9,12 @@
  */
 
 export const CHART_COLOR = {
+  /** Candles. Up is the structure gaining value, which for a credit spread means
+   *  its mark moving toward zero — winning. */
+  up: "#21d07a",
+  down: "#ff4d4f",
+  /** The live mark. Amber, like everything in the chrome that means "now". */
+  liveLine: "#e8a33d",
   line: "#e8a33d", // --color-amber
   fillTop: "rgba(232,163,61,.22)",
   fillBottom: "rgba(232,163,61,0)",

@@ -113,3 +113,61 @@ def test_the_chart_route_is_a_get_like_every_other():
 @pytest.mark.parametrize("field", ["series", "levels", "policy", "legs"])
 def test_the_payload_carries_what_the_panel_draws(field):
     assert field in structure_chart.build(structure(), {}, ExitPolicy())
+
+
+# --- candles ----------------------------------------------------------------------
+
+def test_a_candle_is_built_from_the_observed_net_not_from_the_legs():
+    """The trap this exists to avoid.
+
+    A spread's high is not the sum of its legs' highs. The legs move together, so
+    when the short leg prints its high the long one usually has too, and the net
+    range is a fraction of the summed one. Adding signed highs would draw a body
+    and wicks spanning prices the structure was never at — a chart that looks more
+    informative and is less true.
+
+    Every value in a candle here is one of the net points it was given.
+    """
+    from halstreet.telemetry.structure_chart import Point, net_candles
+
+    points = [Point(t=f"2026-08-27T{h:02d}:00:00Z", value=v)
+              for h, v in [(13, Decimal("-1.36")), (14, Decimal("-1.20")),
+                           (15, Decimal("-1.64")), (16, Decimal("-1.59"))]]
+    candle = net_candles(points)[0]
+    seen = {p.value for p in points}
+    assert {candle["o"], candle["h"], candle["l"], candle["c"]} <= seen
+    assert candle["o"] == Decimal("-1.36"), "the session's first observation"
+    assert candle["c"] == Decimal("-1.59"), "and its last"
+    assert candle["h"] == Decimal("-1.20") and candle["l"] == Decimal("-1.64")
+
+
+def test_one_candle_per_session():
+    from halstreet.telemetry.structure_chart import Point, net_candles
+
+    points = [Point(t="2026-08-26T14:00:00Z", value=Decimal("-1.0")),
+              Point(t="2026-08-26T18:00:00Z", value=Decimal("-1.2")),
+              Point(t="2026-08-27T14:00:00Z", value=Decimal("-1.3"))]
+    candles = net_candles(points)
+    assert [c["t"][:10] for c in candles] == ["2026-08-26", "2026-08-27"]
+
+
+def test_a_gap_produces_no_candle_rather_than_a_wide_one():
+    # A weekend is an absence of trading, not a long session. Bucketing by date
+    # keeps the axis honest across it.
+    from halstreet.telemetry.structure_chart import Point, net_candles
+
+    points = [Point(t="2026-08-28T14:00:00Z", value=Decimal("-1.0")),
+              Point(t="2026-08-31T14:00:00Z", value=Decimal("-1.4"))]
+    assert len(net_candles(points)) == 2
+
+
+def test_a_single_observation_is_a_flat_candle():
+    from halstreet.telemetry.structure_chart import Point, net_candles
+
+    candle = net_candles([Point(t="2026-08-27T14:00:00Z", value=Decimal("-1.5"))])[0]
+    assert candle["o"] == candle["h"] == candle["l"] == candle["c"] == Decimal("-1.5")
+
+
+def test_no_points_means_no_candles():
+    from halstreet.telemetry.structure_chart import net_candles
+    assert net_candles([]) == []

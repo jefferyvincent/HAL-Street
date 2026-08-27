@@ -21,6 +21,14 @@ export interface Series {
   value: number;
 }
 
+export interface Candle {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
 /**
  * The chart's data, derived once: the price line, the three level lines, and the
  * bounds that keep all of them on screen.
@@ -32,7 +40,12 @@ export interface Series {
 export function useStructureLevels(chart: StructureChart | null) {
   const { t } = useTranslation();
   return useMemo(() => {
-    if (!chart) return { series: [] as Series[], lines: [] as Line[], last: null as number | null };
+    if (!chart) {
+      return {
+        series: [] as Series[], candles: [] as Candle[],
+        lines: [] as Line[], last: null as number | null,
+      };
+    }
 
     let previous = 0;
     const series: Series[] = [];
@@ -64,8 +77,20 @@ export function useStructureLevels(chart: StructureChart | null) {
       );
     }
 
+    let previousCandle = 0;
+    const candles: Candle[] = [];
+    for (const c of chart.candles ?? []) {
+      const seconds = Math.floor(new Date(c.t).getTime() / 1000);
+      const values = [Number(c.o), Number(c.h), Number(c.l), Number(c.c)];
+      if (!Number.isFinite(seconds) || values.some((v) => !Number.isFinite(v))) continue;
+      const time = seconds <= previousCandle ? previousCandle + 1 : seconds;
+      previousCandle = time;
+      candles.push({ time, open: values[0]!, high: values[1]!, low: values[2]!, close: values[3]! });
+    }
+
     return {
       series,
+      candles,
       lines: lines.filter((l) => Number.isFinite(l.value)),
       last: series.length ? series[series.length - 1]!.value : null,
     };

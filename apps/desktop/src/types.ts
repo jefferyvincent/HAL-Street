@@ -165,6 +165,12 @@ export interface StructureChart {
   legs: { symbol: string; signed: number }[];
   /** The structure's own net price over time, not a single leg's. */
   series: { t: string; v: string }[];
+  /**
+   * The same prices as one candle per session, bucketed from the observed net.
+   * Never summed from the legs' own highs and lows: the legs move together, so a
+   * summed range spans prices the structure was never at.
+   */
+  candles: { t: string; o: string; h: string; l: string; c: string }[];
   /** Null when the entry price is unknown — the panel says so rather than guessing. */
   levels: ExitLevels | null;
   entry_filled: boolean;

@@ -49,6 +49,42 @@ class Point:
     value: Decimal
 
 
+def net_candles(points: list[Point]) -> list[dict]:
+    """The net price bucketed into one candle per session.
+
+    **Built from the observed net, never from the legs' own highs and lows.** That
+    distinction is the whole of the work here. A spread's high is not the sum of its
+    legs' highs: the legs move together, so when the short leg prints its high the
+    long one usually has too, and the net range is a fraction of the summed one.
+    Adding signed highs would draw a body and wicks spanning prices that never
+    traded — a chart that looks more informative and is less true.
+
+    So each candle's open, high, low and close are four of the hourly net values
+    this function was already given. Every point drawn is a price the structure was
+    actually at.
+
+    One candle per session date rather than a fixed count, because that is what the
+    hourly bars group into naturally and it keeps the x-axis honest across a gap —
+    a weekend produces no candle rather than a wide one.
+    """
+    buckets: dict[str, list[Point]] = {}
+    for point in points:
+        buckets.setdefault(str(point.t)[:10], []).append(point)
+
+    out: list[dict] = []
+    for day in sorted(buckets):
+        session = buckets[day]
+        values = [p.value for p in session]
+        out.append({
+            "t": session[0].t,
+            "o": values[0],
+            "h": max(values),
+            "l": min(values),
+            "c": values[-1],
+        })
+    return out
+
+
 def net_series(structure: OpenStructure, bars: dict[str, list[dict]]) -> list[Point]:
     """The structure's own price over time.
 
@@ -106,6 +142,10 @@ def build(structure: OpenStructure, bars: dict[str, list[dict]],
         "dte": structure.dte(),
         "legs": [{"symbol": s, "signed": n} for s, n in sorted(structure.legs.items())],
         "series": [{"t": p.t, "v": str(p.value)} for p in series],
+        # The same prices as candles, one per session. See `net_candles` for why they
+        # are bucketed from the net rather than summed from the legs' own ranges.
+        "candles": [{k: (v if k == "t" else str(v)) for k, v in c.items()}
+                    for c in net_candles(series)],
         # None when the entry price is unknown — the panel says so rather than drawing
         # three lines through a number nobody has.
         "levels": levels.to_prompt() if levels else None,

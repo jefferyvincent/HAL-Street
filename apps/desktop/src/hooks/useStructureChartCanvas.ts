@@ -7,7 +7,7 @@ import {
   type UTCTimestamp,
 } from "lightweight-charts";
 import { CHART_COLOR } from "@/constants/theme";
-import type { Line, Series } from "./useStructureLevels";
+import type { Candle, Line, Series } from "./useStructureLevels";
 
 /**
  * The canvas lifecycle for a structure chart. Imperative, so it lives here and not
@@ -21,10 +21,13 @@ import type { Line, Series } from "./useStructureLevels";
  * would push a stop — three times the credit from entry — off the bottom, and an
  * invisible stop defeats the point of drawing one.
  */
-export function useStructureChartCanvas(series: Series[], lines: Line[]) {
+export function useStructureChartCanvas(
+  series: Series[], candles: Candle[], lines: Line[], live: number | null,
+) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const line = useRef<ISeriesApi<"Line"> | null>(null);
+  const bars = useRef<ISeriesApi<"Candlestick"> | null>(null);
 
   useEffect(() => {
     if (!host.current) return;
@@ -44,9 +47,20 @@ export function useStructureChartCanvas(series: Series[], lines: Line[]) {
         vertLine: { color: CHART_COLOR.crosshair, labelBackgroundColor: CHART_COLOR.crosshair },
       },
     });
+    // Candles for the sessions, and the hourly line over them. The line is what
+    // the levels are read against — a target sitting inside a day's range says
+    // nothing about whether the structure was ever *at* it, and the hourly points
+    // are the finest thing actually observed.
+    bars.current = c.addCandlestickSeries({
+      upColor: CHART_COLOR.up, downColor: CHART_COLOR.down,
+      borderUpColor: CHART_COLOR.up, borderDownColor: CHART_COLOR.down,
+      wickUpColor: CHART_COLOR.up, wickDownColor: CHART_COLOR.down,
+      priceLineVisible: false,
+      lastValueVisible: false,
+    });
     line.current = c.addLineSeries({
       color: CHART_COLOR.line,
-      lineWidth: 2,
+      lineWidth: 1,
       priceLineVisible: false,
       lastValueVisible: true,
     });
@@ -55,6 +69,7 @@ export function useStructureChartCanvas(series: Series[], lines: Line[]) {
       c.remove();
       chart.current = null;
       line.current = null;
+      bars.current = null;
     };
   }, []);
 
@@ -63,6 +78,22 @@ export function useStructureChartCanvas(series: Series[], lines: Line[]) {
     if (!api) return;
 
     api.setData(series.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
+    bars.current?.setData(candles.map((c) => ({
+      time: c.time as UTCTimestamp,
+      open: c.open, high: c.high, low: c.low, close: c.close,
+    })));
+
+    // The live mark, drawn on the price axis where the last traded value sits. It
+    // is the only line here that moves between renders, which is why it is added
+    // with the rest and removed with them rather than kept across effects.
+    const marker = live === null ? null : api.createPriceLine({
+      price: live,
+      color: CHART_COLOR.liveLine,
+      lineWidth: 1,
+      lineStyle: LineStyle.LargeDashed,
+      axisLabelVisible: true,
+      title: "LIVE",
+    });
 
     const drawn = lines.map((l) =>
       api.createPriceLine({
@@ -85,7 +116,10 @@ export function useStructureChartCanvas(series: Series[], lines: Line[]) {
     if (series.length) {
       chart.current?.timeScale().fitContent();
       // Every level in view, whatever the price did.
-      const values = series.map((p) => p.value).concat(lines.map((l) => l.value));
+      const values = series.map((p) => p.value)
+        .concat(candles.flatMap((c) => [c.high, c.low]))
+        .concat(lines.map((l) => l.value))
+        .concat(live === null ? [] : [live]);
       const low = Math.min(...values);
       const high = Math.max(...values);
       const pad = (high - low) * 0.08 || 0.1;
@@ -94,8 +128,11 @@ export function useStructureChartCanvas(series: Series[], lines: Line[]) {
       }) });
     }
 
-    return () => drawn.forEach((l) => api.removePriceLine(l));
-  }, [series, lines]);
+    return () => {
+      drawn.forEach((l) => api.removePriceLine(l));
+      if (marker) api.removePriceLine(marker);
+    };
+  }, [series, candles, lines, live]);
 
   return host;
 }
