@@ -114,6 +114,7 @@ def test_the_payload_carries_only_what_the_panel_renders(tmp_path):
     assert "events" not in state
     assert set(state) == {"circuit", "pnl", "positions", "closed", "decisions",
                           "views", "menus", "equity_curve", "market",
+                          "activity", "committees",
                           "chain", "families", "limits"}
 
 
@@ -185,3 +186,114 @@ def test_a_bell_that_rang_is_distinguishable_from_the_state_we_arrived_in(tmp_pa
         ("session", {"state": "open", "session_date": "2026-08-27", "observed": True}),
     ])
     assert state["market"]["observed"] is True
+
+
+# --- what the panel shows when nothing has been gated --------------------------
+
+def test_the_activity_pulse_shows_work_that_is_not_a_decision(tmp_path):
+    """The panel was built around gate decisions, and most cycles produce none.
+
+    An agent that declines every cycle writes no `gate_decision` at all, so every
+    view was empty and the whole thing read as broken while the agent was scanning,
+    reading headlines, deliberating and declining. None of that was visible.
+    """
+    state = _run(tmp_path, [
+        ("cycle_start", {"underlying": "SPY", "spot": "768", "dry_run": False}),
+        ("candidates", {"underlying": "SPY", "count": 6, "candidates": []}),
+        ("committee", {"underlying": "SPY", "headlines": 12,
+                       "catalyst": {"lean": "bearish", "confidence": 0.4, "note": "n"},
+                       "bull": "b", "bear": "r", "errors": [], "reflection": [],
+                       "tokens": {"in": 1, "out": 2, "cache_read": 0}}),
+        ("proposal", {"underlying": "SPY", "ok": False, "passed": True,
+                      "rationale": "Nothing clears friction."}),
+    ])
+    details = [a["detail"] for a in state["activity"]]
+    assert any("scanning at 768" in d for d in details)
+    assert any("6 structure(s) built" in d for d in details)
+    assert any("committee read bearish on 12 headline(s)" in d for d in details)
+    # The rationale, because on a passing cycle it is the only thing that survives.
+    assert any("Nothing clears friction." in d for d in details)
+
+
+def test_a_cycle_that_built_nothing_says_so_rather_than_showing_a_zero(tmp_path):
+    state = _run(tmp_path, [("candidates", {"underlying": "SPY", "count": 0,
+                                            "candidates": []})])
+    assert state["activity"][0]["detail"] == "nothing worth building"
+
+
+def test_a_missing_committee_stage_reaches_the_pulse(tmp_path):
+    # A researcher that did not answer means the judge decided having heard one
+    # side. That is a fact about the decision, not a glitch to hide.
+    state = _run(tmp_path, [("committee", {
+        "underlying": "SPY", "headlines": 3, "catalyst": {"lean": "neutral"},
+        "bull": "", "bear": "r", "errors": ["bull: truncated at max_tokens=4000"],
+        "reflection": [], "tokens": {}})])
+    assert "1 stage(s) unavailable" in state["activity"][0]["detail"]
+
+
+def test_the_pulse_is_bounded(tmp_path):
+    state = _run(tmp_path, [("cycle_start", {"underlying": "SPY", "spot": "1",
+                                             "dry_run": True}) for _ in range(200)])
+    assert len(state["activity"]) == server.RECENT_ACTIVITY
+
+
+def test_a_committee_session_is_paired_with_what_it_decided(tmp_path):
+    """The tree has to end somewhere.
+
+    The loop writes `committee` then `proposal` back to back; joining them here
+    saves the panel from re-deriving an ordering it cannot see, and means a session
+    that produced nothing shows *why* rather than trailing off.
+    """
+    state = _run(tmp_path, [
+        ("committee", {"underlying": "QQQ", "headlines": 12,
+                       "catalyst": {"lean": "neutral", "confidence": 0.6, "note": "n"},
+                       "bull": "b", "bear": "r", "errors": [], "reflection": [],
+                       "tokens": {"in": 1, "out": 14698, "cache_read": 0}}),
+        ("proposal", {"underlying": "QQQ", "ok": False, "passed": False,
+                      "error": "truncated at max_tokens=12000"}),
+    ])
+    session = state["committees"][0]
+    assert session["underlying"] == "QQQ" and session["headlines"] == 12
+    assert session["outcome"]["error"] == "truncated at max_tokens=12000"
+    assert session["outcome"]["approved"] is None, "nothing was gated, so nothing to say"
+
+
+def test_a_committee_whose_proposal_was_gated_carries_the_verdict(tmp_path):
+    state = _run(tmp_path, [
+        ("committee", {"underlying": "IWM", "headlines": 2,
+                       "catalyst": {"lean": "bearish"}, "bull": "b", "bear": "r",
+                       "errors": [], "reflection": [], "tokens": {}}),
+        ("proposal", {"underlying": "IWM", "ok": True, "passed": False,
+                      "structure": {"name": "IWM 316/320 call credit spread"}}),
+        ("gate_decision", {"underlying": "IWM", "structure": "IWM 316/320",
+                           "approved": False, "rejected_by": ["underlying-concentration"],
+                           "gates": []}),
+    ])
+    outcome = state["committees"][0]["outcome"]
+    assert outcome["approved"] is False
+    assert outcome["rejected_by"] == ["underlying-concentration"]
+
+
+def test_another_underlyings_proposal_is_never_borrowed(tmp_path):
+    # Cycles run back to back per underlying. Pairing on position alone would hang
+    # QQQ's outcome off SPY's committee.
+    state = _run(tmp_path, [
+        ("committee", {"underlying": "SPY", "headlines": 1, "catalyst": {},
+                       "bull": "", "bear": "", "errors": [], "reflection": [],
+                       "tokens": {}}),
+        ("cycle_start", {"underlying": "QQQ", "spot": "1", "dry_run": True}),
+        ("proposal", {"underlying": "QQQ", "ok": True, "passed": False,
+                      "structure": {"name": "QQQ spread"}}),
+    ])
+    assert state["committees"][0]["outcome"]["structure"] == "", "SPY proposed nothing"
+
+
+def test_the_committee_list_is_bounded_and_newest_first(tmp_path):
+    state = _run(tmp_path, [
+        ("committee", {"underlying": f"S{i}", "headlines": i, "catalyst": {},
+                       "bull": "", "bear": "", "errors": [], "reflection": [],
+                       "tokens": {}})
+        for i in range(30)
+    ])
+    assert len(state["committees"]) == server.RECENT_COMMITTEES
+    assert state["committees"][0]["headlines"] == 29, "newest first"

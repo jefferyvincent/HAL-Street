@@ -81,6 +81,125 @@ def _plain(value: Any) -> Any:
     return value
 
 
+#: Committee sessions kept for the panel. Each carries two researchers' prose, so
+#: this is the largest thing in the payload and the count is deliberately small.
+RECENT_COMMITTEES = 12
+
+
+#: How much of the run to show as activity. Enough for a scan of three underlyings
+#: to be visible whole, few enough that a five-second poll stays small.
+RECENT_ACTIVITY = 24
+
+#: What the agent spends its time doing, in the order it does it.
+_ACTIVITY = ("session", "cycle_start", "candidates", "committee", "proposal",
+             "gate_decision", "order", "fill_correction", "exit_decision",
+             "divergence", "halt", "error")
+
+
+def _committees(events: list[dict]) -> list[dict]:
+    """Recent committee sessions, newest first, each paired with what it decided.
+
+    The whole deliberation, not a summary of it. A committee whose reasoning is not
+    readable is the same opacity as one model call at four times the price, and
+    until now it was written to the journal and shown nowhere.
+
+    Paired by walking forward to the next proposal for the same underlying: the loop
+    writes `committee` then `proposal` back to back, and joining them here saves the
+    panel from re-deriving an ordering it cannot see.
+    """
+    out: list[dict] = []
+    for i, event in enumerate(events):
+        if event.get("event") != "committee":
+            continue
+        root = event.get("underlying")
+        verdict = next(
+            (e for e in events[i + 1:i + 4]
+             if e.get("event") == "proposal" and e.get("underlying") == root),
+            {},
+        )
+        gates = next(
+            (e for e in events[i + 1:i + 6]
+             if e.get("event") == "gate_decision" and e.get("underlying") == root),
+            {},
+        )
+        out.append({
+            "ts": event.get("ts"),
+            "underlying": root,
+            "headlines": event.get("headlines", 0),
+            "catalyst": event.get("catalyst") or {},
+            "bull": event.get("bull") or "",
+            "bear": event.get("bear") or "",
+            "reflection": event.get("reflection") or [],
+            "tokens": event.get("tokens") or {},
+            "errors": event.get("errors") or [],
+            # What came out of it, so the tree ends somewhere rather than trailing off.
+            "outcome": {
+                "passed": bool(verdict.get("passed")),
+                "ok": bool(verdict.get("ok")),
+                "rationale": verdict.get("rationale") or "",
+                "structure": (verdict.get("structure") or {}).get("name")
+                             or gates.get("structure") or "",
+                "error": verdict.get("error"),
+                "approved": gates.get("approved"),
+                "rejected_by": gates.get("rejected_by") or [],
+            },
+        })
+    return list(reversed(out[-RECENT_COMMITTEES:]))
+
+
+def _activity_line(event: dict) -> str:
+    """One short phrase for what happened. No prices — this is a pulse, not a record."""
+    kind = event.get("event")
+    if kind == "session":
+        return f"market {event.get('state')}"
+    if kind == "cycle_start":
+        return f"scanning at {event.get('spot')}"
+    if kind == "candidates":
+        n = event.get("count") or 0
+        return f"{n} structure(s) built" if n else "nothing worth building"
+    if kind == "committee":
+        catalyst = (event.get("catalyst") or {}).get("lean", "?")
+        errors = event.get("errors") or []
+        note = f", {len(errors)} stage(s) unavailable" if errors else ""
+        return f"committee read {catalyst} on {event.get('headlines', 0)} headline(s){note}"
+    if kind == "proposal":
+        if event.get("passed"):
+            # The rationale, because on a passing cycle it is the only thing that
+            # survives — there is no position to look at afterwards.
+            return f"passed — {event.get('rationale') or 'no reason given'}"
+        return "proposed" if event.get("ok") else f"unusable answer: {event.get('error')}"
+    if kind == "gate_decision":
+        if event.get("approved"):
+            return f"approved by all {len(event.get('gates') or [])} gates"
+        return f"rejected by {', '.join(event.get('rejected_by') or []) or 'a gate'}"
+    if kind == "order":
+        verb = "closing" if event.get("intent") == "close" else "opening"
+        return f"{verb} order {'submitted' if event.get('submitted') else 'not sent'}"
+    if kind == "exit_decision":
+        return f"exit check: {event.get('action')}"
+    if kind == "halt":
+        return f"HALTED — {event.get('reason') or event.get('detail') or ''}"
+    if kind == "error":
+        return f"error in {event.get('where')}"
+    return kind or ""
+
+
+def _activity(events: list[dict]) -> list[dict]:
+    """The run as a pulse, newest last.
+
+    The panel was built around gate decisions, and an agent that declines every
+    cycle produces none — so on a day of considered passes every view was empty and
+    the whole thing read as broken. Most of what this agent does is scan, read the
+    tape, deliberate and decline, and none of that was visible anywhere.
+    """
+    out = [
+        {"ts": e.get("ts"), "event": e.get("event"),
+         "underlying": e.get("underlying") or "", "detail": _activity_line(e)}
+        for e in events if e.get("event") in _ACTIVITY
+    ]
+    return out[-RECENT_ACTIVITY:]
+
+
 def _patterns_by_underlying(events: list[dict]) -> dict[str, list[dict]]:
     """The most recent confirmed patterns per underlying, from the market views.
 
@@ -191,6 +310,10 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
         # observes the closed half, and the panel should say nothing rather than
         # guess from a local clock that knows no holidays.
         "market": _last_session(events),
+        # What it is doing, as opposed to what it decided. See `_activity`.
+        "activity": _activity(events),
+        # The deliberation behind each proposal. See `_committees`.
+        "committees": _committees(events),
         "circuit": {
             "halted": breaker.halted,
             "halt_reason": breaker.halt_reason,

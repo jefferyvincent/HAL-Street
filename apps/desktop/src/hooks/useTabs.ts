@@ -20,6 +20,7 @@ export function useTabs(): { tabs: Tab[]; go: (v: View) => void } {
     console: null,
     journal: snap?.decisions.length ?? null,
     gates: snap?.chain.length ?? null,
+    committee: snap?.committees.length ?? null,
     book: snap ? snap.positions.length + snap.closed.length : null,
   };
 
@@ -28,6 +29,7 @@ export function useTabs(): { tabs: Tab[]; go: (v: View) => void } {
       ["console", "CONSOLE", ICON.grid],
       ["journal", "JOURNAL", ICON.list],
       ["gates", "GATES", ICON.chain],
+      ["committee", "COMMITTEE", ICON.committee],
       ["book", "BOOK", ICON.candles],
     ] as [View, string, string][]
   ).map(([id, , icon]) => ({ id, icon, count: counts[id], active: id === view }));

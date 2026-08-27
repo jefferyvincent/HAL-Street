@@ -45,6 +45,7 @@ export function makeStrings(t: Translate) {
       console: t("tabs.console"),
       journal: t("tabs.journal"),
       gates: t("tabs.gates"),
+      committee: t("tabs.committee"),
       book: t("tabs.book"),
     },
 
@@ -60,6 +61,7 @@ export function makeStrings(t: Translate) {
     },
 
     console: {
+      activity: t("console.activity"),
       none: t("console.none"),
       approved: (n: number) => t("console.approved", { n }),
       rejected: (bad: number, n: number) => t("console.rejected", { bad, n }),
@@ -97,6 +99,30 @@ export function makeStrings(t: Translate) {
       rejectedCount: (n: number) => t("gates.rejectedCount", { n }),
       neverRejected: t("gates.neverRejected"),
       note: (seen: number) => t("gates.note", { seen }),
+    },
+
+    committee: {
+      title: t("committee.title"),
+      meta: (count: number) => t("committee.meta", { count }),
+      empty: t("committee.empty"),
+      headlines: (count: number) => t("committee.headlines", { count }),
+      catalyst: t("committee.catalyst"),
+      bull: t("committee.bull"),
+      bear: t("committee.bear"),
+      judge: t("committee.judge"),
+      reflection: t("committee.reflection"),
+      reflectionEmpty: t("committee.reflectionEmpty"),
+      missing: t("committee.missing"),
+      silent: t("committee.silent"),
+      passed: t("committee.passed"),
+      proposed: t("committee.proposed"),
+      failed: t("committee.failed"),
+      approved: t("committee.approved"),
+      rejected: (gates: string) => t("committee.rejected", { gates }),
+      ungated: t("committee.ungated"),
+      confidence: (value: string) => t("committee.confidence", { value }),
+      tokens: (out: number) => t("committee.tokens", { out }),
+      note: t("committee.note"),
     },
 
     book: {

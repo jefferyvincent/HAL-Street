@@ -76,9 +76,22 @@ from halstreet.marketdata.news import Headline
 #: thinking and no text. These are roughly 2.5x observed usage, because the failure is
 #: silent: a missing researcher does not stop the cycle, it just leaves the judge
 #: hearing one side.
+#:
+#: The judge needed raising twice. 8000 became 12000 that morning, and a live QQQ
+#: cycle then truncated at 12000 — that session spent 14,698 output tokens against a
+#: 3,200-4,900 typical, so the judge alone took most of twelve thousand while an
+#: ordinary one takes three. Adaptive thinking has a long tail on a hard call, and a
+#: ceiling set near the median sits inside it. Losing a whole cycle's decision is
+#: worth far more than the tokens a ceiling nobody reaches would cost, since the
+#: budget is only spent when it is used.
 ANALYST_TOKENS = 3000
 DEBATE_TOKENS = 4000
-JUDGE_TOKENS = 12000
+JUDGE_TOKENS = 32000
+
+#: The follow-up that asks an unexplained pass for its reasoning. Far smaller on
+#: purpose: the decision is settled and the ask is one paragraph, so a ceiling near
+#: the judge's own would let a cheap correction cost as much as the decision did.
+EXPLAIN_TOKENS = 6000
 
 LEAN = ("bullish", "bearish", "neutral")
 
@@ -406,7 +419,7 @@ class Committee:
             return first, counts
 
         again, more, error = self._call(system, explain_the_pass(brief),
-                                        max_tokens=JUDGE_TOKENS, schema=proposal_schema())
+                                        max_tokens=EXPLAIN_TOKENS, schema=proposal_schema())
         spent = {k: counts[k] + more[k] for k in counts}
         if error:
             return first, spent

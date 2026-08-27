@@ -809,3 +809,33 @@ def test_the_correction_is_asked_once_and_only_once():
     client = _Scripted(_ok(_PASS_NO_REASON), _ok(_PASS_NO_REASON))
     C.Committee(client).judge(system="SYS", brief="the menu")
     assert len(client.calls) == 2
+
+
+def test_the_judge_budget_clears_the_tail_that_truncated_it_live():
+    """Raised twice, both times on measurement rather than instinct.
+
+    8000 became 12000 the morning the bull went missing. A live QQQ cycle then
+    truncated at 12000: that session spent 14,698 output tokens against a typical
+    3,200-4,900, so the judge alone took most of twelve thousand while an ordinary
+    one takes three. Adaptive thinking has a long tail on a hard call, and a
+    ceiling set near the median sits inside it.
+
+    Losing a whole cycle's decision costs far more than a ceiling nobody reaches,
+    because the budget is only spent when it is used.
+    """
+    assert C.JUDGE_TOKENS >= 2 * 12000
+    assert C.JUDGE_TOKENS > C.DEBATE_TOKENS > C.ANALYST_TOKENS
+
+
+def test_the_explanation_retry_is_budgeted_far_below_the_decision():
+    # The decision is settled and the ask is one paragraph. At the judge's own
+    # ceiling a cheap correction could cost as much as the deliberation did, and it
+    # fires on the common outcome — a pass — not the rare one.
+    assert C.EXPLAIN_TOKENS < C.JUDGE_TOKENS // 4
+
+
+def test_the_retry_actually_uses_the_smaller_budget():
+    client = _Scripted(_ok(_PASS_NO_REASON), _ok(_PASS_EXPLAINED))
+    C.Committee(client).judge(system="SYS", brief="the menu")
+    assert client.calls[0]["max_tokens"] == C.JUDGE_TOKENS
+    assert client.calls[1]["max_tokens"] == C.EXPLAIN_TOKENS

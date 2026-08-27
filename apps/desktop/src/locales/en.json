@@ -22,7 +22,8 @@
     "console": "CONSOLE",
     "journal": "JOURNAL",
     "gates": "GATES",
-    "book": "BOOK"
+    "book": "BOOK",
+    "committee": "COMMITTEE"
   },
   "families": {
     "contract": "contract",
@@ -37,14 +38,15 @@
     "detail": "{{reason}} — entries are blocked until this is cleared at the CLI. Exits are not: they never are."
   },
   "console": {
-    "none": "No proposal has been gated yet.",
+    "none": "No proposal has been gated yet — most cycles end in a considered pass, and the gates only see a proposal.",
     "approved": "APPROVED · {{n}}/{{n}} GATES",
     "rejected": "REJECTED · {{bad}}/{{n}} GATES · NO ORDER SUBMITTED",
     "rationale": "RATIONALE",
     "rejectReasons": "REJECT REASONS · ALL RECORDED",
     "noOverride": "There is no override. A rejected proposal is not submitted, and the limits it failed can only change in the environment.",
     "confidence": "Model confidence {{value}}",
-    "confidenceNote": "— journalled, not consulted by any gate."
+    "confidenceNote": "— journalled, not consulted by any gate.",
+    "activity": "WHAT IT IS DOING"
   },
   "ledger": {
     "allRan": "ALL {{n}} GATES RAN"
@@ -145,5 +147,28 @@
     "forceClose": "force-close at {{dte}} DTE regardless of price",
     "stopUnreachable": "STOP (unreachable)",
     "unreachableNote": "This structure was opened for a debit, so the most it can lose is the premium paid. A stop set above 100% of that cannot print — the line sits at zero, which is where the position becomes worthless."
+  },
+  "committee": {
+    "title": "COMMITTEE",
+    "meta": "{{count}} session(s) — catalyst, then bull and bear in parallel, then a judge",
+    "empty": "No committee has sat yet. Sessions appear here once the agent scans with COMMITTEE on.",
+    "headlines": "{{count}} headline(s)",
+    "catalyst": "CATALYST",
+    "bull": "BULL",
+    "bear": "BEAR",
+    "judge": "JUDGE",
+    "reflection": "DESK RECORD",
+    "reflectionEmpty": "nothing closed on this underlying yet",
+    "missing": "unavailable",
+    "silent": "this side said nothing",
+    "passed": "PASSED",
+    "proposed": "PROPOSED",
+    "failed": "NO ANSWER",
+    "approved": "approved by every gate",
+    "rejected": "rejected by {{gates}}",
+    "ungated": "not yet gated",
+    "confidence": "confidence {{value}}",
+    "tokens": "{{out}} tokens out",
+    "note": "The committee cannot approve anything. Whichever path built a proposal, it meets the same sixteen gates."
   }
 }

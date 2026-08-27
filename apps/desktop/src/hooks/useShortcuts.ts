@@ -3,7 +3,7 @@ import { useUI, type View } from "@/stores/ui";
 import type { Decisions } from "./useDecisions";
 
 const VIEW_KEYS: Record<string, View> = {
-  "1": "console", "2": "journal", "3": "gates", "4": "book",
+  "1": "console", "2": "journal", "3": "gates", "4": "committee", "5": "book",
 };
 
 /**

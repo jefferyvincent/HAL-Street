@@ -12,12 +12,13 @@ import { useShortcuts } from "@/hooks/useShortcuts";
 import { useStrings } from "@/hooks/useStrings";
 import { useConnection } from "@/stores/connection";
 import { useUI } from "@/stores/ui";
-import { BookView, ConsoleView, GatesView, JournalView } from "@/views";
+import { BookView, CommitteeView, ConsoleView, GatesView, JournalView } from "@/views";
 
 const VIEWS = {
   console: ConsoleView,
   journal: JournalView,
   gates: GatesView,
+  committee: CommitteeView,
   book: BookView,
 } as const;
 

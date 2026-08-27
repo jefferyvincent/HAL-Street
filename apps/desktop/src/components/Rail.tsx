@@ -47,9 +47,17 @@ export function Rail({ families }: { families: FamilyGroup[] }) {
       </div>
       <div className="mx-[10px] border border-line bg-panel">
         {Object.entries(limits).map(([name, value]) => (
-          <div key={name} className="flex justify-between gap-2 border-b border-line-soft px-[9px] py-[6px] last:border-b-0">
-            <span className="font-mono text-[9.5px] leading-[1.3] text-ink/45">{name}</span>
-            <span className="font-mono text-[10px] font-semibold leading-[1.3] tabular-nums text-ink">{value}</span>
+          // `min-w-0` on the name and `shrink-0` on the value. A flex child will not
+          // shrink below its content by default, so a name like
+          // MAX_LOSS_PER_POSITION_USD pushed the number straight out of the card —
+          // and the number is the half that matters. The name wraps instead.
+          <div key={name} className="flex items-baseline justify-between gap-2 border-b border-line-soft px-[9px] py-[6px] last:border-b-0">
+            <span className="min-w-0 break-all font-mono text-[9.5px] leading-[1.3] text-ink/45">
+              {name}
+            </span>
+            <span className="shrink-0 whitespace-nowrap font-mono text-[10px] font-semibold leading-[1.3] tabular-nums text-ink">
+              {value}
+            </span>
           </div>
         ))}
       </div>

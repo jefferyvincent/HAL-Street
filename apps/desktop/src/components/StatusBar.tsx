@@ -29,7 +29,8 @@ export function StatusBar({ families }: { families: FamilyGroup[] }) {
       <span className={CLS.key}>
         <b className="font-bold text-amber">1</b>·<b className="font-bold text-amber">2</b>·
         <b className="font-bold text-amber">3</b>·
-        <b className="font-bold text-amber">4</b> {t.status.view}
+        <b className="font-bold text-amber">4</b>·
+        <b className="font-bold text-amber">5</b> {t.status.view}
       </span>
       <span className={cn(CLS.key, "hidden min-[901px]:inline")}>{meter}</span>
 

@@ -207,6 +207,44 @@ export interface Pattern {
   note: string;
 }
 
+/** One analyst's read. Neutral and unconfident is the designed failure mode. */
+export interface Verdict {
+  lean: "bullish" | "bearish" | "neutral";
+  confidence: number;
+  note: string;
+}
+
+/** A committee session: the deliberation behind one proposal, and what came of it. */
+export interface Committee {
+  ts: string;
+  underlying: string;
+  headlines: number;
+  catalyst: Verdict;
+  bull: string;
+  bear: string;
+  reflection: { structure: string; realized_usd: string | null; outcome: string }[];
+  tokens: { in: number; out: number; cache_read: number };
+  /** Stages that failed. The cycle continues; the judge is told. */
+  errors: string[];
+  outcome: {
+    passed: boolean;
+    ok: boolean;
+    rationale: string;
+    structure: string;
+    error: string | null;
+    approved: boolean | null;
+    rejected_by: string[];
+  };
+}
+
+/** One line of what the agent is doing, as opposed to what it decided. */
+export interface Activity {
+  ts: string;
+  event: string;
+  underlying: string;
+  detail: string;
+}
+
 export interface Snapshot {
   chain: ChainEntry[];
   families: string[];
@@ -220,6 +258,8 @@ export interface Snapshot {
   views: MarketView[];
   menus: Menu[];
   market: Market | null;
+  activity: Activity[];
+  committees: Committee[];
 }
 
 /** What the socket sends between snapshots — proof of life, not data. */

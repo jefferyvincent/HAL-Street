@@ -2,6 +2,7 @@ import { cn } from "@/lib/cn";
 import { clock } from "@/lib/format";
 import { ICON } from "@/constants/icons";
 import { CLS, GRID, STROKE } from "@/constants/theme";
+import { ActivityFeed } from "@/components/ActivityFeed";
 import { GateLedger } from "@/components/GateLedger";
 import { Cross, Icon, Note, Tick } from "@/components/Icon";
 import { useDecisionFacts } from "@/hooks/useDecisionFacts";
@@ -23,9 +24,15 @@ export function ConsoleView() {
   const facts = useDecisionFacts(current);
 
   if (!current) {
+    // Not a dead end. Nothing has been gated because nothing has been proposed,
+    // which is the ordinary outcome — so show what the agent is actually doing
+    // rather than a sentence that reads as "broken".
     return (
-      <div className="mb-3 border border-edge bg-panel">
-        <div className={CLS.empty}>{t.console.none}</div>
+      <div className="mb-3 flex flex-col gap-3">
+        <div className="border border-edge bg-panel">
+          <div className={CLS.empty}>{t.console.none}</div>
+        </div>
+        <ActivityFeed />
       </div>
     );
   }
