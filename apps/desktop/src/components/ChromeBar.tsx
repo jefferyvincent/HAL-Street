@@ -13,6 +13,7 @@ export function ChromeBar() {
   const t = useStrings();
   const { tabs, go } = useTabs();
   const busy = useConnection((s) => s.snapshot?.in_flight) ?? null;
+  const armed = useConnection((s) => s.snapshot?.armed) ?? null;
   const snap = useConnection((s) => s.snapshot);
   const halted = snap?.circuit.halted ?? false;
 
@@ -57,6 +58,19 @@ export function ChromeBar() {
             order. This states it; it does not select it. */}
         <div className="flex shrink-0 items-center gap-[7px] border-l border-line px-3 font-mono text-[11px] font-semibold leading-none text-amber">
           {t.chrome.paper}
+        </div>
+
+        {/* Armed or rehearsing. A dry run gates and journals exactly as a live one
+            does and stops before submission, so its records are indistinguishable
+            from a live run's — a REJECTED written by a rehearsal was read as the
+            broker refusing an order, which is the failure this exists to prevent.
+            Unknown is its own state and shows as neither. */}
+        <div className={cn("flex shrink-0 items-center gap-[7px] border-l border-line px-3 font-mono text-[11px] font-semibold leading-none",
+          armed === null ? "text-ink/30" : armed ? "text-pass" : "text-ink/45")}
+             title={armed === null ? t.chrome.armedUnknownTitle
+                    : armed ? t.chrome.armedTitle : t.chrome.dryRunTitle}>
+          {armed === null ? t.chrome.armedUnknown
+           : armed ? t.chrome.armed : t.chrome.dryRun}
         </div>
 
         {/* Whether it is mid-cycle, on every tab. Derived from the last record the

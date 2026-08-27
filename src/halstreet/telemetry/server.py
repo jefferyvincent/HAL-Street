@@ -287,6 +287,16 @@ def _decisions_with_positions(events: list[dict]) -> list[dict]:
     approved in a dry run, gets `None` and the panel offers nothing rather than a
     link to a position that does not exist.
     """
+    # Whichever cycle each decision belongs to, so a record written before the flag
+    # existed can still be told apart. The agent stamps `dry_run` on the decision
+    # itself now; this covers the history, and a stamped record always wins.
+    armed: bool | None = None
+    dry_at: dict[int, bool | None] = {}
+    for i, event in enumerate(events):
+        if event.get("event") == "cycle_start":
+            armed = bool(event["dry_run"]) if "dry_run" in event else None
+        dry_at[i] = armed
+
     out: list[dict] = []
     for i, event in enumerate(events):
         if event.get("event") != "gate_decision":
@@ -303,7 +313,11 @@ def _decisions_with_positions(events: list[dict]) -> list[dict]:
             None,
         ) if event.get("approved") else None
         out.append({**event,
-                    "structure_id": opened.get("structure_id") if opened else None})
+                    "structure_id": opened.get("structure_id") if opened else None,
+                    # None means unknown rather than "armed": a journal from before
+                    # this was recorded cannot say, and the panel should not claim
+                    # otherwise in either direction.
+                    "dry_run": event.get("dry_run", dry_at.get(i))})
     return out
 
 
@@ -578,6 +592,24 @@ def _gate_readings(events: list[dict]) -> dict[str, dict]:
     return {}
 
 
+def _armed(events: list[dict]) -> bool | None:
+    """Whether the last cycle would have submitted, or was only rehearsing.
+
+    `True` armed, `False` dry run, `None` nothing has scanned yet or the journal
+    predates the flag. Three values, because "we do not know" and "it is live" must
+    never render the same.
+
+    This is the loudest thing a trading console can get wrong in either direction. A
+    dry run that looks live invites someone to panic about an order that was never
+    sent; a live run that looks like a rehearsal is worse, and is why the unknown case
+    is its own value rather than being folded into the safe-looking one.
+    """
+    for event in reversed(events):
+        if event.get("event") == "cycle_start" and "dry_run" in event:
+            return not bool(event["dry_run"])
+    return None
+
+
 def _last_session(events: list[dict]) -> dict | None:
     """What the market is doing, and how confident the panel is entitled to be.
 
@@ -708,6 +740,9 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
         # What it is in the middle of, so a slow stage reads as work rather than
         # as an empty screen. None when nothing has been written recently.
         "in_flight": _in_flight(events),
+        # Whether the last cycle was armed. True live, False a rehearsal, None
+        # nothing has scanned — and the three must not render the same.
+        "armed": _armed(events),
         # The deliberation behind each proposal. See `_committees`.
         "committees": _committees(events),
         "circuit": {

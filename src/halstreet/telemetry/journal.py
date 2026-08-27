@@ -131,13 +131,25 @@ class Journal:
                           error=error, structure=structure, rationale=rationale,
                           confidence=confidence, tokens=tokens or {})
 
-    def decision(self, decision: Decision) -> dict:
-        """Every gate verdict, not just the rejections."""
+    def decision(self, decision: Decision, *, dry_run: bool = False) -> dict:
+        """Every gate verdict, not just the rejections.
+
+        `dry_run` is on the record rather than left to be inferred from the
+        `cycle_start` above it. An APPROVED that submitted nothing and an APPROVED
+        that sent an order are the same six letters, and a reader — a person, the
+        panel, or the write-up — has no business having to correlate two records to
+        tell a rehearsal from a trade.
+
+        Found the way these things are: a dry-run cycle appended a REJECTED to the
+        journal the panel was watching, and it was read as the broker refusing an
+        order.
+        """
         return self.write(
             "gate_decision",
             structure=decision.proposal.structure.name,
             underlying=decision.proposal.underlying,
             approved=decision.approved,
+            dry_run=dry_run,
             # Carried onto the decision so a single record explains itself. Confidence
             # especially: it is journalled and consulted by nothing, and a panel that
             # shows it beside the verdict is the clearest way to say so.

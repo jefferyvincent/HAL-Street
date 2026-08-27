@@ -536,7 +536,7 @@ class Agent:
         )
         decision = evaluate(proposal, ctx, ALL_GATES)
         result.decision = decision
-        self.journal.decision(decision)
+        self.journal.decision(decision, dry_run=self.dry_run)
 
         if not decision.approved:
             return result

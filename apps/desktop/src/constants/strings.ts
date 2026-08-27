@@ -30,6 +30,12 @@ export function makeStrings(t: Translate) {
     chrome: {
       brand: t("chrome.brand"),
       paper: t("chrome.paper"),
+      armed: t("chrome.armed"),
+      dryRun: t("chrome.dryRun"),
+      armedUnknown: t("chrome.armedUnknown"),
+      armedTitle: t("chrome.armedTitle"),
+      dryRunTitle: t("chrome.dryRunTitle"),
+      armedUnknownTitle: t("chrome.armedUnknownTitle"),
       busyTitle: t("chrome.busyTitle"),
       equity: t("chrome.equity"),
       breakerArmed: t("chrome.breakerArmed"),
@@ -260,6 +266,8 @@ export function makeStrings(t: Translate) {
         t("tape.counts", { approved, rejected, passed }),
       approved: (n: number) => t("tape.approved", { n }),
       rejected: (bad: number, n: number) => t("tape.rejected", { bad, n }),
+      dryRun: t("tape.dryRun"),
+      dryRunTitle: t("tape.dryRunTitle"),
     },
 
     equity: {

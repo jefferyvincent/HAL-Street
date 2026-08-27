@@ -20,7 +20,13 @@
     "busyTitle": "The agent is mid-cycle. This is read from the last record it wrote, so it clears itself if the process stops.",
     "soundArming": "ARMING",
     "marketTitleBoundary": "Nothing recorded this crossing — the agent was not running — but the broker had already published it for {{crossed}}, and that time has passed. Derived from Alpaca's own clock, not from a calendar kept here.",
-    "marketTitleLastSeen": "Last seen at {{at}}, and nothing has written to the journal since. There is no published boundary to work from either, so this is the last state observed rather than the state now."
+    "marketTitleLastSeen": "Last seen at {{at}}, and nothing has written to the journal since. There is no published boundary to work from either, so this is the last state observed rather than the state now.",
+    "armed": "ARMED",
+    "dryRun": "DRY RUN",
+    "armedUnknown": "IDLE",
+    "armedTitle": "The last cycle would have submitted an approved proposal. Paper account either way.",
+    "dryRunTitle": "The last cycle was a rehearsal. It gates and journals exactly as a live one does and stops before submission — so an APPROVED here sent nothing.",
+    "armedUnknownTitle": "Nothing has scanned yet, so there is no cycle to report on. Not the same as a rehearsal."
   },
   "tabs": {
     "console": "CONSOLE",
@@ -89,7 +95,8 @@
     "neverRejected": "never rejected",
     "note": "Every gate runs on every proposal — none of them short-circuits, so the counts above are out of all {{seen}}. The order is the order they are evaluated in, and it comes from the server rather than from this page: adding a gate changes this list on the next push.",
     "readAt": "readings from {{structure}}, {{when}}",
-    "readOnly": "Nothing here is a control, by design. Limits live in .env, so changing one is a diff someone can review — a field in a dashboard that moves a risk limit leaves no such trace. The socket this panel listens on is never read from at all."
+    "readOnly": "Nothing here is a control, by design. Limits live in .env, so changing one is a diff someone can review — a field in a dashboard that moves a risk limit leaves no such trace. The socket this panel listens on is never read from at all.",
+    "dryRunRow": "DRY RUN"
   },
   "rail": {
     "families": "GATE FAMILIES",
@@ -102,7 +109,9 @@
     "counts": "{{approved}} APPROVED · {{rejected}} REJECTED · {{passed}} PASSED",
     "approved": "APPROVED {{n}}/{{n}}",
     "rejected": "REJECTED {{bad}}/{{n}}",
-    "viewTrade": "CHART"
+    "viewTrade": "CHART",
+    "dryRun": "DRY RUN",
+    "dryRunTitle": "This cycle was a rehearsal. It ran every gate and wrote every record a live cycle would, and stopped before submission — nothing reached the broker."
   },
   "equity": {
     "title": "EQUITY",

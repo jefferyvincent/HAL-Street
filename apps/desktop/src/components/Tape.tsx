@@ -49,6 +49,16 @@ export function Tape({ rows, selected }: { rows: Row[]; selected: string | null 
                 r.decision.approved ? "text-pass" : "text-fail")}>
                 {r.decision.approved ? t.tape.approved(r.total) : t.tape.rejected(r.failed.length, r.total)}
               </span>
+              {/* A rehearsal gates and journals exactly as a live cycle does and
+                  stops before submission, so its records are indistinguishable from
+                  a live run's — and a REJECTED written by one was read as the broker
+                  refusing an order. Said on the row, not only in the chrome. */}
+              {r.decision.dry_run && (
+                <span className="border border-line px-[5px] py-[2px] font-mono text-[8.5px] font-bold leading-none tracking-[.1em] text-ink/40"
+                      title={t.tape.dryRunTitle}>
+                  {t.tape.dryRun}
+                </span>
+              )}
               <span className="flex-1" />
               <span className="font-mono text-[10px] leading-none tabular-nums text-ink/35">{clock(r.ts)}</span>
             </div>

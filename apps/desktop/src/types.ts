@@ -50,6 +50,15 @@ export interface Decision {
   ts: string;
   event: string;
   approved: boolean;
+  /**
+   * Whether the cycle that produced this verdict would have submitted. Null for a
+   * record written before the agent stamped it and whose cycle cannot be recovered.
+   *
+   * An APPROVED that sent nothing and an APPROVED that sent an order are the same
+   * six letters, and nobody should have to correlate two records to tell a rehearsal
+   * from a trade.
+   */
+  dry_run: boolean | null;
   structure?: string;
   underlying?: string;
   gates?: GateVerdict[];
@@ -362,6 +371,12 @@ export interface Snapshot {
   families: string[];
   limits: Record<string, string>;
   circuit: Circuit;
+  /**
+   * Whether the last cycle would have submitted. True live, false a rehearsal, null
+   * when nothing has scanned yet — three values, because "we do not know" and "it is
+   * live" must never render the same.
+   */
+  armed: boolean | null;
   in_flight: InFlight | null;
   gate_readings: Record<string, GateReading>;
   headlines: NewsItem[];
