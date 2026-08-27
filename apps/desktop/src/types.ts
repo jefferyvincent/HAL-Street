@@ -332,12 +332,22 @@ export interface InFlight {
   since: string;
 }
 
+/** What one gate measured the last time it ran. Its own words, not a recomputation. */
+export interface GateReading {
+  reason: string;
+  passed: boolean;
+  at: string;
+  /** The structure it was reading against. */
+  structure: string;
+}
+
 export interface Snapshot {
   chain: ChainEntry[];
   families: string[];
   limits: Record<string, string>;
   circuit: Circuit;
   in_flight: InFlight | null;
+  gate_readings: Record<string, GateReading>;
   pnl: Pnl;
   positions: Position[];
   closed: ClosedStructure[];

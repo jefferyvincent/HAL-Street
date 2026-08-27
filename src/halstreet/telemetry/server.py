@@ -482,6 +482,48 @@ def _crossed(record: dict) -> tuple[str, str] | None:
     return state, raw
 
 
+def _gate_readings(events: list[dict]) -> dict[str, dict]:
+    """What each gate measured the last time it ran, and when.
+
+    The gates tab listed sixteen names and a rejection count, which answers "does this
+    gate exist" and "has it ever bitten" — neither of which is a question anyone has
+    while watching a book. The question is *how close are we*, and the answer was
+    already in the journal and being thrown away: every gate writes its own reading
+    with its verdict.
+
+        open-position-count    2/20 open positions
+        entry-rate-throttle    1/6 entries this hour
+        daily-loss-halt        within the 5% floor of $89,817
+
+    Those are instrument readings. Nothing here computes them — recomputing a gate's
+    own arithmetic in the panel is how a dashboard comes to disagree with the thing it
+    depicts, and these are the exact strings the gate produced when it ran.
+
+    Most recent evaluation only. A gate's reading is a measurement of a moment, and a
+    history of them is what the run journal is for.
+    """
+    for event in reversed(events):
+        if event.get("event") != "gate_decision":
+            continue
+        gates = event.get("gates")
+        if not isinstance(gates, list):
+            # A string iterates one character at a time and every character raises on
+            # `.get`. This route is polled every five seconds, and a raise here empties
+            # the whole panel — found by test, not by staring at it.
+            return {}
+        return {
+            str(gate["gate"]): {
+                "reason": gate.get("reason") or "",
+                "passed": bool(gate.get("passed")),
+                "at": event.get("ts"),
+                "structure": event.get("structure") or "",
+            }
+            for gate in gates
+            if isinstance(gate, dict) and gate.get("gate")
+        }
+    return {}
+
+
 def _last_session(events: list[dict]) -> dict | None:
     """What the market is doing, and how confident the panel is entitled to be.
 
@@ -603,6 +645,9 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
         "market": _last_session(events),
         # What it is doing, as opposed to what it decided. See `_activity`.
         "activity": _activity(events),
+        # What each gate measured last time it ran. The counts say which gates have
+        # ever bitten; these say how close the book is to each one now.
+        "gate_readings": _gate_readings(events),
         # What it is in the middle of, so a slow stage reads as work rather than
         # as an empty screen. None when nothing has been written recently.
         "in_flight": _in_flight(events),

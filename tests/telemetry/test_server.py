@@ -116,7 +116,7 @@ def test_the_payload_carries_only_what_the_panel_renders(tmp_path):
     assert "events" not in state
     assert set(state) == {"circuit", "pnl", "positions", "closed", "decisions",
                           "views", "menus", "equity_curve", "market",
-                          "activity", "committees", "in_flight",
+                          "activity", "committees", "in_flight", "gate_readings",
                           "chain", "families", "limits"}
 
 

@@ -17,7 +17,12 @@ export function ChromeBar() {
   const halted = snap?.circuit.halted ?? false;
 
   return (
-    <div className="sticky top-0 z-10 flex h-[34px] items-center border-b border-line bg-chrome">
+    // Wraps rather than squeezes. The first attempt at this pinned every status chip
+    // and left the tab strip as the only flexible thing, which inverted the priority:
+    // on a narrow window the six chips held their width and the tabs — the actual
+    // navigation — were crushed into a sliver. Nothing shrinks now; the status group
+    // drops to a second line when the row runs out, and the bar grows by 34px.
+    <div className="sticky top-0 z-10 flex min-h-[34px] flex-wrap items-stretch border-b border-line bg-chrome">
       <div className="flex h-full shrink-0 items-center gap-[7px] bg-amber px-[14px]">
         <Icon d={ICON.hal} size={14} stroke={STROKE.void} width={2.2} />
         <span className="font-mono text-[12px] font-bold leading-none tracking-[.06em] text-void">
@@ -25,55 +30,54 @@ export function ChromeBar() {
         </span>
       </div>
 
-      {/* The tabs take whatever room is left and scroll inside it. Everything in
-          this bar used to be one unbroken flex row with nothing pinned, so a narrow
-          window squeezed the tab labels into each other instead of the bar admitting
-          it had run out of space. Each item is now `shrink-0` and this strip is the
-          only thing that gives. */}
-      <div className="flex h-full min-w-0 flex-1 items-center overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => go(tab.id)}
-            className={cn(CLS.tab, "shrink-0", tab.active ? CLS.tabOn : CLS.tabOff)}
-          >
-            <Icon d={tab.icon} stroke={tab.active ? STROKE.amber : "currentColor"} />
-            {t.tabs[tab.id]}
-            {tab.count !== null && <span className="tabular-nums">{tab.count}</span>}
-          </button>
-        ))}
-      </div>
+      {/* Navigation outranks status. These never shrink and never scroll. */}
+      {tabs.map((tab) => (
+        <button
+          key={tab.id}
+          onClick={() => go(tab.id)}
+          className={cn(CLS.tab, "min-h-[34px] shrink-0", tab.active ? CLS.tabOn : CLS.tabOff)}
+        >
+          <Icon d={tab.icon} stroke={tab.active ? STROKE.amber : "currentColor"} />
+          {t.tabs[tab.id]}
+          {tab.count !== null && <span className="tabular-nums">{tab.count}</span>}
+        </button>
+      ))}
 
-      <div className={cn("flex shrink-0 items-center gap-[7px] border-l border-line px-3 font-mono text-[11px] font-semibold leading-none",
-        halted ? "text-fail" : "text-pass")}>
-        <span className={cn(CLS.dot, halted ? "bg-fail" : "bg-pass")} />
-        {halted ? t.chrome.breakerHalted : t.chrome.breakerArmed}
-      </div>
-
-      {/* Not a control: the environment is asserted at startup and again at every
-          order. This states it; it does not select it. */}
-      <div className="flex shrink-0 items-center gap-[7px] border-l border-line px-3 font-mono text-[11px] font-semibold leading-none text-amber">
-        {t.chrome.paper}
-      </div>
-
-      {/* Whether it is mid-cycle, on every tab. Derived from the last record the
-          agent wrote, so it goes quiet on its own if the process dies. */}
-      {busy && (
-        <div className="flex shrink-0 items-center gap-[7px] border-l border-line px-3 font-mono text-[11px] leading-none text-amber"
-             title={t.chrome.busyTitle}>
-          <span className={cn(CLS.dot, "animate-pulse bg-amber")} />
-          <span className="hidden min-[1180px]:inline">{busy.stage}</span>
-          {busy.underlying && <span className="font-semibold">{busy.underlying}</span>}
+      {/* One group, so the chips wrap together to the next line rather than three
+          going over and three staying behind. `flex-1` takes the slack so they sit
+          right while they fit, and `justify-end` keeps them there afterwards. */}
+      <div className="flex min-h-[34px] flex-1 flex-wrap items-center justify-end">
+        <div className={cn("flex shrink-0 items-center gap-[7px] border-l border-line px-3 font-mono text-[11px] font-semibold leading-none",
+          halted ? "text-fail" : "text-pass")}>
+          <span className={cn(CLS.dot, halted ? "bg-fail" : "bg-pass")} />
+          {halted ? t.chrome.breakerHalted : t.chrome.breakerArmed}
         </div>
-      )}
 
-      <SessionBell />
+        {/* Not a control: the environment is asserted at startup and again at every
+            order. This states it; it does not select it. */}
+        <div className="flex shrink-0 items-center gap-[7px] border-l border-line px-3 font-mono text-[11px] font-semibold leading-none text-amber">
+          {t.chrome.paper}
+        </div>
 
-      <div className="flex shrink-0 items-center gap-[7px] border-l border-line px-3 font-mono text-[11px] font-semibold leading-none tabular-nums text-ink">
-        {t.chrome.equity} {snap ? money(snap.pnl.equity_last) : "—"}
+        {/* Whether it is mid-cycle, on every tab. Derived from the last record the
+            agent wrote, so it goes quiet on its own if the process dies. */}
+        {busy && (
+          <div className="flex shrink-0 items-center gap-[7px] border-l border-line px-3 font-mono text-[11px] leading-none text-amber"
+               title={t.chrome.busyTitle}>
+            <span className={cn(CLS.dot, "animate-pulse bg-amber")} />
+            <span>{busy.stage}</span>
+            {busy.underlying && <span className="font-semibold">{busy.underlying}</span>}
+          </div>
+        )}
+
+        <SessionBell />
+
+        <div className="flex shrink-0 items-center gap-[7px] border-l border-line px-3 font-mono text-[11px] font-semibold leading-none tabular-nums text-ink">
+          {t.chrome.equity} {snap ? money(snap.pnl.equity_last) : "—"}
+        </div>
+
+        <SoundToggle />
       </div>
-
-      <SoundToggle />
     </div>
   );
 }

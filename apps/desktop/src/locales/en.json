@@ -87,7 +87,9 @@
     "meta": "{{gates}} GATES · {{seen}} PROPOSALS SEEN",
     "rejectedCount": "rejected {{n}}",
     "neverRejected": "never rejected",
-    "note": "Every gate runs on every proposal — none of them short-circuits, so the counts above are out of all {{seen}}. The order is the order they are evaluated in, and it comes from the server rather than from this page: adding a gate changes this list on the next push."
+    "note": "Every gate runs on every proposal — none of them short-circuits, so the counts above are out of all {{seen}}. The order is the order they are evaluated in, and it comes from the server rather than from this page: adding a gate changes this list on the next push.",
+    "readAt": "readings from {{structure}}, {{when}}",
+    "readOnly": "Nothing here is a control, by design. Limits live in .env, so changing one is a diff someone can review — a field in a dashboard that moves a risk limit leaves no such trace. The socket this panel listens on is never read from at all."
   },
   "rail": {
     "families": "GATE FAMILIES",

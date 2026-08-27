@@ -257,3 +257,87 @@ def test_nothing_here_knows_where_the_exchange_is():
     source = Path("src/halstreet/telemetry/server.py").read_text()
     for banned in ("ZoneInfo", "America/New_York", "pytz", "timedelta(hours=-4)"):
         assert banned not in source, banned
+
+
+# --- what each gate measured ----------------------------------------------------
+#
+# The gates tab listed sixteen names and a rejection count, which answers "does this
+# gate exist" and "has it ever bitten" — neither of which is a question anyone has
+# while watching a book. The answer to the one they do have was already in the journal
+# and being discarded: every gate writes its own reading beside its verdict.
+
+def decision(**over) -> dict:
+    base = {
+        "event": "gate_decision", "ts": at(30), "structure": "QQQ 765/775 call spread",
+        "approved": True, "rejected_by": [],
+        "gates": [
+            {"gate": "daily-loss-halt", "family": "circuit", "passed": True,
+             "reason": "within the 5% floor of $89,817"},
+            {"gate": "open-position-count", "family": "circuit", "passed": True,
+             "reason": "2/20 open positions"},
+        ],
+    }
+    return {**base, **over}
+
+
+def test_each_gate_carries_the_reading_it_took():
+    from halstreet.telemetry.server import _gate_readings
+
+    readings = _gate_readings([decision()])
+    assert readings["open-position-count"]["reason"] == "2/20 open positions"
+    assert readings["open-position-count"]["passed"] is True
+    assert readings["daily-loss-halt"]["structure"] == "QQQ 765/775 call spread"
+
+
+def test_the_reading_is_the_gates_own_sentence_not_a_recomputation():
+    """A panel that re-derives a limit check is one that can disagree with the thing
+    it depicts, and this is the half of the system that says no."""
+    from halstreet.telemetry.server import _gate_readings
+
+    odd = decision(gates=[{"gate": "g", "passed": True, "reason": "17/20 whatever"}])
+    assert _gate_readings([odd])["g"]["reason"] == "17/20 whatever"
+
+
+def test_only_the_most_recent_evaluation_is_reported():
+    """A reading is a measurement of a moment. A history of them is the run journal."""
+    from halstreet.telemetry.server import _gate_readings
+
+    old = decision(ts=at(9000), gates=[{"gate": "g", "passed": True, "reason": "old"}])
+    new = decision(ts=at(30), gates=[{"gate": "g", "passed": True, "reason": "new"}])
+    assert _gate_readings([old, new])["g"]["reason"] == "new"
+
+
+def test_a_failing_gate_reports_its_reading_too():
+    """The one you most want to see. A rejection with no number is just a refusal."""
+    from halstreet.telemetry.server import _gate_readings
+
+    rejected = decision(approved=False, rejected_by=["open-position-count"], gates=[
+        {"gate": "open-position-count", "passed": False,
+         "reason": "20/20 open positions"}])
+    reading = _gate_readings([rejected])["open-position-count"]
+    assert reading["passed"] is False
+    assert reading["reason"] == "20/20 open positions"
+
+
+def test_a_chain_that_has_never_run_reports_nothing_rather_than_zeroes():
+    """Most cycles never reach the gates. Inventing a reading of 0 for every one of
+    them would say the book is empty when nothing has looked."""
+    from halstreet.telemetry.server import _gate_readings
+
+    assert _gate_readings([{"event": "cycle_start", "ts": at(1)}]) == {}
+
+
+@pytest.mark.parametrize("gates", [None, [], "all good", [{}], [{"reason": "no name"}]])
+def test_an_unusable_gate_list_yields_nothing_rather_than_a_crash(gates):
+    from halstreet.telemetry.server import _gate_readings
+
+    assert _gate_readings([decision(gates=gates)]) == {}
+
+
+def test_a_gate_with_no_reason_is_still_listed():
+    """Present-with-nothing-to-say and absent are different facts: the first means the
+    gate ran, and the panel draws it differently."""
+    from halstreet.telemetry.server import _gate_readings
+
+    readings = _gate_readings([decision(gates=[{"gate": "g", "passed": True}])])
+    assert readings["g"]["reason"] == ""

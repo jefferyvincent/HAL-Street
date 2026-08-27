@@ -134,6 +134,8 @@ export function makeStrings(t: Translate) {
       meta: (gates: number, seen: number) => t("gates.meta", { gates, seen }),
       rejectedCount: (n: number) => t("gates.rejectedCount", { n }),
       neverRejected: t("gates.neverRejected"),
+      readAt: (structure: string, when: string) => t("gates.readAt", { structure, when }),
+      readOnly: t("gates.readOnly"),
       note: (seen: number) => t("gates.note", { seen }),
     },
 
