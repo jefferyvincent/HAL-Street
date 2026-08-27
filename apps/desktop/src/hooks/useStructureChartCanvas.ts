@@ -31,7 +31,7 @@ import type { Candle, Line, Series } from "./useStructureLevels";
  */
 export function useStructureChartCanvas(
   series: Series[], candles: Candle[], lines: Line[], live: number | null,
-  fit: "price" | "levels" = "price",
+  fit: "working" | "levels" = "working",
 ) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -147,22 +147,33 @@ export function useStructureChartCanvas(
 
     if (series.length) {
       chart.current?.timeScale().fitContent();
-      if (fit === "levels") {
-        // Asked for explicitly. A stop three times the credit from entry drags the
-        // range out and flattens the candles, which is why this is not the default
-        // — but it is the only way to see where the policy would actually act.
-        const values = series.map((p) => p.value)
-          .concat(candles.flatMap((c) => [c.high, c.low]))
-          .concat(lines.map((l) => l.value))
-          .concat(live === null ? [] : [live]);
+      // Prices first, then whichever levels can join them without flattening the
+      // chart. Including everything is geometry, not preference: a stop four times
+      // the candle range away *must* squash the candles into a fifth of the height,
+      // and a target sitting right beside them costs nothing. So the default takes
+      // the price action plus any level within one range of it — which is entry and
+      // target on every structure this agent builds — and leaves the stop to the
+      // toggle, named in the legend meanwhile.
+      const prices = candles.flatMap((c) => [c.high, c.low])
+        .concat(series.map((p) => p.value))
+        .concat(live === null ? [] : [live]);
+
+      if (prices.length) {
+        const floor = Math.min(...prices);
+        const ceiling = Math.max(...prices);
+        const span = ceiling - floor || 0.1;
+        const near = fit === "levels"
+          ? lines.map((l) => l.value)   // everything, asked for explicitly
+          : lines.map((l) => l.value).filter(
+              (v) => v >= floor - span && v <= ceiling + span);
+
+        const values = prices.concat(near);
         const low = Math.min(...values);
         const high = Math.max(...values);
         const pad = (high - low) * 0.08 || 0.1;
         api.applyOptions({ autoscaleInfoProvider: () => ({
           priceRange: { minValue: low - pad, maxValue: high + pad },
         }) });
-      } else {
-        api.applyOptions({ autoscaleInfoProvider: undefined });
       }
     }
 

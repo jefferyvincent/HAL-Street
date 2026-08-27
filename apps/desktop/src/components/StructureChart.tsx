@@ -65,8 +65,9 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
   // price — asking to fit them is what makes them visible, so under that scale there
   // is nothing to report.
   const drawn = candles.flatMap((c) => [c.high, c.low]);
+  const span = drawn.length ? Math.max(...drawn) - Math.min(...drawn) || 0.1 : 0;
   const offscreen = fit === "levels" || drawn.length === 0 ? [] : lines.filter(
-    (l) => l.value < Math.min(...drawn) || l.value > Math.max(...drawn));
+    (l) => l.value < Math.min(...drawn) - span || l.value > Math.max(...drawn) + span);
 
   return (
     <>

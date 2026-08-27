@@ -36,13 +36,13 @@ interface UI {
   /**
    * What the structure chart's price axis is scaled to.
    *
-   * `levels` is the default, and that is a reversal. Scaling to the candles draws
-   * them beautifully and puts a stop three times the credit away off the bottom —
-   * which is the first thing anyone opening a position chart looks for, and losing
-   * it is worse than a compressed body. Zooming into the price action is the
-   * deliberate act, not the other way round.
+   * `working` is the default: the price action plus every level close enough to sit
+   * beside it, which is entry and target on every structure this agent builds. A
+   * stop four times the candle range away is left out, because including it is not a
+   * preference — it is geometry, and it flattens the candles into a fifth of the
+   * height. `levels` pulls it in when that is what you want to see.
    */
-  chartFit: "price" | "levels";
+  chartFit: "working" | "levels";
   toggleFit: () => void;
   /**
    * Select a decision *and* show it.
@@ -83,8 +83,8 @@ export const useUI = create<UI>((set) => ({
   select: (selected) => set({ selected }),
   chart: (charting) => set({ charting, view: "book" }),
   decisionOpen: false,
-  chartFit: "levels",
-  toggleFit: () => set((s) => ({ chartFit: s.chartFit === "price" ? "levels" : "price" })),
+  chartFit: "working",
+  toggleFit: () => set((s) => ({ chartFit: s.chartFit === "working" ? "levels" : "working" })),
   toggleDecision: () => set((s) => ({ decisionOpen: !s.decisionOpen })),
   showDecision: (selected) => set({ selected, decisionOpen: true, view: "console" }),
   muted: storedMute(),

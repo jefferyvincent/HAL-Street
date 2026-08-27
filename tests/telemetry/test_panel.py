@@ -281,7 +281,17 @@ def test_the_price_scale_is_a_control_rather_than_a_decision():
     # Levels by default. Scaling to the candles draws them beautifully and puts the
     # stop off the bottom, and the stop is the first thing anyone opening a position
     # chart looks for — losing it is worse than a compressed body.
-    assert 'chartFit: "levels"' in store, "the default must show where the position closes"
+    assert 'chartFit: "working"' in store, \
+        "the default must show the price with the levels that can sit beside it"
+
+    canvas = (SRC / "hooks" / "useStructureChartCanvas.ts").read_text()
+    # The default keeps only levels within one candle-range of the price. Including
+    # everything is geometry rather than preference: measured on a live QQQ spread,
+    # the stop sits four ranges away and takes the candles from 69% of the height to
+    # 18%. Entry and target cost nothing and stay.
+    assert "v >= floor - span && v <= ceiling + span" in canvas, \
+        "the default scale does not filter distant levels"
+    assert 'fit === "levels"' in canvas, "the toggle must still be able to add them"
 
     chart = (SRC / "components" / "StructureChart.tsx").read_text()
     assert "toggleFit" in chart, "the toggle is not reachable"
@@ -289,8 +299,6 @@ def test_the_price_scale_is_a_control_rather_than_a_decision():
 
     canvas = (SRC / "hooks" / "useStructureChartCanvas.ts").read_text()
     assert 'fit === "levels"' in canvas, "the canvas ignores the setting"
-    assert "autoscaleInfoProvider: undefined" in canvas, \
-        "switching back to price must release the forced range, not leave it stuck"
 
 
 def test_the_forming_candle_is_drawn_differently_and_moves():

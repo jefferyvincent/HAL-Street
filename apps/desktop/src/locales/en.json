@@ -166,7 +166,7 @@
     "forming": "the hollow candle is still forming — its close is the live mark",
     "fitPrice": "FIT PRICE",
     "fitLevels": "FIT STOP",
-    "fitTitle": "Scale to the candles, or pull the target and stop into view",
+    "fitTitle": "Add the stop to the scale. It sits far from the price, so the candles compress.",
     "offscreen": "{{name}} is off the chart at {{value}} — FIT STOP to see it"
   },
   "committee": {
