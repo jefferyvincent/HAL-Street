@@ -363,3 +363,349 @@ def test_a_complete_answer_carries_no_error():
     text, counts, error = C.Committee(client)._call("sys", "user", max_tokens=100)
     assert (text, error) == ("case", None)
     assert counts == {"in": 1, "out": 2, "cache_read": 0}
+
+
+# --- the stages, as they are actually called ------------------------------------------
+#
+# The three above cover the pieces. These cover the orchestration: what each stage
+# hands the next, and what happens when one of them does not come back. Every failure
+# mode here is one the committee is *designed* to survive, which is exactly why none of
+# them would announce itself in production — a degraded committee still returns a
+# proposal, and a proposal still faces sixteen gates.
+
+
+class _Scripted:
+    """A client that answers from a queue, recording every request.
+
+    Keyed by nothing: the committee's stages are distinguishable by the order they
+    call in, and pinning that order is part of what these tests are for.
+    """
+
+    def __init__(self, *responses):
+        self._queue = list(responses)
+        self.calls = []
+        self.messages = self
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        if not self._queue:
+            raise AssertionError(f"unexpected call #{len(self.calls)}")
+        nxt = self._queue.pop(0)
+        if isinstance(nxt, Exception):
+            raise nxt
+        return nxt
+
+
+def _ok(text, out=100):
+    usage = type("U", (), {"input_tokens": 10, "output_tokens": out,
+                           "cache_read_input_tokens": 5})()
+    return _Response("end_turn", [_Block("thinking", ""), _Block("text", text)], usage)
+
+
+# --- catalyst ---------------------------------------------------------------------------
+
+def test_the_catalyst_returns_the_parsed_verdict_and_its_cost():
+    client = _Scripted(_ok(json.dumps({"lean": "bearish", "confidence": 0.7,
+                                       "note": "Fed decision inside the window."})))
+    verdict, counts = C.Committee(client).catalyst(
+        underlying="SPY",
+        headlines=[Headline(ts="2026-08-26T12:00:00+00:00", headline="h", source="s")],
+        evidence={"hv_rank": 51})
+    assert (verdict.lean, verdict.confidence) == ("bearish", 0.7)
+    assert verdict.error is None
+    assert counts == {"in": 10, "out": 100, "cache_read": 5}
+
+
+def test_the_catalyst_is_constrained_to_the_verdict_schema():
+    # Free prose from this stage would reach the judge's turn unparsed, which is the
+    # one place untrusted headline text could get a sentence of its own choosing in.
+    client = _Scripted(_ok(json.dumps({"lean": "neutral", "confidence": 0.1, "note": ""})))
+    C.Committee(client).catalyst(
+        underlying="SPY",
+        headlines=[Headline(ts="2026-08-26T12:00:00+00:00", headline="h", source="s")],
+        evidence={})
+    fmt = client.calls[0]["output_config"]["format"]
+    assert fmt["type"] == "json_schema"
+    assert fmt["schema"]["properties"]["lean"]["enum"] == list(C.LEAN)
+    assert fmt["schema"]["additionalProperties"] is False
+
+
+def test_the_desks_own_numbers_reach_the_catalyst_alongside_the_news():
+    # The analyst's whole job is "does the news change what these numbers mean". Handed
+    # headlines with no numbers it can only summarize the tape, which is not the question.
+    client = _Scripted(_ok(json.dumps({"lean": "neutral", "confidence": 0.0, "note": ""})))
+    C.Committee(client).catalyst(
+        underlying="SPY",
+        headlines=[Headline(ts="2026-08-26T12:00:00+00:00", headline="h", source="s")],
+        evidence={"hv_rank": 51, "bias": "bullish"})
+    turn = client.calls[0]["messages"][0]["content"]
+    assert "hv_rank" in turn and "51" in turn
+    assert turn.index("hv_rank") < turn.index("BEGIN UNTRUSTED")
+
+
+def test_a_catalyst_outage_is_an_error_not_a_neutral_read():
+    import anthropic
+    client = _Scripted(anthropic.APIConnectionError(request=None))
+    verdict, _ = C.Committee(client).catalyst(
+        underlying="SPY",
+        headlines=[Headline(ts="2026-08-26T12:00:00+00:00", headline="h", source="s")],
+        evidence={})
+    assert verdict.error is not None and "APIConnectionError" in verdict.error
+
+
+# --- debate -------------------------------------------------------------------------------
+
+def test_the_debate_runs_both_sides_and_sums_their_cost():
+    client = _Scripted(_ok("bull case", out=40), _ok("bear case", out=60))
+    bull, bear, counts, errors = C.Committee(client).debate("evidence")
+    assert {bull, bear} == {"bull case", "bear case"}
+    assert errors == []
+    assert counts == {"in": 20, "out": 100, "cache_read": 10}
+
+
+def test_neither_researcher_is_shown_the_others_argument():
+    """The reason they run in parallel, pinned as a property of the requests.
+
+    A bear that has read the bull's case argues with the case rather than with the
+    trade, and the resulting agreement looks like corroboration to the judge. Both
+    calls must therefore carry byte-identical user turns.
+    """
+    client = _Scripted(_ok("bull"), _ok("bear"))
+    C.Committee(client).debate("the evidence pack")
+    turns = [c["messages"][0]["content"] for c in client.calls]
+    assert turns == ["the evidence pack", "the evidence pack"]
+    systems = {c["system"][0]["text"] for c in client.calls}
+    assert systems == {C._BULL_SYS, C._BEAR_SYS}, "one system prompt per side, both used"
+
+
+def test_the_researchers_are_not_constrained_to_a_schema():
+    # They are asked for prose. Handing them the proposal schema is what made the bear
+    # return a filled-in proposal on the first live run.
+    client = _Scripted(_ok("bull"), _ok("bear"))
+    C.Committee(client).debate("evidence")
+    assert all("format" not in c["output_config"] for c in client.calls)
+
+
+def test_one_researcher_failing_does_not_take_the_other_down():
+    # The case the first live run actually hit. The surviving argument still reaches
+    # the judge; the missing one is named rather than silently absent.
+    import anthropic
+    client = _Scripted(_ok("bear case"), anthropic.APIConnectionError(request=None))
+    bull, bear, _, errors = C.Committee(client).debate("evidence")
+    assert (bull or bear) == "bear case"
+    assert len(errors) == 1 and errors[0].split(":")[0] in ("bull", "bear")
+
+
+def test_both_researchers_failing_is_two_errors_not_one():
+    import anthropic
+    client = _Scripted(anthropic.APIConnectionError(request=None),
+                       anthropic.APIConnectionError(request=None))
+    bull, bear, counts, errors = C.Committee(client).debate("evidence")
+    assert (bull, bear) == ("", "")
+    assert {e.split(":")[0] for e in errors} == {"bull", "bear"}
+    assert counts == {"in": 0, "out": 0, "cache_read": 0}
+
+
+def test_a_debate_error_is_attributed_to_the_side_that_had_it():
+    # "One of them failed" is not enough to act on: a missing bull and a missing bear
+    # bias the judge in opposite directions.
+    client = _Scripted(_ok("bull case"), _Response("refusal", []))
+    _, _, _, errors = C.Committee(client).debate("evidence")
+    assert errors == ["bear: model refused"]
+
+
+# --- judge ---------------------------------------------------------------------------------
+
+_GOOD_PROPOSAL = {
+    "underlying": "SPY", "name": "Oct-16 765/770 call spread", "qty": 1,
+    "limit_price": "2.99", "rationale": "Defined risk into a low-IV tape.",
+    "confidence": 0.6,
+    "legs": [{"symbol": "SPY261016C00765000", "side": "buy"},
+             {"symbol": "SPY261016C00770000", "side": "sell"}],
+}
+
+
+def test_the_judge_returns_a_result_in_the_single_call_shape():
+    # Everything downstream — gates, journal, submission — is shared with the
+    # single-call path, so the committee must produce the same object or the two
+    # paths diverge somewhere nobody is looking.
+    client = _Scripted(_ok(json.dumps(_GOOD_PROPOSAL)))
+    result, counts = C.Committee(client).judge(system="SYS", brief="evidence")
+    assert result.ok and result.parsed.proposal.underlying == "SPY"
+    assert counts == {"in": 10, "out": 100, "cache_read": 5}
+
+
+def test_the_judge_runs_under_the_real_system_prompt_plus_a_suffix():
+    """The gate catalogue reaches the judge because it is the same prompt, not a copy.
+
+    A second copy of the rules is a second thing to update when a gate is added, and
+    the sixteenth gate is exactly the kind of change that would update one of them.
+    """
+    from halstreet.agent.llm import ProposalWriter
+    client = _Scripted(_ok(json.dumps(_GOOD_PROPOSAL)))
+    real = ProposalWriter.__init__.__globals__["SYSTEM_PROMPT"]
+    C.Committee(client).judge(system=real, brief="evidence")
+    sent = client.calls[0]["system"][0]["text"]
+    assert sent.startswith(real), "the judge must not get a paraphrase of the rules"
+    assert sent.endswith(C._JUDGE_SYS_SUFFIX)
+
+
+def test_the_judge_is_told_agreement_is_not_evidence():
+    # The researchers were instructed to disagree, so their agreeing says nothing
+    # about the trade. A judge that reads consensus as corroboration is worse than
+    # one model call, because it has manufactured a second opinion.
+    assert "instructed to disagree" in C._JUDGE_SYS_SUFFIX
+    assert "does not bind you" in C._JUDGE_SYS_SUFFIX
+
+
+def test_the_judge_may_only_choose_from_the_candidates_it_was_given():
+    # The from-the-menu gate enforces this, but a judge that does not know it will
+    # spend a cycle proposing something that is rejected on arrival.
+    assert "must be one of the candidates" in C._JUDGE_SYS_SUFFIX
+
+
+def test_a_judge_outage_yields_no_proposal_rather_than_a_partial_one():
+    import anthropic
+    client = _Scripted(anthropic.APIConnectionError(request=None))
+    result, _ = C.Committee(client).judge(system="SYS", brief="evidence")
+    assert result.parsed is None and not result.ok
+    assert result.error is not None
+
+
+def test_a_judge_answer_that_will_not_parse_is_not_ok_and_is_not_an_abstention():
+    # Three different outcomes that must stay distinguishable: a trade, a considered
+    # pass, and a broken answer. Collapsing the last two makes a parse failure look
+    # like restraint in the journal.
+    client = _Scripted(_ok(json.dumps({"underlying": "SPY", "legs": []})))
+    result, _ = C.Committee(client).judge(system="SYS", brief="evidence")
+    assert not result.ok
+
+
+# --- the whole session, in order ---------------------------------------------------------
+
+def test_the_stages_run_in_order_and_each_sees_the_last():
+    """Catalyst -> bull ∥ bear -> judge, with the evidence accumulating.
+
+    Ordering is the committee's entire value: a judge that ran before the debate is
+    four calls buying one call's worth of decision.
+    """
+    client = _Scripted(
+        _ok(json.dumps({"lean": "bearish", "confidence": 0.8, "note": "Fed on Wednesday"})),
+        _ok("the bull case"), _ok("the bear case"),
+        _ok(json.dumps(_GOOD_PROPOSAL)),
+    )
+    com = C.Committee(client)
+    session = C.Session()
+    session.catalyst, counts = com.catalyst(
+        underlying="SPY",
+        headlines=[Headline(ts="2026-08-26T12:00:00+00:00", headline="h", source="s")],
+        evidence={"hv_rank": 51})
+    session.spend(counts)
+    session.bull, session.bear, counts, _ = com.debate(
+        C.brief(base_turn="menu", session=session, debate=True))
+    session.spend(counts)
+    _, counts = com.judge(system="SYS", brief=C.brief(base_turn="menu", session=session))
+    session.spend(counts)
+
+    debate_turn = client.calls[1]["messages"][0]["content"]
+    assert "Fed on Wednesday" in debate_turn, "the researchers argue the catalyst read"
+    assert "the bull case" not in debate_turn and "the bear case" not in debate_turn
+
+    judge_turn = client.calls[3]["messages"][0]["content"]
+    assert "Fed on Wednesday" in judge_turn
+    assert "the bull case" in judge_turn and "the bear case" in judge_turn
+
+    assert session.tokens == {"in": 40, "out": 400, "cache_read": 20}
+
+
+def test_a_session_is_journalled_even_when_every_stage_failed():
+    # Four calls that produced nothing still cost four calls. A cycle whose committee
+    # collapsed must be distinguishable in the journal from one that ran fine and
+    # declined — otherwise an outage reads as restraint.
+    s = C.Session(catalyst=C.Verdict(error="timeout"),
+                  errors=["catalyst: timeout", "bull: timeout", "bear: timeout"])
+    s.spend({"in": 900, "out": 0, "cache_read": 0})
+    rec = s.to_journal()
+    assert rec["tokens"]["in"] == 900
+    assert len(rec["errors"]) == 3
+    assert "unavailable" in rec["catalyst"]["note"]
+
+
+def test_the_journalled_arguments_are_bounded():
+    # Two researchers' prose, per underlying, per cycle, appended forever. Unbounded
+    # this is the panel payload problem again, in the file that must never be rotated.
+    s = C.Session(bull="b" * 5000, bear="r" * 5000)
+    rec = s.to_journal()
+    assert len(rec["bull"]) == 1200 and len(rec["bear"]) == 1200
+
+
+# --- the boundary the committee must not cross ----------------------------------------------
+
+def test_the_committee_cannot_reach_the_broker():
+    """The claim the whole project rests on, checked at the module that most wants to.
+
+    The committee is the least deterministic thing in the codebase and the only part
+    that reads attacker-influenced text. If a path to the broker were ever going to
+    appear somewhere it should not, it would appear here.
+    """
+    tree = ast.parse(Path(C.__file__).read_text())
+    names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)} | {
+        n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    # Not "client": this module holds an Anthropic client, and a name that generic
+    # catches the thing it is allowed to have. These are the broker's own verbs.
+    forbidden = {"place_structure", "close_structure", "submit_order", "place_order",
+                 "replace_order", "cancel_order", "AlpacaMCP", "get_account_info"}
+    assert not (names & forbidden), f"the committee must not touch the broker: {names & forbidden}"
+
+
+def test_the_committee_module_imports_no_gate_and_no_broker():
+    # It must not be able to consult the gates either. A proposal that has "already
+    # been checked" is the shape of a proposal that skips the check.
+    tree = ast.parse(Path(C.__file__).read_text())
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module)
+        elif isinstance(node, ast.Import):
+            imported.update(a.name for a in node.names)
+    assert not any(m.startswith(("halstreet.gates", "halstreet.broker",
+                                "halstreet.execution")) for m in imported), imported
+
+
+def test_the_desk_record_reaches_the_judge_as_outcomes(monkeypatch):
+    # Realized P&L on this underlying is the one input to the decision that is not an
+    # opinion. It is labelled as such in the brief so the judge weighs it as fact.
+    s = C.Session(reflection=[{"structure": "SPY 765/770", "realized_usd": "-120",
+                              "outcome": "loss"}])
+    text = C.brief(base_turn="t", session=s, debate=False)
+    assert "DESK RECORD" in text and "nothing closed yet" not in text
+    assert "-120" in text and "loss" in text
+
+
+def test_from_env_reads_the_model_and_effort_and_falls_back(monkeypatch):
+    from halstreet.agent.llm import DEFAULT_EFFORT, DEFAULT_MODEL
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+
+    monkeypatch.setenv("LLM_MODEL", "claude-sonnet-5")
+    monkeypatch.setenv("LLM_EFFORT", "low")
+    c = C.Committee.from_env()
+    assert (c.model, c.effort) == ("claude-sonnet-5", "low")
+
+    # Blank is not a configuration. An empty LLM_MODEL in .env must not become the
+    # model name, which is the failure that reaches the API as a 404 at 09:30.
+    monkeypatch.setenv("LLM_MODEL", "  ")
+    monkeypatch.setenv("LLM_EFFORT", "")
+    c = C.Committee.from_env()
+    assert (c.model, c.effort) == (DEFAULT_MODEL, DEFAULT_EFFORT)
+
+
+def test_the_committee_uses_the_dedicated_llm_key_when_there_is_one(monkeypatch):
+    # LLM_API_KEY separates the model bill from anything else on the account key, and
+    # is what .env documents. Falling through to ANTHROPIC_API_KEY silently would make
+    # a typo'd LLM_API_KEY look like it worked.
+    monkeypatch.setenv("LLM_API_KEY", "dedicated-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fallback-key")
+    assert C.Committee.from_env()._client.api_key == "dedicated-key"
+    monkeypatch.setenv("LLM_API_KEY", "   ")
+    assert C.Committee.from_env()._client.api_key == "fallback-key"
