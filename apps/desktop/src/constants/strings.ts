@@ -43,6 +43,12 @@ export function makeStrings(t: Translate) {
       marketUnknown: t("chrome.marketUnknown"),
     },
 
+    news: {
+      label: t("news.label"),
+      title: t("news.title"),
+      age: (n: number) => t("news.age", { n }),
+    },
+
     tabs: {
       console: t("tabs.console"),
       journal: t("tabs.journal"),

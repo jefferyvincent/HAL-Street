@@ -56,3 +56,33 @@
     animation: none !important;
   }
 }
+
+/*
+ * The news strip.
+ *
+ * The track holds two copies of the feed, so translating it by exactly half its own
+ * width lands the second copy where the first began and the loop has no seam.
+ * Percentage of the *element* rather than of the viewport, which is why the duration
+ * is generous — the track is as wide as the day's news and a fixed duration would
+ * read a short feed at a crawl and a long one at a blur.
+ *
+ * Paused on hover, because a headline you cannot finish reading is decoration. And
+ * stopped outright for anyone who asked for less motion: a marquee is close to the
+ * top of the list of things that setting exists for.
+ */
+@keyframes ticker {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+.ticker-track {
+  animation: ticker 90s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track {
+    animation: none;
+    /* Still readable, and now scrollable by hand instead of on a timer. */
+    overflow-x: auto;
+  }
+}

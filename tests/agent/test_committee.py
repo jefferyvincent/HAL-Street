@@ -16,6 +16,7 @@ import pytest
 
 from halstreet.agent import committee as C
 from halstreet.marketdata.news import Headline
+from tests.support import StreamingOnly
 
 
 @pytest.fixture(autouse=True)
@@ -195,14 +196,14 @@ def test_a_stage_that_failed_is_named_in_the_brief():
 
 # --- the catalyst ---------------------------------------------------------------------
 
-class _FakeClient:
+class _FakeClient(StreamingOnly):
     """Records the turn it was handed. Never reaches the network."""
 
     def __init__(self):
         self.calls = []
         self.messages = self
 
-    def create(self, **kwargs):
+    def respond(self, **kwargs):
         self.calls.append(kwargs)
         raise AssertionError("this test must not reach the model")
 
@@ -306,13 +307,13 @@ class _Block:
         self.type, self.text = type_, text
 
 
-class _Replying:
+class _Replying(StreamingOnly):
     def __init__(self, response):
         self._response = response
         self.messages = self
         self.kwargs = None
 
-    def create(self, **kwargs):
+    def respond(self, **kwargs):
         self.kwargs = kwargs
         return self._response
 
@@ -381,7 +382,7 @@ def test_a_complete_answer_carries_no_error():
 # proposal, and a proposal still faces sixteen gates.
 
 
-class _Scripted:
+class _Scripted(StreamingOnly):
     """A client that answers from a queue, recording every request.
 
     Keyed by nothing: the committee's stages are distinguishable by the order they
@@ -393,7 +394,7 @@ class _Scripted:
         self.calls = []
         self.messages = self
 
-    def create(self, **kwargs):
+    def respond(self, **kwargs):
         self.calls.append(kwargs)
         if not self._queue:
             raise AssertionError(f"unexpected call #{len(self.calls)}")

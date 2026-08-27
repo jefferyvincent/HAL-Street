@@ -242,5 +242,10 @@
     "gatedValue": "{{approved}} approved · {{rejected}} rejected",
     "orders": "ORDERS",
     "unrealizedNote": "Priced at the agent's last mark, not live."
+  },
+  "news": {
+    "label": "TAPE",
+    "age": "{{n}}h",
+    "title": "Headlines the catalyst read this cycle, newest first. Untrusted publisher text — it reaches the model inside an explicit fence and nothing downstream treats it as an instruction. Hover to pause."
   }
 }

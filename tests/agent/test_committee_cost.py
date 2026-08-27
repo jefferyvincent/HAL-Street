@@ -19,6 +19,7 @@ import pytest
 
 from halstreet.agent import committee as C
 from halstreet.marketdata.news import Headline
+from tests.support import StreamingOnly
 
 
 class _Usage:
@@ -30,7 +31,7 @@ class _Block:
         self.type, self.text = type_, text
 
 
-class _Recording:
+class _Recording(StreamingOnly):
     """Answers anything, and keeps the model each call asked for."""
 
     def __init__(self, text='{"lean": "bullish", "confidence": 0.6, "note": "n"}'):
@@ -38,7 +39,7 @@ class _Recording:
         self.models: list[str] = []
         self._text = text
 
-    def create(self, **kwargs):
+    def respond(self, **kwargs):
         self.models.append(kwargs["model"])
         return type("R", (), {
             "usage": _Usage(), "stop_reason": "end_turn",
@@ -96,10 +97,27 @@ def test_the_default_analyst_tier_is_below_the_default_judge():
 def test_setting_one_variable_puts_the_whole_committee_back_on_one_model(monkeypatch):
     """So the tiering can be measured against the thing it replaced, not argued about."""
     monkeypatch.setenv("LLM_MODEL", "claude-opus-5")
-    monkeypatch.delenv("COMMITTEE_ANALYST_MODEL", raising=False)
+    monkeypatch.setenv("COMMITTEE_ANALYST_MODEL", "claude-opus-5")
     monkeypatch.setenv("LLM_API_KEY", "sk-test")
     made = C.Committee.from_env()
     assert made.model == made.analyst_model == "claude-opus-5"
+
+
+def test_the_analyst_tier_does_not_inherit_the_judges_model(monkeypatch):
+    """The bug, and it made the whole feature a no-op.
+
+    Every `.env` in this project sets LLM_MODEL, so an analyst model that fell back
+    to it meant the tiering was off for everyone while the code and the docs both
+    said it was on. Found by running one cycle and reading the stage table, which
+    said `claude-opus-5` three times.
+    """
+    monkeypatch.setenv("LLM_MODEL", "claude-opus-5")
+    monkeypatch.delenv("COMMITTEE_ANALYST_MODEL", raising=False)
+    monkeypatch.setenv("LLM_API_KEY", "sk-test")
+    made = C.Committee.from_env()
+
+    assert made.model == "claude-opus-5"
+    assert made.analyst_model == C.ANALYST_MODEL != "claude-opus-5"
 
 
 def test_the_analyst_tier_can_be_pushed_further_down_on_its_own(monkeypatch):
@@ -217,3 +235,49 @@ def test_the_loop_names_every_stage_it_spends_on(stage):
 
     source = Path("src/halstreet/agent/loop.py").read_text()
     assert f'session.spend(counts, "{stage}")' in source
+
+
+# --- it has to stream ------------------------------------------------------------
+
+def test_the_judges_ceiling_is_one_no_non_streaming_call_could_make():
+    """The bug: the SDK refuses a non-streaming request whose `max_tokens` implies it
+    could run past ten minutes, and it refuses with a `ValueError` raised before
+    anything is sent. The judge sits at 32,000, so *every* cycle failed — measured on
+    a live dry run, not reasoned about.
+
+    This pins the two halves that make it a bug rather than a preference: the ceiling
+    is genuinely that high, and it was raised on measurement rather than by feel.
+    """
+    assert C.JUDGE_TOKENS >= 32_000
+    assert C.JUDGE_TOKENS > C.DEBATE_TOKENS > C.ANALYST_TOKENS
+
+
+def test_every_stage_streams():
+    """`StreamingOnly.create` raises, so a revert to `messages.create` fails here.
+
+    Without this the outage is invisible to the whole suite: fakes answer either call
+    happily, and the refusal only exists in the real SDK.
+    """
+    client = _Recording("case")
+    committee(client).debate("brief")
+    committee(client)._call("sys", "user", max_tokens=100)
+
+    passing = _Recording(PASSED)
+    committee(passing).judge(system="sys", brief="brief")
+    assert passing.models == ["judge-model"]
+
+
+def test_the_sdk_refusing_before_it_sends_is_a_skipped_cycle_not_a_crash():
+    """A `ValueError` is not an `APIStatusError`, and the original handler caught only
+    the latter — so this escaped `_call`, escaped the stage, and took the cycle with
+    it. The committee's whole contract is that a stage degrades rather than aborts.
+    """
+    class Refusing(_Recording):
+        def respond(self, **kwargs):
+            raise ValueError("Streaming is required for operations that may take "
+                             "longer than 10 minutes.")
+
+    text, counts, error = committee(Refusing())._call("sys", "user", max_tokens=32_000)
+    assert text == ""
+    assert error is not None and "Streaming is required" in error
+    assert counts["in"] == 0

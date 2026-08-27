@@ -17,6 +17,7 @@ import pytest
 from halstreet.agent.llm import LLMResult, ProposalWriter, response_schema
 from halstreet.agent.proposal import parse_proposal
 from halstreet.gates.base import Limits
+from tests.support import StreamingOnly
 
 GOOD_JSON = json.dumps({
     "underlying": "SPY",
@@ -32,13 +33,13 @@ GOOD_JSON = json.dumps({
 })
 
 
-class FakeMessages:
+class FakeMessages(StreamingOnly):
     def __init__(self, response=None, raises=None):
         self._response = response
         self._raises = raises
         self.kwargs = None
 
-    def create(self, **kwargs):
+    def respond(self, **kwargs):
         self.kwargs = kwargs
         if self._raises:
             raise self._raises
@@ -199,8 +200,8 @@ class SequenceClient:
         self.turns = []
         outer = self
 
-        class M:
-            def create(self, **kwargs):
+        class M(StreamingOnly):
+            def respond(self, **kwargs):
                 outer.turns.append(kwargs["messages"][0]["content"])
                 return outer._responses.pop(0)
 
@@ -447,3 +448,15 @@ def test_the_size_note_reaches_the_turn_the_model_reads():
             "halstreet.gates.base", fromlist=["Limits"]).Limits())
     assert '"max_qty": 1' in turn
     assert "IWM" in turn
+
+
+def test_the_single_call_path_streams_too():
+    """The two paths produce the same proposal and must not differ in whether they
+    can be called at all. This one's ceiling is 8,000 and does not trip the SDK's
+    refusal today — which is exactly why it would be the one left behind.
+
+    `FakeMessages.create` raises, so this fails if it stops streaming.
+    """
+    client = FakeClient(reply(GOOD_JSON))
+    result = ProposalWriter(client).propose("turn")
+    assert result.ok, "the call was made, it streamed, and it parsed"

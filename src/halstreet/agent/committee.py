@@ -207,6 +207,11 @@ class Session:
     bull: str = ""
     bear: str = ""
     headlines: int = 0
+    #: What was actually read, not just how many. The count answered "did the catalyst
+    #: have anything" and nothing about what — and the news is the one input to a
+    #: cycle that did not come from arithmetic, so it is the part worth being able to
+    #: point at afterwards. Untrusted publisher text throughout; see `to_ticker`.
+    feed: list[dict] = field(default_factory=list)
     reflection: list[dict] = field(default_factory=list)
     tokens: dict[str, int] = field(default_factory=lambda: {"in": 0, "out": 0, "cache_read": 0})
     #: The same spend, per stage, with the model that produced it. Kept alongside the
@@ -246,6 +251,7 @@ class Session:
             "bull": self.bull[:1200],
             "bear": self.bear[:1200],
             "headlines": self.headlines,
+            "feed": self.feed,
             "reflection": self.reflection,
             "tokens": self.tokens,
             "stages": self.stages,
@@ -346,10 +352,19 @@ class Committee:
             client,
             model=(os.environ.get("LLM_MODEL") or "").strip() or DEFAULT_MODEL,
             effort=(os.environ.get("LLM_EFFORT") or "").strip() or DEFAULT_EFFORT,
-            # One variable to put the whole committee back on one model, for anyone
-            # who wants to measure what the tiering costs in decision quality.
+            # Its own variable, and deliberately *not* falling back to LLM_MODEL.
+            #
+            # It did fall back, and that was a bug found the only way it could be: by
+            # running a cycle and reading the stage table, which said `claude-opus-5`
+            # three times. Every `.env` in this project sets LLM_MODEL, so inheriting
+            # it meant the tiering was off for everyone while both the code and the
+            # documentation said it was on.
+            #
+            # Putting the whole committee back on one model is now an explicit
+            # `COMMITTEE_ANALYST_MODEL=claude-opus-5`, which is also what someone
+            # reading the file would expect it to take.
             analyst_model=(os.environ.get("COMMITTEE_ANALYST_MODEL") or "").strip()
-            or (os.environ.get("LLM_MODEL") or "").strip() or ANALYST_MODEL,
+            or ANALYST_MODEL,
         )
 
     # --- one call --------------------------------------------------------------
@@ -383,8 +398,21 @@ class Committee:
             if schema is not None:
                 output["format"] = {"type": "json_schema", "schema": schema}
             kwargs["output_config"] = output
-            response = self._client.messages.create(**kwargs)
-        except (anthropic.APIStatusError, anthropic.APIConnectionError) as exc:
+            # Streamed, and not as an optimisation. The SDK refuses a non-streaming
+            # request whose `max_tokens` implies it could run past ten minutes, and
+            # the judge's ceiling is 32,000 — so the one call that actually decides
+            # raised `ValueError` before the request left the process. Every cycle
+            # failed, and the message ("Streaming is required…") reads like a
+            # suggestion rather than the hard refusal it is.
+            #
+            # The ceiling stays where it is: it was raised twice on measurement, and a
+            # live QQQ judge has spent 14,698 output tokens on a hard call. Streaming
+            # is the documented answer for exactly this, and `get_final_message`
+            # gives back the same object the non-streaming call did — nothing below
+            # this line changes.
+            with self._client.messages.stream(**kwargs) as stream:
+                response = stream.get_final_message()
+        except (anthropic.APIStatusError, anthropic.APIConnectionError, ValueError) as exc:
             return "", counts, f"{type(exc).__name__}: {exc}"
 
         usage = getattr(response, "usage", None)

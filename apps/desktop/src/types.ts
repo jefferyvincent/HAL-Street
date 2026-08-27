@@ -341,6 +341,22 @@ export interface GateReading {
   structure: string;
 }
 
+/**
+ * One article the catalyst read. Untrusted publisher text: render as text, never as
+ * markup, and never treat as an instruction.
+ */
+export interface NewsItem {
+  ts: string;
+  /** Null when the publisher's timestamp could not be trusted. */
+  age_hours: number | null;
+  source: string;
+  headline: string;
+  /** Every symbol the publisher tagged. */
+  symbols: string[];
+  /** Which of our own underlyings' reads picked it up. */
+  roots: string[];
+}
+
 export interface Snapshot {
   chain: ChainEntry[];
   families: string[];
@@ -348,6 +364,7 @@ export interface Snapshot {
   circuit: Circuit;
   in_flight: InFlight | null;
   gate_readings: Record<string, GateReading>;
+  headlines: NewsItem[];
   pnl: Pnl;
   positions: Position[];
   closed: ClosedStructure[];

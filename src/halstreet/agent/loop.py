@@ -566,6 +566,7 @@ class Agent:
 
         headlines = await self.client.get_news(underlying)
         session.headlines = len(headlines)
+        session.feed = [h.to_ticker() for h in headlines]
 
         evidence = {
             "bias": state["bias"].direction,

@@ -351,10 +351,26 @@ class ProposalWriter:
             cache_read_tokens=first.cache_read_tokens + second.cache_read_tokens,
         )
 
+    def _stream(self, **kwargs: Any) -> Any:
+        """One streamed request, returned as the message a non-streaming call gives.
+
+        Streaming rather than `messages.create` because the SDK refuses a
+        non-streaming request whose `max_tokens` implies it could run past ten
+        minutes. This path's ceiling is 8,000 and does not trip it today, but the
+        committee's judge sits at 32,000 and did — every cycle failing on a
+        `ValueError` raised before the request was ever sent. The two paths produce
+        the same proposal and should not differ in whether they can be called at all.
+
+        Nothing downstream changes: `get_final_message` returns the same object, with
+        the same `usage`, `stop_reason` and `content`.
+        """
+        with self._client.messages.stream(**kwargs) as stream:
+            return stream.get_final_message()
+
     def propose(self, user_turn: str) -> LLMResult:
         """Ask for one proposal. Never raises — a failed call is a skipped cycle."""
         try:
-            response = self._client.messages.create(
+            response = self._stream(
                 model=self.model,
                 max_tokens=self.max_tokens,
                 thinking={"type": "adaptive"},
@@ -377,6 +393,12 @@ class ProposalWriter:
             return LLMResult(None, error=f"{type(exc).__name__}: {exc}")
         except anthropic.APIConnectionError as exc:
             return LLMResult(None, error=f"connection error: {exc}")
+        except ValueError as exc:
+            # The SDK's own refusals arrive as ValueError before any request is sent —
+            # a `max_tokens` that could run past ten minutes without streaming is one.
+            # Caught here for the same reason everything else is: a failed call is a
+            # skipped cycle, never a crashed agent.
+            return LLMResult(None, error=f"{type(exc).__name__}: {exc}")
 
         usage = getattr(response, "usage", None)
         counts = {

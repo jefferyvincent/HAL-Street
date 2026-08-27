@@ -1,4 +1,5 @@
 import { ChromeBar } from "@/components/ChromeBar";
+import { NewsTicker } from "@/components/NewsTicker";
 import { HaltBanner } from "@/components/HaltBanner";
 import { Rail } from "@/components/Rail";
 import { StatusBar } from "@/components/StatusBar";
@@ -50,6 +51,7 @@ export default function App() {
   return (
     <div className="flex h-full flex-col bg-void">
       <ChromeBar />
+      <NewsTicker />
       <HaltBanner />
       {snap ? (
         <div className={wide ? GRID.wide : GRID.console}>

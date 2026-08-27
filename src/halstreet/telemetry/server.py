@@ -482,6 +482,60 @@ def _crossed(record: dict) -> tuple[str, str] | None:
     return state, raw
 
 
+#: How many headlines the ticker carries. A strip you read one line at a time does
+#: not need a day of history behind it, and this rides on a route polled every five
+#: seconds.
+TICKER_HEADLINES = 24
+
+
+def _headlines(events: list[dict]) -> list[dict]:
+    """What the agent has been reading, newest first, one entry per article.
+
+    The latest read per underlying rather than every read ever taken: the catalyst
+    fetches the same 48-hour window each cycle, so a day of scanning journals the same
+    article twenty times and a ticker built from all of them would scroll one story
+    over and over.
+
+    Deduplicated across underlyings too, and this is the more interesting half. A
+    macro story is tagged with SPY, QQQ and IWM at once and arrives three times from
+    three separate reads — the ticker shows it once, tagged with every root that
+    picked it up, which is also the more useful thing to know about it. `also_tagged`
+    in the catalyst prompt exists for the same reason: a headline carrying eleven
+    tickers is macro noise, and reading it as company news would be reading it wrong.
+
+    **Untrusted publisher text.** It reached us through a fenced section of the
+    catalyst's prompt and it leaves here as data. Nothing downstream treats a headline
+    as an instruction, and the panel renders it as text rather than as markup.
+    """
+    latest: dict[str, list[dict]] = {}
+    for event in events:
+        if event.get("event") == "committee" and isinstance(event.get("feed"), list):
+            latest[str(event.get("underlying") or "")] = event["feed"]
+
+    seen: dict[str, dict] = {}
+    for root, feed in latest.items():
+        for item in feed:
+            if not isinstance(item, dict):
+                continue
+            text = str(item.get("headline") or "").strip()
+            if not text:
+                continue
+            row = seen.setdefault(text, {**item, "headline": text, "roots": []})
+            if root and root not in row["roots"]:
+                row["roots"].append(root)
+
+    # By recency, and unreadable timestamps last rather than first — an article whose
+    # `ts` we could not parse is not breaking news, and `age_hours` is already None
+    # for it everywhere else.
+    ordered = sorted(
+        seen.values(),
+        key=lambda r: (r.get("age_hours") is None, r.get("age_hours") or 0.0),
+    )
+    for row in ordered:
+        row["roots"] = sorted(row["roots"])
+    return ordered[:TICKER_HEADLINES]
+
+
 def _gate_readings(events: list[dict]) -> dict[str, dict]:
     """What each gate measured the last time it ran, and when.
 
@@ -648,6 +702,9 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
         # What each gate measured last time it ran. The counts say which gates have
         # ever bitten; these say how close the book is to each one now.
         "gate_readings": _gate_readings(events),
+        # What the catalyst has been reading. Untrusted publisher text: the panel
+        # renders it as text, never as markup.
+        "headlines": _headlines(events),
         # What it is in the middle of, so a slow stage reads as work rather than
         # as an empty screen. None when nothing has been written recently.
         "in_flight": _in_flight(events),

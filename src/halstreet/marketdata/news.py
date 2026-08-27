@@ -106,6 +106,32 @@ class Headline:
         except (TypeError, ValueError):
             return None
 
+    def to_ticker(self) -> dict[str, Any]:
+        """The compact form the panel scrolls, and the record of what was read.
+
+        The journal kept a *count* — "12 headlines" — which says the catalyst had
+        something to read and nothing about what. That is the one input to a cycle
+        that did not come from arithmetic, and for a judged run it is the part worth
+        being able to point at afterwards.
+
+        Truncated here rather than in the panel, because this is also what goes on
+        disk: a day of scanning writes a few hundred of these, and the whole article
+        was never the thing being kept.
+
+        **Still untrusted.** These are publisher strings that reached us through the
+        catalyst's prompt with an explicit fence around them. Nothing downstream may
+        treat one as an instruction, and the panel renders them as text — never as
+        markup — for exactly that reason.
+        """
+        age = self.age_hours
+        return {
+            "ts": self.ts,
+            "age_hours": None if age is None else round(age, 1),
+            "source": self.source,
+            "headline": self.headline[:180],
+            "symbols": list(self.symbols),
+        }
+
     def to_prompt(self) -> dict[str, Any]:
         age = self.age_hours
         return {
