@@ -49,6 +49,7 @@ from halstreet.gates import ALL_GATES, evaluate
 from halstreet.gates.base import Decision, GateContext, Limits
 from halstreet.gates.contract import leg_signature
 from halstreet.marketdata import events as events_mod
+from halstreet.marketdata import patterns as patterns_mod
 from halstreet.marketdata.chain import enrich
 from halstreet.strategy import bias as bias_mod
 from halstreet.strategy import profiles as P
@@ -322,12 +323,21 @@ class Agent:
         # ordering rather than stopping the cycle. Neutral bias and an unknown regime
         # are the honest readings when there is no history to read.
         try:
-            closes = await self.client.get_daily_closes(underlying)
+            bars = await self.client.get_daily_bars(underlying)
         except (MCPError, KeyError, TypeError) as exc:
             self.journal.error("bars", f"{underlying}: {type(exc).__name__}: {exc}")
-            closes = []
+            bars = []
+        closes = [float(b["c"]) for b in bars]
         view_bias = bias_mod.for_symbol(underlying, float(spot), closes)
         view_regime = regime_mod.build(closes)
+        # Confirmed chart patterns on the same bars. Free: they were fetched for the
+        # bias and the regime already, and the highs and lows were being discarded.
+        #
+        # Surfacing only. Nothing reads this back — not the ranking, not the gates,
+        # not the exit policy — and `tests/agent/test_patterns_are_surfacing_only.py`
+        # asserts as much. A chart heuristic that can size or close a position is a
+        # much bigger decision than a badge, and this is a badge.
+        view_patterns = patterns_mod.detect(bars)
 
         chain = (await self.client.get_option_chain(
             underlying, expiry_from=f"{lo}", expiry_to=f"{hi}"
@@ -351,6 +361,7 @@ class Agent:
             "chain": enrich(chain, contracts),
             "bias": view_bias,
             "regime": view_regime,
+            "patterns": view_patterns,
             "events": scoring.EventWindow(
                 known=window is not None,
                 days_out=tuple((e.on - asof).days for e in (window or [])),
@@ -410,6 +421,7 @@ class Agent:
             realized_vol=state["regime"].realized_vol,
             event_risk=events_mod.describe(state.get("events_detail")),
             events=[e.to_prompt() for e in (state.get("events_detail") or [])],
+            patterns=[p.to_prompt() for p in state.get("patterns") or []],
             profile=self.profile.name,
         )
 

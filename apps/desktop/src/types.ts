@@ -92,6 +92,17 @@ export interface Position {
   rationale: string;
   legs: Record<string, number>;
   entry_price: string | null;
+  /**
+   * Which way this structure wants the underlying to go. A property of the whole
+   * spread, not of a leg: a put credit spread is short a put and long a further
+   * put, reads "bearish" leg by leg, and is bullish.
+   */
+  exposure: "bullish" | "bearish" | "neutral" | "unknown";
+  /** Every confirmed pattern on the underlying, shown whether or not it bears. */
+  patterns: Pattern[];
+  /** Those that run against the exposure. A list to read, never a verdict to act on. */
+  against: Pattern[];
+  confirming: Pattern[];
 }
 
 export interface ClosedStructure {
@@ -186,6 +197,14 @@ export interface Market {
    * hearing it change. The difference between ringing a bell and labelling one.
    */
   observed: boolean;
+}
+
+/** One confirmed setup on the underlying's daily bars. */
+export interface Pattern {
+  name: string;
+  side: "bullish" | "bearish" | "neutral";
+  /** Where it triggered — a level, not a prediction. */
+  note: string;
 }
 
 export interface Snapshot {

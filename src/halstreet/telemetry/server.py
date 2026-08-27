@@ -39,6 +39,7 @@ from halstreet.agent.ledger import Ledger
 from halstreet.agent.manager import ExitPolicy
 from halstreet.gates import ALL_GATES
 from halstreet.gates.base import FAMILIES, Limits, family_of
+from halstreet.strategy.exposure import agrees, exposure_of
 from halstreet.telemetry import pnl, structure_chart
 from halstreet.telemetry.journal import Journal
 
@@ -80,6 +81,51 @@ def _plain(value: Any) -> Any:
     return value
 
 
+def _patterns_by_underlying(events: list[dict]) -> dict[str, list[dict]]:
+    """The most recent confirmed patterns per underlying, from the market views.
+
+    Latest only. Every scan writes one, and a position held for a week would
+    otherwise accumulate every read the agent has ever taken of its underlying —
+    the panel wants what the chart is doing now, not a history of what it did.
+    """
+    out: dict[str, list[dict]] = {}
+    for event in events:
+        if event.get("event") != "market_view":
+            continue
+        root = str(event.get("underlying") or "").upper()
+        if root:
+            out[root] = list(event.get("patterns") or [])
+    return out
+
+
+def _pattern_read(structure: Any, by_underlying: dict[str, list[dict]]) -> dict:
+    """One position's chart read: its exposure, and which patterns run against it.
+
+    Surfacing only, and the shape says so — `against` is a list to show, never a
+    verdict to act on. Nothing downstream of this dictionary can close a position.
+
+    Exposure is a property of the whole structure rather than of a leg, which is
+    the part HAL's single-instrument version cannot answer here: a put credit
+    spread is short a put and long a further put, reads "bearish" leg by leg, and
+    is bullish. See `strategy.exposure`.
+    """
+    found = by_underlying.get(str(structure.underlying).upper(), [])
+    lean = exposure_of(structure.legs)
+    against, confirming = [], []
+    for pattern in found:
+        verdict = agrees(lean, str(pattern.get("side") or ""))
+        if verdict is False:
+            against.append(pattern)
+        elif verdict is True:
+            confirming.append(pattern)
+    return {
+        "exposure": lean,
+        "patterns": found,
+        "against": against,
+        "confirming": confirming,
+    }
+
+
 def _last_session(events: list[dict]) -> dict | None:
     """The most recent session transition the scheduler wrote down.
 
@@ -113,6 +159,7 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
     report = pnl.build(ledger, journal)
 
     events = list(journal.read())
+    latest_patterns = _patterns_by_underlying(events)
     decisions = [e for e in events if e.get("event") == "gate_decision"][-RECENT_DECISIONS:]
     views = {e["underlying"]: e for e in events if e.get("event") == "market_view"}
     latest_menu: dict[str, dict] = {}
@@ -185,6 +232,11 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
                 "underlying": s.underlying, "qty": s.qty,
                 "opened_at": s.opened_at, "rationale": s.rationale,
                 "legs": s.legs, "entry_price": s.entry_price,
+                # Which way this structure wants the underlying to go, and what the
+                # chart is doing about it. Read from the latest market view rather
+                # than computed here: the agent has the bars, this process must not
+                # touch the broker on a route polled every five seconds.
+                **_pattern_read(s, latest_patterns),
             }
             for s in ledger.open_structures
         ],

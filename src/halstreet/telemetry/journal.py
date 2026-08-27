@@ -89,7 +89,8 @@ class Journal:
     def market_view(self, *, underlying: str, bias: str, bias_reasons: list[str],
                     regime: str, iv_rank: float | None, realized_vol: float | None,
                     event_risk: str, profile: str,
-                    events: list[dict] | None = None) -> dict:
+                    events: list[dict] | None = None,
+                    patterns: list[dict] | None = None) -> dict:
         """What the ranking believed about the tape before it ranked anything.
 
         Recorded per cycle because the menu cannot be reconstructed without it: the
@@ -110,6 +111,10 @@ class Journal:
             # The events themselves, not just the verdict. "event_risk: present" six
             # weeks later is unfalsifiable; "AVGO earnings 2026-09-02" can be checked.
             events=events or [],
+            # Confirmed chart patterns on this underlying's daily bars. Recorded for
+            # the same reason as the events and read by nothing that decides: the
+            # ranking, the gates and the exit policy never see them.
+            patterns=patterns or [],
         )
 
     def candidates(self, underlying: str, candidates: list[dict]) -> dict:

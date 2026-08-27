@@ -117,7 +117,17 @@
     },
     "open": "OPEN",
     "closed": "CLOSED",
-    "note": "Click a structure to chart it against the levels its exit policy acts on. A price shown here is the fill where one has been confirmed, and the submitted limit where it has not."
+    "note": "Click a structure to chart it against the levels its exit policy acts on. A price shown here is the fill where one has been confirmed, and the submitted limit where it has not.",
+    "exposure": {
+      "bullish": "WANTS UP",
+      "bearish": "WANTS DOWN",
+      "neutral": "WANTS FLAT",
+      "unknown": "—"
+    },
+    "against": "{{count}} against",
+    "confirming": "{{count}} confirming",
+    "patternsNone": "chart quiet",
+    "patternsTitle": "Confirmed chart patterns on {{underlying}}. Shown only — the exit policy does not read them."
   },
   "chart": {
     "back": "BOOK",

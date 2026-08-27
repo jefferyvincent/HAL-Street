@@ -1,8 +1,14 @@
 import { useMemo } from "react";
 import { useConnection } from "@/stores/connection";
+import type { Position } from "@/types";
 
 export interface BookRow {
   structureId: string;
+  /**
+   * The open position itself, for the chart read beside it. Null for a closed row:
+   * what the chart is doing now says nothing about a position that is no longer on.
+   */
+  position: Position | null;
   name: string;
   underlying: string;
   qty: number;
@@ -29,6 +35,7 @@ export function useBook(): { rows: BookRow[]; open: number; closed: number } {
 
     const open: BookRow[] = snap.positions.map((p) => ({
       structureId: p.structure_id,
+      position: p,
       name: p.name,
       underlying: p.underlying,
       qty: p.qty,
@@ -42,6 +49,7 @@ export function useBook(): { rows: BookRow[]; open: number; closed: number } {
 
     const closed: BookRow[] = snap.closed.map((c) => ({
       structureId: c.structure_id,
+      position: null,
       name: c.name,
       underlying: c.underlying,
       qty: c.qty,

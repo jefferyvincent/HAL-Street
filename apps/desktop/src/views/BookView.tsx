@@ -4,6 +4,7 @@ import { ICON } from "@/constants/icons";
 import { CLS } from "@/constants/theme";
 import { Icon, Note } from "@/components/Icon";
 import { StructureChart } from "@/components/StructureChart";
+import { PatternBadge } from "@/components/PatternBadge";
 import { useBook } from "@/hooks/useBook";
 import { useStructureChart } from "@/hooks/useStructureChart";
 import { useStrings } from "@/hooks/useStrings";
@@ -77,7 +78,16 @@ export function BookView() {
                         {r.open ? t.book.open : t.book.closed}
                       </span>
                     </td>
-                    <td className={cn(CLS.td, "text-ink")}>{r.name}</td>
+                    <td className={cn(CLS.td, "text-ink")}>
+                      {r.name}
+                      {/* Only for what is still on. A chart read beside a closed
+                          position describes a risk nobody is carrying. */}
+                      {r.position && (
+                        <div className="mt-[5px]">
+                          <PatternBadge position={r.position} />
+                        </div>
+                      )}
+                    </td>
                     <td className={CLS.td}>{r.underlying}</td>
                     <td className={cn(CLS.td, "tabular-nums")}>{r.qty}</td>
                     <td className={cn(CLS.td, "whitespace-nowrap tabular-nums")}>

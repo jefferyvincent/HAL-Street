@@ -321,8 +321,8 @@ class AlpacaMCP:
         """
         return await self.call(TOOL_ORDER_BY_ID, {"order_id": order_id})
 
-    async def get_daily_closes(self, underlying: str, *, days: int = 500) -> list[float]:
-        """Adjusted daily closes for one underlying, oldest first.
+    async def get_daily_bars(self, underlying: str, *, days: int = 500) -> list[dict]:
+        """Adjusted daily bars for one underlying, oldest first.
 
         Two corrections the raw endpoint does not make for you, both of which would
         silently corrupt a volatility or trend read:
@@ -337,6 +337,11 @@ class AlpacaMCP:
         **Prices are split- and dividend-adjusted.** An unadjusted series turns a
         2-for-1 split into a -50% return, which reads as a volatility explosion that
         never happened. Alpaca defaults to `raw`; this asks for `all`.
+
+        Returns the whole bar rather than the close alone. The highs and lows were
+        always in the response and were being discarded, and a swing pivot wants the
+        price that was *reached* — a double top read off closing prices is a
+        different and worse claim than one read off the day's high.
         """
         payload = await self.call(TOOL_STOCK_BARS, {
             "symbols": underlying,
@@ -351,14 +356,22 @@ class AlpacaMCP:
         # arithmetic rather than by construction, and only while the agent ran during
         # market hours. `clock.today()` is the one place that answers this question.
         today = session_clock.today().isoformat()
-        closes: list[float] = []
+        out: list[dict[str, float | str]] = []
         for bar in bars:
-            if str(bar.get("t") or "")[:10] >= today:
+            stamp = str(bar.get("t") or "")
+            if stamp[:10] >= today:
                 continue
-            close = bar.get("c")
-            if isinstance(close, (int, float)) and close > 0:
-                closes.append(float(close))
-        return closes
+            ohlc = {k: bar.get(k) for k in ("o", "h", "l", "c")}
+            if not all(isinstance(v, (int, float)) and v > 0 for v in ohlc.values()):
+                # A bar missing a leg of its range is not a bar. Half of one would
+                # put a fictional high into a swing-pivot search.
+                continue
+            out.append({"t": stamp, **{k: float(v) for k, v in ohlc.items()}})
+        return out
+
+    async def get_daily_closes(self, underlying: str, *, days: int = 500) -> list[float]:
+        """Just the closes, for the volatility and trend reads that only want them."""
+        return [float(bar["c"]) for bar in await self.get_daily_bars(underlying, days=days)]
 
     async def get_activities(self, activity_types: str | None = None, **kwargs: Any) -> Any:
         """Account activity. `activity_types="FILL"` is how you ask whether an account

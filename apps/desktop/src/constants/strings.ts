@@ -115,6 +115,16 @@ export function makeStrings(t: Translate) {
       open: t("book.open"),
       closed: t("book.closed"),
       note: t("book.note"),
+      exposure: {
+        bullish: t("book.exposure.bullish"),
+        bearish: t("book.exposure.bearish"),
+        neutral: t("book.exposure.neutral"),
+        unknown: t("book.exposure.unknown"),
+      },
+      against: (count: number) => t("book.against", { count }),
+      confirming: (count: number) => t("book.confirming", { count }),
+      patternsNone: t("book.patternsNone"),
+      patternsTitle: (underlying: string) => t("book.patternsTitle", { underlying }),
     },
 
     chart: {
