@@ -264,3 +264,36 @@ def test_a_row_can_reach_the_trade_it_became():
     # and nothing said the two were the same trade.
     tape = (SRC / "components" / "Tape.tsx").read_text()
     assert "structure_id" in tape and "chart(" in tape
+
+
+def test_the_price_scale_is_a_control_rather_than_a_decision():
+    """Both scalings are wanted and they cannot both be the default.
+
+    Scaling to the levels pulls a stop three times the credit away into view and
+    flattens every candle; scaling to the price draws the candles properly and puts
+    the stop off the bottom. The first made the chart unreadable, the second made
+    someone ask where their stop had gone. So it is a toggle, and a level the drawn
+    range does not reach is *named* rather than silently absent — otherwise there is
+    no way to tell "no stop" from "stop somewhere below".
+    """
+    store = (SRC / "stores" / "ui.ts").read_text()
+    assert "chartFit" in store and "toggleFit" in store
+
+    chart = (SRC / "components" / "StructureChart.tsx").read_text()
+    assert "toggleFit" in chart, "the toggle is not reachable"
+    assert "offscreen" in chart, "an unreachable level must say so"
+
+    canvas = (SRC / "hooks" / "useStructureChartCanvas.ts").read_text()
+    assert 'fit === "levels"' in canvas, "the canvas ignores the setting"
+    assert "autoscaleInfoProvider: undefined" in canvas, \
+        "switching back to price must release the forced range, not leave it stuck"
+
+
+def test_the_forming_candle_is_drawn_differently_and_moves():
+    # Hollow, so it reads as unfinished rather than as a fifth interpretation of
+    # green and red — and extended by the live mark, or it draws a body excluding a
+    # price the structure is at right now.
+    canvas = (SRC / "hooks" / "useStructureChartCanvas.ts").read_text()
+    assert "c.forming" in canvas
+    assert "Math.max(c.high, live)" in canvas and "Math.min(c.low, live)" in canvas
+    assert 'color: "transparent"' in canvas

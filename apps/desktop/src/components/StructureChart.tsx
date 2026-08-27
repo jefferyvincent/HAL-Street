@@ -5,6 +5,7 @@ import { clock, day, money, premium, toClose } from "@/lib/format";
 import { CLS } from "@/constants/theme";
 import { useStructureChartCanvas } from "@/hooks/useStructureChartCanvas";
 import { useMarks } from "@/hooks/useMarks";
+import { useUI } from "@/stores/ui";
 import { useStructureLevels } from "@/hooks/useStructureLevels";
 import { useStrings } from "@/hooks/useStrings";
 import type { StructureChart as Chart } from "@/types";
@@ -52,11 +53,20 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
   // reached. Labelled either way: a number whose age is unknown is worth less than
   // a stale one that says so.
   const live = useMarks()?.marks[chart.structure_id];
+  const fit = useUI((s) => s.chartFit);
+  const toggleFit = useUI((s) => s.toggleFit);
   const host = useStructureChartCanvas(
-    series, candles, lines, live?.mark == null ? null : Number(live.mark));
+    series, candles, lines, live?.mark == null ? null : Number(live.mark), fit);
   const now = live?.mark ?? (last === null ? null : String(last));
   const isLive = live?.mark != null;
   const pnl = live?.unrealized_usd ?? null;
+
+  // Which levels the drawn range does not reach. Only meaningful when scaled to the
+  // price — asking to fit them is what makes them visible, so under that scale there
+  // is nothing to report.
+  const drawn = candles.flatMap((c) => [c.high, c.low]);
+  const offscreen = fit === "levels" || drawn.length === 0 ? [] : lines.filter(
+    (l) => l.value < Math.min(...drawn) || l.value > Math.max(...drawn));
 
   return (
     <>
@@ -111,10 +121,31 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
       )}
 
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[9.5px] leading-[1.4] text-ink/40">
+        <button
+          onClick={toggleFit}
+          title={t.chart.fitTitle}
+          aria-pressed={fit === "levels"}
+          className={cn("font-mono text-[9.5px] font-bold leading-none tracking-[.08em]",
+            "transition-colors hover:text-ink focus-visible:outline focus-visible:outline-1",
+            "focus-visible:outline-amber",
+            fit === "levels" ? "text-amber" : "text-ink/45")}>
+          {fit === "levels" ? t.chart.fitPrice : t.chart.fitLevels}
+        </button>
         <span>{t.chart.legend(chart.policy.take_profit_pct, chart.policy.stop_loss_pct)}</span>
         <span>{t.chart.forceClose(chart.policy.force_close_dte)}</span>
         <span>{levels?.credit ? t.chart.credit : t.chart.debit}</span>
         <span>{t.chart.seriesNote}</span>
+        {candles.some((c) => c.forming) && (
+          <span className="text-amber/70">{t.chart.forming}</span>
+        )}
+        {/* A level outside the drawn range is invisible and silent otherwise — the
+            reader has no way to tell "no stop" from "stop somewhere below". Naming
+            it, with the way to see it, is the price of not scaling to it. */}
+        {offscreen.map((l) => (
+          <span key={l.key} className="text-ink/35">
+            {t.chart.offscreen(l.label, toClose(l.value))}
+          </span>
+        ))}
       </div>
 
       <div className="mt-3 border border-line bg-panel">

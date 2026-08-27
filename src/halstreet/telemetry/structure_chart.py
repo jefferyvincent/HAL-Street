@@ -111,9 +111,10 @@ def net_candles(points: list[Point], bucket: int = 10) -> list[dict]:
     for point in points:
         buckets.setdefault(str(point.t)[:bucket], []).append(point)
 
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")[:bucket]
     out: list[dict] = []
-    for day in sorted(buckets):
-        session = buckets[day]
+    for key in sorted(buckets):
+        session = buckets[key]
         values = [p.value for p in session]
         out.append({
             "t": session[0].t,
@@ -121,6 +122,12 @@ def net_candles(points: list[Point], bucket: int = 10) -> list[dict]:
             "h": max(values),
             "l": min(values),
             "c": values[-1],
+            # Whether this candle's bucket is the one the clock is currently in.
+            # Without it the newest candle is indistinguishable from a closed one,
+            # and a reader has no way to tell a finished hour from four minutes of
+            # it — which is the difference between a shape that means something and
+            # one that is about to change.
+            "forming": key == now,
         })
     return out
 
@@ -202,8 +209,13 @@ def build(structure: OpenStructure, bars: dict[str, list[dict]],
         "series": [{"t": p.t, "v": str(p.value)} for p in series],
         # The same prices as candles, one per session. See `net_candles` for why they
         # are bucketed from the net rather than summed from the legs' own ranges.
-        "candles": [{k: (v if k == "t" else str(v)) for k, v in c.items()}
-                    for c in net_candles(series, bucket)],
+        # Only the prices are stringified. `str(False)` is "False", which is truthy
+        # in Python and in JavaScript, so a blanket conversion marked every candle as
+        # still forming and the panel would have drawn the whole chart hollow.
+        "candles": [
+            {k: (str(v) if isinstance(v, Decimal) else v) for k, v in c.items()}
+            for c in net_candles(series, bucket)
+        ],
         # None when the entry price is unknown — the panel says so rather than drawing
         # three lines through a number nobody has.
         "levels": levels.to_prompt() if levels else None,

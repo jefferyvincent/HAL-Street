@@ -162,7 +162,12 @@
     "pnl": "OPEN P&L",
     "liveTag": "live",
     "barTag": "last hourly bar",
-    "seriesNote": "The line is hourly bars; NOW is a live quote when the broker answers."
+    "seriesNote": "The line is hourly bars; NOW is a live quote when the broker answers.",
+    "forming": "the newest candle is still forming — hollow, and moving with the live mark",
+    "fitPrice": "FIT PRICE",
+    "fitLevels": "FIT STOP",
+    "fitTitle": "Scale to the candles, or pull the target and stop into view",
+    "offscreen": "{{name}} is off the chart at {{value}} — FIT STOP to see it"
   },
   "committee": {
     "title": "COMMITTEE",

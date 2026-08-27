@@ -27,6 +27,8 @@ export interface Candle {
   high: number;
   low: number;
   close: number;
+  /** Still open. Drawn hollow, and updated by the live mark between polls. */
+  forming: boolean;
 }
 
 /**
@@ -85,7 +87,10 @@ export function useStructureLevels(chart: StructureChart | null) {
       if (!Number.isFinite(seconds) || values.some((v) => !Number.isFinite(v))) continue;
       const time = seconds <= previousCandle ? previousCandle + 1 : seconds;
       previousCandle = time;
-      candles.push({ time, open: values[0]!, high: values[1]!, low: values[2]!, close: values[3]! });
+      candles.push({
+        time, open: values[0]!, high: values[1]!, low: values[2]!, close: values[3]!,
+        forming: Boolean(c.forming),
+      });
     }
 
     return {

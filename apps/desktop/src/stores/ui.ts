@@ -34,6 +34,16 @@ interface UI {
   decisionOpen: boolean;
   toggleDecision: () => void;
   /**
+   * What the structure chart's price axis is scaled to.
+   *
+   * `price` shows the candles properly; `levels` pulls the stop into view, which on
+   * a credit spread sits three times the credit away and flattens everything else.
+   * Both are wanted and they cannot both be the default, so it is a control rather
+   * than a decision made for the reader.
+   */
+  chartFit: "price" | "levels";
+  toggleFit: () => void;
+  /**
    * Select a decision *and* show it.
    *
    * `select` alone stopped being enough the moment the record became collapsible:
@@ -72,6 +82,8 @@ export const useUI = create<UI>((set) => ({
   select: (selected) => set({ selected }),
   chart: (charting) => set({ charting, view: "book" }),
   decisionOpen: false,
+  chartFit: "price",
+  toggleFit: () => set((s) => ({ chartFit: s.chartFit === "price" ? "levels" : "price" })),
   toggleDecision: () => set((s) => ({ decisionOpen: !s.decisionOpen })),
   showDecision: (selected) => set({ selected, decisionOpen: true, view: "console" }),
   muted: storedMute(),

@@ -170,7 +170,11 @@ export interface StructureChart {
    * Never summed from the legs' own highs and lows: the legs move together, so a
    * summed range spans prices the structure was never at.
    */
-  candles: { t: string; o: string; h: string; l: string; c: string }[];
+  candles: {
+    t: string; o: string; h: string; l: string; c: string;
+    /** True while this candle's bucket is the one the clock is in. */
+    forming: boolean;
+  }[];
   /** Null when the entry price is unknown — the panel says so rather than guessing. */
   levels: ExitLevels | null;
   entry_filled: boolean;

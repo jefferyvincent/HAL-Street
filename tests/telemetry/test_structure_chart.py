@@ -236,3 +236,75 @@ def test_the_lead_in_is_never_unbounded():
     start = datetime.strptime(start_of_window(ancient), "%Y-%m-%d").replace(tzinfo=UTC)
     before_open = 900 - (datetime.now(UTC) - start).total_seconds() / 86400
     assert -before_open <= LOOKBACK_DAYS + 1
+
+
+def test_the_newest_candle_is_marked_while_its_bucket_is_open():
+    """Otherwise the newest candle is indistinguishable from a closed one.
+
+    A reader has no way to tell a finished hour from four minutes of it — which is
+    the difference between a shape that means something and one that is about to
+    change. The panel draws this one hollow and moves it with the live mark.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from halstreet.telemetry.structure_chart import Point, net_candles
+
+    now = datetime.now(UTC)
+    points = [
+        Point(t=(now - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              value=Decimal("-1.2")),
+        Point(t=now.strftime("%Y-%m-%dT%H:%M:%SZ"), value=Decimal("-1.5")),
+    ]
+    candles = net_candles(points, bucket=13)
+    assert [c["forming"] for c in candles] == [False, True]
+
+
+def test_history_alone_has_no_forming_candle():
+    from halstreet.telemetry.structure_chart import Point, net_candles
+
+    points = [Point(t="2020-01-02T14:00:00Z", value=Decimal("-1.0")),
+              Point(t="2020-01-03T14:00:00Z", value=Decimal("-1.1"))]
+    assert not any(c["forming"] for c in net_candles(points, bucket=13))
+
+
+def test_forming_is_decided_at_the_bucket_the_candle_is_grouped_by():
+    # Grouped by date, today's candle is forming all day; grouped by hour, only this
+    # hour's is. The flag has to follow whatever the bucket actually is.
+    from datetime import UTC, datetime, timedelta
+
+    from halstreet.telemetry.structure_chart import Point, net_candles
+
+    earlier = datetime.now(UTC) - timedelta(hours=4)
+    points = [Point(t=earlier.strftime("%Y-%m-%dT%H:%M:%SZ"), value=Decimal("-1.0"))]
+    assert net_candles(points, bucket=13)[0]["forming"] is False, "a closed hour"
+    assert net_candles(points, bucket=10)[0]["forming"] is True, "but today's session"
+
+
+def test_the_forming_flag_survives_serialisation_as_a_boolean():
+    """`str(False)` is "False", which is truthy in Python and in JavaScript.
+
+    The payload stringified every field but the timestamp, so the flag arrived as a
+    non-empty string and every candle read as still forming — the panel would have
+    drawn the entire chart hollow. Prices are strings because they are Decimals and
+    a float would be a different number; a boolean is neither.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from halstreet.telemetry.structure_chart import build
+
+    now = datetime.now(UTC)
+    structure = OpenStructure(
+        structure_id="s", name="n", underlying="QQQ", qty=1,
+        legs={SHORT: -1}, opened_at=(now - timedelta(days=1)).isoformat(),
+        entry_price=Decimal("-1.50"))
+    bars = {SHORT: [
+        {"t": (now - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ"), "c": 1.2},
+        {"t": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "c": 1.5},
+    ]}
+    payload = build(structure, bars, ExitPolicy(), bucket=13)
+    flags = [c["forming"] for c in payload["candles"]]
+    assert all(isinstance(f, bool) for f in flags), flags
+    assert flags.count(True) == 1, "exactly one bucket is open"
+    # And the prices stay strings, because a Decimal through a float is a different
+    # number and this payload is what the chart is drawn from.
+    assert all(isinstance(c["o"], str) for c in payload["candles"])

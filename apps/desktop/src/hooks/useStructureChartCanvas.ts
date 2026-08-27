@@ -31,6 +31,7 @@ import type { Candle, Line, Series } from "./useStructureLevels";
  */
 export function useStructureChartCanvas(
   series: Series[], candles: Candle[], lines: Line[], live: number | null,
+  fit: "price" | "levels" = "price",
 ) {
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
@@ -90,10 +91,25 @@ export function useStructureChartCanvas(
     if (!api) return;
 
     api.setData(series.map((p) => ({ time: p.time as UTCTimestamp, value: p.value })));
-    bars.current?.setData(candles.map((c) => ({
-      time: c.time as UTCTimestamp,
-      open: c.open, high: c.high, low: c.low, close: c.close,
-    })));
+    bars.current?.setData(candles.map((c) => {
+      // The forming candle is extended by the live mark rather than left at the
+      // last bar it was built from. Its close *is* the current price, and its range
+      // has to grow to contain it, or the candle draws a body that excludes a value
+      // the structure is at right now.
+      const close = c.forming && live !== null ? live : c.close;
+      const high = c.forming && live !== null ? Math.max(c.high, live) : c.high;
+      const low = c.forming && live !== null ? Math.min(c.low, live) : c.low;
+      return {
+        time: c.time as UTCTimestamp,
+        open: c.open, high, low, close,
+        // Hollow amber: unfinished, rather than a fifth interpretation of green
+        // and red. Per-point colours are why the candles are one series and not two.
+        ...(c.forming
+          ? { color: "transparent", borderColor: CHART_COLOR.forming,
+              wickColor: CHART_COLOR.forming }
+          : {}),
+      };
+    }));
 
     // The live mark, drawn on the price axis where the last traded value sits. It
     // is the only line here that moves between renders, which is why it is added
@@ -127,13 +143,30 @@ export function useStructureChartCanvas(
 
     if (series.length) {
       chart.current?.timeScale().fitContent();
+      if (fit === "levels") {
+        // Asked for explicitly. A stop three times the credit from entry drags the
+        // range out and flattens the candles, which is why this is not the default
+        // — but it is the only way to see where the policy would actually act.
+        const values = series.map((p) => p.value)
+          .concat(candles.flatMap((c) => [c.high, c.low]))
+          .concat(lines.map((l) => l.value))
+          .concat(live === null ? [] : [live]);
+        const low = Math.min(...values);
+        const high = Math.max(...values);
+        const pad = (high - low) * 0.08 || 0.1;
+        api.applyOptions({ autoscaleInfoProvider: () => ({
+          priceRange: { minValue: low - pad, maxValue: high + pad },
+        }) });
+      } else {
+        api.applyOptions({ autoscaleInfoProvider: undefined });
+      }
     }
 
     return () => {
       drawn.forEach((l) => api.removePriceLine(l));
       if (marker) api.removePriceLine(marker);
     };
-  }, [series, candles, lines, live]);
+  }, [series, candles, lines, live, fit]);
 
   return host;
 }
