@@ -17,7 +17,7 @@ import { useUI } from "@/stores/ui";
 export function JournalView() {
   const t = useStrings();
   const { rows, selected } = useDecisions();
-  const open = useUI((s) => s.open);
+  const open = useUI((s) => s.showDecision);
   const col = t.journal.columns;
 
   return (

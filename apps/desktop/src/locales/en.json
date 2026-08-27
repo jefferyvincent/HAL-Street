@@ -95,7 +95,8 @@
     "empty": "Nothing gated yet.",
     "counts": "{{approved}} APPROVED · {{rejected}} REJECTED · {{passed}} PASSED",
     "approved": "APPROVED {{n}}/{{n}}",
-    "rejected": "REJECTED {{bad}}/{{n}}"
+    "rejected": "REJECTED {{bad}}/{{n}}",
+    "viewTrade": "CHART"
   },
   "equity": {
     "title": "EQUITY",

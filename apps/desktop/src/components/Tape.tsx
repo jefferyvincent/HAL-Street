@@ -7,11 +7,13 @@ import { useStrings } from "@/hooks/useStrings";
 import { useConnection } from "@/stores/connection";
 import { useUI } from "@/stores/ui";
 import { Cross, Icon, Tick } from "./Icon";
+import { Ticker } from "./Ticker";
 
 /** The run as it happened, newest first, with the equity curve above it. */
 export function Tape({ rows, selected }: { rows: Row[]; selected: string | null }) {
   const t = useStrings();
-  const select = useUI((s) => s.select);
+  const show = useUI((s) => s.showDecision);
+  const chart = useUI((s) => s.chart);
   const snap = useConnection((s) => s.snapshot);
   if (!snap) return null;
 
@@ -35,7 +37,7 @@ export function Tape({ rows, selected }: { rows: Row[]; selected: string | null 
         rows.map((r) => (
           <button
             key={r.ts}
-            onClick={() => select(r.ts)}
+            onClick={() => show(r.ts)}
             className={cn(
               "block w-full cursor-pointer border-b border-line-soft px-3 py-[10px] text-left hover:bg-panel",
               r.decision.approved ? "shadow-[inset_2px_0_0_#21d07a]" : "shadow-[inset_2px_0_0_#ff4d4f]",
@@ -53,8 +55,32 @@ export function Tape({ rows, selected }: { rows: Row[]; selected: string | null 
             <div className="mt-[6px] truncate font-mono text-[11px] font-semibold leading-[1.4] text-ink">
               {r.decision.structure}
             </div>
-            <div className="mt-[3px] font-sans text-[10.5px] leading-[1.45] text-ink/60">
-              {r.failed.length ? r.failed.map((g) => g.gate).join("; ") : r.decision.underlying}
+            <div className="mt-[3px] flex items-center gap-2 font-sans text-[10.5px] leading-[1.45] text-ink/60">
+              <span className="min-w-0 flex-1 truncate">
+                {r.failed.length ? r.failed.map((g) => g.gate).join("; ") : ""}
+              </span>
+              {r.decision.underlying && <Ticker symbol={r.decision.underlying} />}
+              {/* Straight to the position, where the decision became one. Nested
+                  inside a button, so it is a span with a role rather than a second
+                  <button> — which is invalid markup and swallows its own click. */}
+              {r.decision.structure_id && (
+                <span
+                  role="link"
+                  tabIndex={0}
+                  onClick={(e) => { e.stopPropagation(); chart(r.decision.structure_id!); }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      chart(r.decision.structure_id!);
+                    }
+                  }}
+                  className="shrink-0 cursor-pointer font-mono text-[9px] font-bold leading-none
+                             tracking-[.08em] text-amber hover:opacity-70
+                             focus-visible:outline focus-visible:outline-1 focus-visible:outline-amber">
+                  {t.tape.viewTrade}
+                </span>
+              )}
             </div>
           </button>
         ))

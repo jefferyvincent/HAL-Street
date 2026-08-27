@@ -5,6 +5,7 @@ import { STROKE } from "@/constants/theme";
 import { Icon } from "@/components/Icon";
 import { PatternBadge } from "@/components/PatternBadge";
 import { Ticker } from "@/components/Ticker";
+import { Trend } from "@/components/Trend";
 import { useStrings } from "@/hooks/useStrings";
 import { useMarks } from "@/hooks/useMarks";
 import { useConnection } from "@/stores/connection";
@@ -80,8 +81,9 @@ export function Holding() {
                       {unpriceable ? t.console.partial(unpriceable) : t.console.unpriced}
                     </span>
                   ) : (
-                    <span className={cn("font-mono text-[12px] font-bold leading-none tabular-nums",
+                    <span className={cn("flex items-center gap-[5px] font-mono text-[12px] font-bold leading-none tabular-nums",
                       pnl >= 0 ? "text-pass" : "text-fail")}>
+                      <Trend value={pnl} />
                       {money(value!)}
                     </span>
                   )}

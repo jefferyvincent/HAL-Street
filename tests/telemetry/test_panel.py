@@ -213,3 +213,54 @@ def test_the_shell_can_only_reach_localhost():
     assert csp, "a null CSP would let the shell reach anything"
     connect = re.search(r"connect-src ([^;]+)", csp).group(1).split()
     assert all(h == "'self'" or "127.0.0.1" in h for h in connect), connect
+
+
+# --- a click has to do something visible -------------------------------------------
+
+def test_selecting_a_record_also_shows_it():
+    """The regression the accordion introduced.
+
+    Collapsing the decision record by default was right — it is a rationale and
+    sixteen verdicts sitting under the run's numbers, the equity curve and the open
+    book. But the run journal and the JOURNAL tab both selected a record and left
+    it closed, so clicking a row changed a selection nobody could see and read as a
+    dead control.
+
+    Choosing a thing and looking at it are one action here.
+    """
+    store = (SRC / "stores" / "ui.ts").read_text()
+    assert "showDecision" in store, "no action selects and opens together"
+    action = store[store.index("showDecision: (selected)"):]
+    assert "decisionOpen: true" in action[:200], "selecting must open the record"
+
+    # The *call site*, not the presence of the name — a mutation that changed the
+    # handler back to a bare `select` left the import untouched and walked straight
+    # through an earlier version of this check.
+    for view in ("components/Tape.tsx", "views/JournalView.tsx"):
+        source = (SRC / view).read_text()
+        handler = re.search(r"const (\w+) = useUI\(\(s\) => s\.showDecision\)", source)
+        assert handler, f"{view} does not bind showDecision"
+        assert re.search(rf"onClick=\{{\(\) => {handler.group(1)}\(", source), \
+            f"{view} binds showDecision and does not call it on click"
+
+
+def test_no_view_calls_a_selector_the_store_no_longer_has():
+    # `open` was superseded by `showDecision` and removed. A view still calling it
+    # would be a runtime error on click, which is exactly the failure this whole
+    # test exists for.
+    store = (SRC / "stores" / "ui.ts").read_text()
+    # The implementation object only. The interface above it declares the same names,
+    # so searching the whole file finds a removed action's *type* and passes.
+    body = store[store.index("export const useUI = create<UI>"):]
+    provided = set(re.findall(r"^\s{2}(\w+):", body, re.MULTILINE))
+    for path in SRC.rglob("*.tsx"):
+        for used in re.findall(r"useUI\(\(s\) => s\.(\w+)\)", path.read_text()):
+            assert used in provided, \
+                f"{path.name} reads useUI().{used}, which the store does not provide"
+
+
+def test_a_row_can_reach_the_trade_it_became():
+    # The run journal shows the verdict; the position is two views away otherwise,
+    # and nothing said the two were the same trade.
+    tape = (SRC / "components" / "Tape.tsx").read_text()
+    assert "structure_id" in tape and "chart(" in tape

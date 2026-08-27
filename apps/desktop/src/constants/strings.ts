@@ -214,6 +214,7 @@ export function makeStrings(t: Translate) {
     },
 
     tape: {
+      viewTrade: t("tape.viewTrade"),
       title: t("tape.title"),
       empty: t("tape.empty"),
       counts: (approved: number, rejected: number, passed: number) =>

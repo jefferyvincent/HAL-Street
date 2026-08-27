@@ -1,5 +1,6 @@
 import { cn } from "@/lib/cn";
 import { Ticker } from "@/components/Ticker";
+import { Trend } from "@/components/Trend";
 import { clock, day, money, premium, toClose } from "@/lib/format";
 import { CLS } from "@/constants/theme";
 import { useStructureChartCanvas } from "@/hooks/useStructureChartCanvas";
@@ -9,15 +10,17 @@ import { useStrings } from "@/hooks/useStrings";
 import type { StructureChart as Chart } from "@/types";
 import { Note } from "./Icon";
 
-function Level({ label, value, tone, note = null }: {
+function Level({ label, value, tone, note = null, lead = null }: {
   label: string; value: string; tone: string; note?: string | null;
+  lead?: React.ReactNode;
 }) {
   return (
     <div className="flex-1 border border-line bg-void px-[10px] py-[9px]">
       <div className="font-mono text-[8.5px] font-bold leading-none tracking-[.08em] text-ink/40">
         {label}
       </div>
-      <div className={cn("mt-[5px] font-mono text-[13px] font-semibold leading-none tabular-nums", tone)}>
+      <div className={cn("mt-[5px] flex items-center gap-[5px] font-mono text-[13px] font-semibold leading-none tabular-nums", tone)}>
+        {lead}
         {value}
       </div>
       {note && (
@@ -94,6 +97,7 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
           label={t.chart.pnl}
           value={pnl === null ? "—" : money(pnl)}
           tone={pnl === null ? "text-ink/40" : Number(pnl) >= 0 ? "text-pass" : "text-fail"}
+          lead={<Trend value={pnl} size={10} />}
         />
       </div>
 

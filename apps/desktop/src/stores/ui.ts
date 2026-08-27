@@ -18,8 +18,6 @@ interface UI {
   charting: string | null;
   setView: (v: View) => void;
   select: (ts: string | null) => void;
-  /** Selecting from the journal table opens the decision record, which is the console. */
-  open: (ts: string) => void;
   /** Clicking a position charts it; the book view swaps its list for the chart. */
   chart: (structureId: string | null) => void;
   /** Audio cues off. Persisted, because a console that forgets is one you mute daily. */
@@ -35,6 +33,14 @@ interface UI {
    */
   decisionOpen: boolean;
   toggleDecision: () => void;
+  /**
+   * Select a decision *and* show it.
+   *
+   * `select` alone stopped being enough the moment the record became collapsible:
+   * clicking a row in the run journal changed a selection nobody could see, so the
+   * click read as broken. Choosing a thing and looking at it are one action here.
+   */
+  showDecision: (ts: string) => void;
 }
 
 /**
@@ -64,10 +70,10 @@ export const useUI = create<UI>((set) => ({
   // list, not on whatever was open three views ago.
   setView: (view) => set({ view, charting: null }),
   select: (selected) => set({ selected }),
-  open: (selected) => set({ selected, view: "console" }),
   chart: (charting) => set({ charting, view: "book" }),
   decisionOpen: false,
   toggleDecision: () => set((s) => ({ decisionOpen: !s.decisionOpen })),
+  showDecision: (selected) => set({ selected, decisionOpen: true, view: "console" }),
   muted: storedMute(),
   setMuted: (muted) => {
     try {

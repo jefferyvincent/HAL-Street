@@ -3,6 +3,7 @@ import { ICON } from "@/constants/icons";
 import { STROKE } from "@/constants/theme";
 import { Icon } from "@/components/Icon";
 import { useScoreboard } from "@/hooks/useScoreboard";
+import { Trend } from "@/components/Trend";
 import { useStrings } from "@/hooks/useStrings";
 
 /**
@@ -36,8 +37,9 @@ export function Scoreboard() {
             <div className="font-mono text-[9px] font-bold leading-none tracking-[.12em] text-ink/32">
               {s.label}
             </div>
-            <div className={cn("mt-[6px] break-words font-mono text-[14px] font-bold leading-[1.15] tabular-nums",
+            <div className={cn("mt-[6px] flex items-center gap-[5px] break-words font-mono text-[14px] font-bold leading-[1.15] tabular-nums",
               s.sign === "up" ? "text-pass" : s.sign === "down" ? "text-fail" : "text-ink")}>
+              {s.sign && <Trend value={s.sign === "up" ? 1 : -1} size={10} />}
               {s.value}
             </div>
             {s.note && (
