@@ -4,6 +4,7 @@ import { ICON } from "@/constants/icons";
 import { STROKE } from "@/constants/theme";
 import { Icon } from "@/components/Icon";
 import { PatternBadge } from "@/components/PatternBadge";
+import { Sparkline } from "@/components/Sparkline";
 import { Ticker } from "@/components/Ticker";
 import { Trend } from "@/components/Trend";
 import { useStrings } from "@/hooks/useStrings";
@@ -59,6 +60,13 @@ export function Holding() {
             const value = now?.unrealized_usd ?? read?.unrealized_usd ?? null;
             const fresh = now?.unrealized_usd != null;
             const pnl = value == null ? null : Number(value);
+            // The agent's own marks, one per cycle. The live figure is appended so
+            // the line ends where the number beside it says it is — otherwise the
+            // last point is a cycle old and visibly disagrees with the P&L.
+            const history = (p.marks ?? [])
+              .map((m) => Number(m.pnl))
+              .filter((n) => Number.isFinite(n));
+            const spark = fresh && pnl !== null ? [...history, pnl] : history;
             return (
               <li key={p.structure_id}
                   onClick={() => chart(p.structure_id)}
@@ -88,7 +96,13 @@ export function Holding() {
                     </span>
                   )}
                 </div>
-                <div className="mt-[5px] flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                <div className="mt-[5px] flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {/* The shape, not just the number. A position at -$19 could have
+                      drifted there all day or fallen off a cliff last cycle, and the
+                      card said the same thing either way. Plots P&L rather than the
+                      mark — see `Sparkline` for why that distinction is load-bearing
+                      on a credit structure. */}
+                  <Sparkline points={spark} />
                   <PatternBadge position={p} />
                   <span className="flex-1" />
                   {read?.dte != null && (

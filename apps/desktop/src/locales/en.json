@@ -148,17 +148,19 @@
     "closed": "CLOSED",
     "note": "Click a structure to chart it against the levels its exit policy acts on. A price shown here is the fill where one has been confirmed, and the submitted limit where it has not. P&L is realized on a closed row and marked-to-market on an open one.",
     "exposure": {
-      "bullish": "WANTS UP",
-      "bearish": "WANTS DOWN",
-      "neutral": "WANTS FLAT",
-      "unknown": "—"
+      "bullish": "WANTS THE MARKET UP",
+      "bearish": "WANTS THE MARKET DOWN",
+      "neutral": "WANTS THE MARKET FLAT",
+      "unknown": "DIRECTION UNKNOWN"
     },
-    "against": "{{count}} against",
-    "confirming": "{{count}} confirming",
-    "patternsNone": "chart quiet",
-    "patternsTitle": "Confirmed chart patterns on {{underlying}}. Shown only — the exit policy does not read them.",
+    "against": "1 chart pattern points the other way",
+    "confirming": "1 chart pattern agrees",
+    "patternsNone": "no pattern on the chart",
+    "patternsTitle": "What {{underlying}}'s own chart is doing, next to what this position needs it to do. Shown only: the exit policy is arithmetic over the mark and the calendar, and it never reads any of this.",
     "unrealizedTag": "open",
-    "unpriced": "—"
+    "unpriced": "—",
+    "againstMany": "{{count}} chart patterns point the other way",
+    "confirmingMany": "{{count}} chart patterns agree"
   },
   "chart": {
     "back": "BOOK",
@@ -258,5 +260,19 @@
     "age": "{{n}}h",
     "title": "Headlines the catalyst read this cycle, newest first. Untrusted publisher text — it reaches the model inside an explicit fence and nothing downstream treats it as an instruction. Hover to pause, click to read at the source.",
     "read": "Read it at {{source}} — opens in a new tab"
+  },
+  "spend": {
+    "title": "MODEL SPEND",
+    "cycles": "{{count}} cycles",
+    "tokensIn": "TOKENS IN",
+    "tokensOut": "TOKENS OUT",
+    "cached": "CACHED READS",
+    "cachedNote": "Billed at a discount this project has no sourced figure for, so they are counted here and left out of the cost.",
+    "split": "{{in}} in · {{out}} out",
+    "noPrice": "no price set",
+    "atLeast": "at least {{value}}",
+    "noPriceNote": "No price configured for {{model}}, so its tokens are counted and its cost is not. Set LLM_PRICES to include it — the total above is a floor until you do.",
+    "unattributed": "before per-stage accounting",
+    "unattributedNote": "Spent by cycles that ran before the per-stage record existed, so the model that spent them was never written down. Counted in the totals, absent from the split."
   }
 }

@@ -117,7 +117,7 @@ def test_the_payload_carries_only_what_the_panel_renders(tmp_path):
     assert set(state) == {"circuit", "pnl", "positions", "closed", "decisions",
                           "views", "menus", "equity_curve", "market",
                           "activity", "committees", "in_flight", "armed",
-                          "gate_readings", "headlines",
+                          "gate_readings", "headlines", "spend",
                           "chain", "families", "limits"}
 
 

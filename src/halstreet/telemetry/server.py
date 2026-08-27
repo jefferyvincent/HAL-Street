@@ -46,7 +46,7 @@ from halstreet.agent.manager import (
 from halstreet.gates import ALL_GATES
 from halstreet.gates.base import FAMILIES, Limits, family_of
 from halstreet.strategy.exposure import agrees, exposure_of
-from halstreet.telemetry import pnl, structure_chart
+from halstreet.telemetry import pnl, pricing, structure_chart
 from halstreet.telemetry.journal import Journal
 
 # The panel is a Vite build. In production the bundle is served from here, same origin
@@ -366,6 +366,132 @@ def _marks_by_structure(events: list[dict]) -> dict[str, dict]:
     return out
 
 
+#: Points in a position's spark line. A thumbnail two centimetres wide cannot show
+#: more, and the whole history is one route away on the chart itself.
+SPARK_POINTS = 40
+
+
+def _mark_series(events: list[dict]) -> dict[str, list[dict]]:
+    """Every mark the agent has taken of each position, oldest first.
+
+    The console showed one number and no shape: a position at -$19 could have been
+    drifting there all day or have fallen off a cliff in the last cycle, and those are
+    different situations. This is the difference, and it costs nothing — the agent
+    prices the whole book every cycle and writes the result down, so the series is
+    already on disk.
+
+    Its own marks rather than a price feed, which is the honest framing and also the
+    only one available here: the snapshot is polled every five seconds and must not
+    reach the broker. Sampled once per cycle, so the spacing is however often the
+    agent looked — half-hourly on a slow scan. That makes it a record of what the desk
+    saw, not a tick chart, and the card says so by stamping the last read's age.
+
+    Unparseable marks are skipped rather than plotted as zero. A gap in a line is a
+    gap; a zero is a claim the structure was worthless.
+    """
+    out: dict[str, list[dict]] = {}
+    for event in events:
+        if event.get("event") != "exit_decision":
+            continue
+        key = str(event.get("structure_id") or "")
+        value = _dec(event.get("mark"))
+        if not key or value is None:
+            continue
+        out.setdefault(key, []).append({"t": event.get("ts"), "v": value,
+                                        "pnl": _dec(event.get("unrealized_usd"))})
+    return {k: v[-SPARK_POINTS:] for k, v in out.items()}
+
+
+def _spend(events: list[dict]) -> dict:
+    """What the model calls have cost this journal, in tokens and where possible money.
+
+    **Counted from `proposal` events only, and that is the whole subtlety.** The
+    committee journals its session total and the loop then journals the same figure
+    again on the proposal it produced — the two records carry one spend between them,
+    and summing both doubles it. I did exactly that when first reading these numbers
+    and reported 1.39M input against a real 693K. The proposal record is the one to
+    count because it is the only one present on both paths: with the committee off
+    there is no committee record at all, and the single call still journals its usage
+    there.
+
+    The per-model split comes from `committee.stages`, which is the only place a model
+    name appears. On a committee cycle the stages sum exactly to the proposal's total
+    — catalyst plus debate plus judge — so a cycle is either fully attributed or not
+    attributed at all, and whatever the stages do not account for is reported as
+    `unattributed` rather than silently assigned to something.
+
+    Cost is `None` for a model with no configured price, and the total is marked
+    `partial` when any counted token had none. A dollar figure that quietly omits a
+    tier is worse than no dollar figure, and the tiering put two thirds of the input
+    on the tier whose price this project cannot cite.
+    """
+    total = {"in": 0, "out": 0, "cache_read": 0}
+    by_model: dict[str, dict[str, int]] = {}
+    cycles = 0
+
+    for event in events:
+        kind = event.get("event")
+        tokens = event.get("tokens")
+        if kind == "proposal" and isinstance(tokens, dict):
+            cycles += 1
+            for key in total:
+                value = tokens.get(key)
+                if isinstance(value, int):
+                    total[key] += value
+        elif kind == "committee":
+            stages = event.get("stages")
+            if not isinstance(stages, dict):
+                # A string here iterates one character at a time; an int raises
+                # outright. This route is polled every five seconds, so either one
+                # empties the whole panel. Found by test, like the identical hole in
+                # `_gate_readings`.
+                continue
+            for spend in stages.values():
+                if not isinstance(spend, dict):
+                    continue
+                model = spend.get("model")
+                if not model:
+                    continue  # a stage that made no call — see `catalyst`
+                row = by_model.setdefault(str(model), {"in": 0, "out": 0, "cache_read": 0})
+                for key in row:
+                    value = spend.get(key)
+                    if isinstance(value, int):
+                        row[key] += value
+
+    table = pricing.from_env()
+    models = []
+    priced_cost = Decimal(0)
+    partial = False
+    for name in sorted(by_model):
+        row = by_model[name]
+        money = pricing.cost(name, tokens_in=row["in"], tokens_out=row["out"], table=table)
+        if money is None:
+            partial = True
+        else:
+            priced_cost += money
+        models.append({"model": name, **row, "cost_usd": money})
+
+    attributed = {k: sum(r[k] for r in by_model.values()) for k in total}
+    # What the stages could not account for: every cycle run before per-stage
+    # accounting existed, and every cycle run with the committee off.
+    unattributed = {k: max(0, total[k] - attributed[k]) for k in total}
+    if unattributed["in"] or unattributed["out"]:
+        partial = True
+
+    return {
+        "total": total,
+        "cycles": cycles,
+        "models": models,
+        "unattributed": unattributed,
+        # Rounded once, at the edge, like every other money figure here.
+        "cost_usd": _round(priced_cost, 2),
+        # True when some counted tokens had no price. The number below it is a floor,
+        # not a total, and the panel says so rather than implying otherwise.
+        "partial": partial,
+        "prices": {k: {"in": str(v[0]), "out": str(v[1])} for k, v in table.items()},
+    }
+
+
 def _patterns_by_underlying(events: list[dict]) -> dict[str, list[dict]]:
     """The most recent confirmed patterns per underlying, from the market views.
 
@@ -534,7 +660,15 @@ def _headlines(events: list[dict]) -> list[dict]:
             text = str(item.get("headline") or "").strip()
             if not text:
                 continue
-            row = seen.setdefault(text, {**item, "headline": text, "roots": []})
+            row = seen.setdefault(text, {
+                **item, "headline": text, "roots": [],
+                # Normalised rather than passed through. A record written before the
+                # link was kept has no `url` key at all, and the panel's type says
+                # `string` — an absent key reaches it as `undefined` and a null as
+                # `null`, neither of which that type admits. Both mean the same thing
+                # here, so both become the empty string and the type stays true.
+                "url": str(item.get("url") or ""),
+            })
             if root and root not in row["roots"]:
                 row["roots"].append(root)
 
@@ -684,6 +818,7 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
     events = list(journal.read())
     latest_patterns = _patterns_by_underlying(events)
     latest_marks = _marks_by_structure(events)
+    mark_series = _mark_series(events)
 
     # The agent's own last marks, so the headline unrealized figure and the number
     # beside each position come from one source. Without them `build` had no marks
@@ -734,6 +869,8 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
         # What each gate measured last time it ran. The counts say which gates have
         # ever bitten; these say how close the book is to each one now.
         "gate_readings": _gate_readings(events),
+        # What the thinking has cost. Tokens always, money where a price is known.
+        "spend": _spend(events),
         # What the catalyst has been reading. Untrusted publisher text: the panel
         # renders it as text, never as markup.
         "headlines": _headlines(events),
@@ -798,6 +935,10 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
                 # worth, how long it has, and what the policy said to do about it.
                 # Stamped `as_of`, because it is a cycle old rather than live.
                 "read": latest_marks.get(s.structure_id),
+                # And every earlier one, so the card can show a shape rather than a
+                # single number. Drifting sideways and falling off a cliff reach the
+                # same figure and are not the same situation.
+                "marks": mark_series.get(s.structure_id, []),
             }
             for s in ledger.open_structures
         ],

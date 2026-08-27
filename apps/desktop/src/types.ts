@@ -131,6 +131,15 @@ export interface Position {
     reason: string;
     as_of: string;
   } | null;
+  /**
+   * Every mark the agent has taken of this position, oldest first — its own record,
+   * one point per cycle, not a price feed.
+   *
+   * `pnl` is what the card plots. The mark would be the wrong series to draw: every
+   * structure here is a credit, so its mark rises as the position loses, and a line
+   * of marks slopes downward on a winning trade.
+   */
+  marks?: { t: string; v: string; pnl: string | null }[];
 }
 
 export interface ClosedStructure {
@@ -372,6 +381,23 @@ export interface NewsItem {
   url: string;
 }
 
+/** What the model calls have cost. Tokens always; money where a price is configured. */
+export interface Spend {
+  total: { in: number; out: number; cache_read: number };
+  cycles: number;
+  models: {
+    model: string; in: number; out: number; cache_read: number;
+    /** Null when this model has no configured price — never zero, which is a claim. */
+    cost_usd: string | null;
+  }[];
+  /** Counted tokens no stage accounted for: cycles run before per-stage accounting. */
+  unattributed: { in: number; out: number; cache_read: number };
+  cost_usd: string;
+  /** True when some counted tokens had no price, making `cost_usd` a floor. */
+  partial: boolean;
+  prices: Record<string, { in: string; out: string }>;
+}
+
 export interface Snapshot {
   chain: ChainEntry[];
   families: string[];
@@ -385,6 +411,7 @@ export interface Snapshot {
   armed: boolean | null;
   in_flight: InFlight | null;
   gate_readings: Record<string, GateReading>;
+  spend: Spend;
   headlines: NewsItem[];
   pnl: Pnl;
   positions: Position[];

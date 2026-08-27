@@ -166,3 +166,31 @@ def test_the_agent_writes_the_feed_and_not_only_its_length():
     source = Path("src/halstreet/agent/loop.py").read_text()
     assert "session.feed = [h.to_ticker() for h in headlines]" in source
     assert "session.headlines = len(headlines)" in source
+
+
+# --- the link ------------------------------------------------------------------
+
+def test_a_validated_link_reaches_the_panel():
+    rows = _headlines([committee("SPY", [
+        {**item("Fed holds"), "url": "https://a.com/fed"}])])
+    assert rows[0]["url"] == "https://a.com/fed"
+
+
+def test_a_record_written_before_links_were_kept_carries_an_empty_one():
+    """Not `None`, and not absent. The panel's type says `string`, and an absent key
+    arrives as `undefined` while a null arrives as `null` — neither of which that type
+    admits. Both mean the same thing, so both become "" and the type stays true."""
+    rows = _headlines([committee("SPY", [item("Fed holds")])])
+    assert rows[0]["url"] == ""
+
+    nulled = _headlines([committee("SPY", [{**item("Fed holds"), "url": None}])])
+    assert nulled[0]["url"] == ""
+
+
+def test_the_first_read_of_a_shared_story_supplies_its_link():
+    """A macro story arrives from three reads and is shown once. Its link comes with
+    the first copy, and the later ones do not blank it."""
+    story = {**item("Fed holds"), "url": "https://a.com/fed"}
+    rows = _headlines([committee(root, [story]) for root in ("SPY", "QQQ", "IWM")])
+    assert len(rows) == 1
+    assert rows[0]["url"] == "https://a.com/fed"

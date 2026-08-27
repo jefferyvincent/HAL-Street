@@ -6,6 +6,7 @@ import { ActivityFeed } from "@/components/ActivityFeed";
 import { EquityChart } from "@/components/EquityChart";
 import { Scoreboard } from "@/components/Scoreboard";
 import { Holding } from "@/components/Holding";
+import { Spend } from "@/components/Spend";
 import { GateLedger } from "@/components/GateLedger";
 import { Cross, Icon, Note, Tick } from "@/components/Icon";
 import { Ticker } from "@/components/Ticker";
@@ -43,6 +44,7 @@ export function ConsoleView() {
         <Scoreboard />
         {snap && <EquityChart curve={snap.equity_curve} pnl={snap.pnl} />}
         <Holding />
+        <Spend />
         <div className="border border-edge bg-panel">
           <div className={CLS.empty}>{t.console.none}</div>
         </div>
@@ -60,6 +62,7 @@ export function ConsoleView() {
       <Scoreboard />
       {snap && <EquityChart curve={snap.equity_curve} pnl={snap.pnl} />}
       <Holding />
+      <Spend />
     <div className={cn("border bg-panel", ok ? "border-edge" : "border-fail")}>
       <div className={cn("flex flex-wrap items-center gap-[9px] border-b px-3 py-[9px]",
         ok ? "border-b-pass/40 bg-pass/12" : "border-b-fail/45 bg-fail/14")}>

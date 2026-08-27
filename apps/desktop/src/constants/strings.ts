@@ -49,6 +49,21 @@ export function makeStrings(t: Translate) {
       marketUnknown: t("chrome.marketUnknown"),
     },
 
+    spend: {
+      title: t("spend.title"),
+      cycles: (count: number) => t("spend.cycles", { count }),
+      tokensIn: t("spend.tokensIn"),
+      tokensOut: t("spend.tokensOut"),
+      cached: t("spend.cached"),
+      cachedNote: t("spend.cachedNote"),
+      split: (tin: string, out: string) => t("spend.split", { in: tin, out }),
+      noPrice: t("spend.noPrice"),
+      atLeast: (value: string) => t("spend.atLeast", { value }),
+      noPriceNote: (model: string) => t("spend.noPriceNote", { model }),
+      unattributed: t("spend.unattributed"),
+      unattributedNote: t("spend.unattributedNote"),
+    },
+
     news: {
       label: t("news.label"),
       title: t("news.title"),
@@ -207,8 +222,13 @@ export function makeStrings(t: Translate) {
         neutral: t("book.exposure.neutral"),
         unknown: t("book.exposure.unknown"),
       },
-      against: (count: number) => t("book.against", { count }),
-      confirming: (count: number) => t("book.confirming", { count }),
+      // Chosen here rather than through i18next's plural machinery, which needs a
+      // per-language rule set configured to work and fails silently to the singular
+      // when it is not. Two keys and a comparison cannot fail silently.
+      against: (count: number) =>
+        count === 1 ? t("book.against") : t("book.againstMany", { count }),
+      confirming: (count: number) =>
+        count === 1 ? t("book.confirming") : t("book.confirmingMany", { count }),
       patternsNone: t("book.patternsNone"),
       patternsTitle: (underlying: string) => t("book.patternsTitle", { underlying }),
     },
