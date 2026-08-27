@@ -158,6 +158,20 @@ def quotes_for(chain: dict[str, dict], expiry: date) -> list[Quote]:
     return sorted(out, key=lambda q: q.contract.strike)
 
 
+def expiries_by_distance(chain: dict[str, dict], target_dte: int, *,
+                         asof: date | None = None, min_dte: int = 7) -> list[date]:
+    """Every listed expiry at or beyond `min_dte`, closest to `target_dte` first.
+
+    A list rather than one answer, because *closest* and *usable* are different
+    questions and only the caller can settle the second — see `generate`.
+    """
+    today = asof or clock.today()
+    expiries = {
+        c.expiry for s in chain if (c := parse(s)) and (c.expiry - today).days >= min_dte
+    }
+    return sorted(expiries, key=lambda e: (abs((e - today).days - target_dte), e))
+
+
 def nearest_expiry(chain: dict[str, dict], target_dte: int, *, asof: date | None = None,
                    min_dte: int = 7) -> date | None:
     """The listed expiry closest to `target_dte`, never nearer than `min_dte`.
@@ -165,14 +179,13 @@ def nearest_expiry(chain: dict[str, dict], target_dte: int, *, asof: date | None
     The floor is here as well as in the gates on purpose: offering the model an expiry
     the DTE gate will reject wastes a whole cycle, and an agent that keeps proposing
     trades it cannot make looks broken even when it is behaving correctly.
+
+    Closeness alone is not enough to trade on, which is why `generate` walks
+    `expiries_by_distance` instead of calling this. Kept because "the nearest listed
+    expiry" is still the right answer to that question.
     """
-    today = asof or clock.today()
-    expiries = {
-        c.expiry for s in chain if (c := parse(s)) and (c.expiry - today).days >= min_dte
-    }
-    if not expiries:
-        return None
-    return min(expiries, key=lambda e: abs((e - today).days - target_dte))
+    found = expiries_by_distance(chain, target_dte, asof=asof, min_dte=min_dte)
+    return found[0] if found else None
 
 
 def _by_delta(quotes: list[Quote], right: Right, target: Decimal) -> Quote | None:
@@ -405,13 +418,40 @@ def generate(chain: dict[str, dict], *, spot: Decimal | None = None,
     floor = P.EffectiveFloor.compose(profile, limits)
 
     dte_target = profile.target_dte(target_dte)
-    expiry = nearest_expiry(chain, dte_target, asof=asof, min_dte=floor.min_dte)
-    if expiry is None:
-        return []
+    today = asof or clock.today()
+    for expiry in expiries_by_distance(chain, dte_target, asof=asof,
+                                       min_dte=floor.min_dte)[:MAX_EXPIRIES_TRIED]:
+        menu = _menu_for(chain, expiry, spot=spot, dte=(expiry - today).days,
+                         profile=profile, floor=floor, ctx=ctx, limit=limit,
+                         width_steps=width_steps)
+        if menu:
+            return menu
+    return []
+
+
+#: How many expiries `generate` will try before giving up on a cycle.
+#:
+#: One was the bug. `generate` took the expiry closest to the target DTE and returned
+#: an empty menu if nothing could be built on it — and on a live SPY chain the closest
+#: expiry was a stub: 2026-10-09 carried 58 contracts spanning |delta| 0.30 to 0.72,
+#: with no strike anywhere near the 0.20 delta the profile sells. 2026-10-16 sat seven
+#: days further out, comfortably inside the same 21-60 band, and carried 442 contracts
+#: across the full ladder. Closeness won, nothing could be built, and the cycle
+#: produced no menu, no proposal and no decision — for all three underlyings at once,
+#: with nothing in the journal but `candidates: 0`.
+#:
+#: Three is enough to step over a thinly-listed weekly without wandering to an expiry
+#: nobody asked for; the DTE floor and the profile's band still bound where it can go.
+MAX_EXPIRIES_TRIED = 3
+
+
+def _menu_for(chain: dict[str, dict], expiry: date, *, spot: Decimal | None, dte: int,
+              profile: P.Profile, floor: P.EffectiveFloor, ctx: scoring.Context,
+              limit: int, width_steps: tuple[int, ...]) -> list[Candidate]:
+    """Build and rank the menu for one expiry. Empty means this expiry is unusable."""
     quotes = quotes_for(chain, expiry)
     if not quotes:
         return []
-    dte = (expiry - (asof or clock.today())).days
 
     out: list[Candidate] = []
     for delta in profile.short_deltas:

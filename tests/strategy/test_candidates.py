@@ -359,3 +359,113 @@ def test_every_structure_built_can_actually_lose_something():
     for candidate in menu:
         assert candidate.max_loss_usd > 0, f"{candidate.name} cannot lose anything"
         assert candidate.max_gain_usd > 0, f"{candidate.name} cannot gain anything"
+
+
+# --- an expiry that is listed but unusable ---------------------------------------------
+
+def _stub_expiry_chain():
+    """A chain whose *nearest* expiry is a stub and whose next one is complete.
+
+    This is a live SPY chain from 2026-08-27, reduced. Alpaca listed three expiries in
+    the 35-55 day window: 10-02 with 342 contracts, **10-09 with 58** spanning |delta|
+    0.30 to 0.72, and 10-16 with 442 across the full ladder. A weekly that has barely
+    begun trading is quoted only around the money.
+    """
+    near = ASOF + timedelta(days=43)     # the stub, closest to a 45-day target
+    far = ASOF + timedelta(days=50)      # the monthly, still inside the 21-60 band
+
+    def occ(expiry, strike, right):
+        return f"SPY{expiry:%y%m%d}{right}{strike * 1000:08d}"
+
+    chain: dict[str, dict] = {}
+    # The stub: near the money only, so no 0.20-delta strike exists at all.
+    for strike in range(760, 776, 2):
+        chain[occ(near, strike, "P")] = _snapshot(
+            bid=8.0, ask=8.1, delta=-0.45, oi=500, vol=200)
+        chain[occ(near, strike, "C")] = _snapshot(
+            bid=8.0, ask=8.1, delta=0.45, oi=500, vol=200)
+    # The full ladder one week further out, from the same Black-Scholes surface the
+    # rest of this file uses.
+    discount = math.exp(-bs.RISK_FREE_RATE * 50 / bs.DAYS_PER_YEAR)
+    for strike in range(700, 832, 2):
+        c = bs.coefficients(float(SPOT), float(strike), 50, 0.15)
+        call_delta = bs.norm_cdf(c.d1)
+        call_mid = float(SPOT) * call_delta - strike * discount * bs.norm_cdf(c.d2)
+        put_mid = strike * discount * bs.norm_cdf(-c.d2) - float(SPOT) * bs.norm_cdf(-c.d1)
+        chain[occ(far, strike, "C")] = _snapshot(
+            bid=round(call_mid - 0.05, 2), ask=round(call_mid + 0.05, 2),
+            delta=round(call_delta, 4))
+        chain[occ(far, strike, "P")] = _snapshot(
+            bid=round(put_mid - 0.05, 2), ask=round(put_mid + 0.05, 2),
+            delta=round(call_delta - 1.0, 4))
+    return chain, near, far
+
+
+def test_a_thinly_listed_expiry_does_not_cost_the_cycle_its_menu():
+    """The defect that produced nothing at all, live, on every underlying at once.
+
+    `generate` took the expiry closest to the target DTE and gave up if nothing could
+    be built on it. On 2026-08-27 the closest SPY expiry was a stub — 58 contracts
+    spanning |delta| 0.30 to 0.72, no strike near the 0.20 delta the moderate profile
+    sells — while the monthly seven days further out, comfortably inside the same
+    21-60 band, carried 442 across the full ladder.
+
+    So the scan produced no menu, no proposal, no committee and no gate decision, for
+    SPY, QQQ and IWM together, leaving nothing in the journal but `candidates: 0`.
+    An agent that has stopped trading and an agent that is being selective look
+    identical from there, which is what made it worth finding rather than waiting out.
+    """
+    chain, near, far = _stub_expiry_chain()
+    profile = P.get("moderate")
+
+    # The stub really is the closest, and really is unusable on its own.
+    assert C.expiries_by_distance(chain, 45, asof=ASOF, min_dte=profile.min_dte)[0] == near
+    assert C.nearest_expiry(chain, 45, asof=ASOF, min_dte=profile.min_dte) == near
+
+    menu = C.generate(chain, spot=SPOT, target_dte=45, limits=Limits(),
+                      profile=profile, ctx=scoring.Context(), asof=ASOF)
+    assert menu, "the next expiry along was fully listed and inside the band"
+    assert all(f"{far}" in c.name for c in menu), "every candidate comes from one expiry"
+
+
+def test_the_closest_usable_expiry_still_wins():
+    # Stepping over a stub must not become a preference for later expiries.
+    menu = C.generate(_chain(), spot=SPOT, target_dte=45, limits=Limits(),
+                      profile=P.MODERATE, ctx=scoring.Context(), asof=ASOF)
+    assert menu and all(f"{EXPIRY}" in c.name for c in menu)
+
+
+def test_the_search_is_bounded():
+    # A chain of nothing but stubs must not walk the whole ladder looking for one that
+    # works — a scan has a budget, and the DTE band exists to be respected.
+    assert C.MAX_EXPIRIES_TRIED == 3
+    calls: list = []
+    real = C.quotes_for
+
+    def counting(chain, expiry):
+        calls.append(expiry)
+        return []
+
+    C.quotes_for = counting
+    try:
+        chain = {f"SPY{(ASOF + timedelta(days=d)):%y%m%d}P00700000": {} for d in range(25, 60)}
+        assert C.generate(chain, spot=SPOT, target_dte=45, limits=Limits(),
+                          profile=P.MODERATE, asof=ASOF) == []
+    finally:
+        C.quotes_for = real
+    assert len(calls) == C.MAX_EXPIRIES_TRIED
+
+
+def test_expiries_are_ordered_by_distance_then_by_date():
+    # Deterministic: two expiries equidistant from the target must not swap order
+    # between runs on dict iteration.
+    chain = {f"SPY{(ASOF + timedelta(days=d)):%y%m%d}P00700000": {} for d in (40, 50, 45, 44, 46)}
+    found = C.expiries_by_distance(chain, 45, asof=ASOF, min_dte=7)
+    assert [(e - ASOF).days for e in found] == [45, 44, 46, 40, 50]
+
+
+def test_an_expiry_inside_the_dte_floor_is_never_tried():
+    # The floor is the one thing stepping onward must not step over.
+    chain = {f"SPY{(ASOF + timedelta(days=d)):%y%m%d}P00700000": {} for d in (3, 5, 40)}
+    found = C.expiries_by_distance(chain, 45, asof=ASOF, min_dte=21)
+    assert [(e - ASOF).days for e in found] == [40]
