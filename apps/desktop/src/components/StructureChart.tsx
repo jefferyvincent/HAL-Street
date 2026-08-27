@@ -2,12 +2,15 @@ import { cn } from "@/lib/cn";
 import { clock, day, money, premium, toClose } from "@/lib/format";
 import { CLS } from "@/constants/theme";
 import { useStructureChartCanvas } from "@/hooks/useStructureChartCanvas";
+import { useMarks } from "@/hooks/useMarks";
 import { useStructureLevels } from "@/hooks/useStructureLevels";
 import { useStrings } from "@/hooks/useStrings";
 import type { StructureChart as Chart } from "@/types";
 import { Note } from "./Icon";
 
-function Level({ label, value, tone }: { label: string; value: string; tone: string }) {
+function Level({ label, value, tone, note = null }: {
+  label: string; value: string; tone: string; note?: string | null;
+}) {
   return (
     <div className="flex-1 border border-line bg-void px-[10px] py-[9px]">
       <div className="font-mono text-[8.5px] font-bold leading-none tracking-[.08em] text-ink/40">
@@ -16,6 +19,12 @@ function Level({ label, value, tone }: { label: string; value: string; tone: str
       <div className={cn("mt-[5px] font-mono text-[13px] font-semibold leading-none tabular-nums", tone)}>
         {value}
       </div>
+      {note && (
+        <div className={cn("mt-[4px] font-mono text-[9px] leading-none",
+          note === "live" ? "text-pass/70" : "text-ink/30")}>
+          {note}
+        </div>
+      )}
     </div>
   );
 }
@@ -34,6 +43,16 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
   const host = useStructureChartCanvas(series, lines);
   const levels = chart.levels;
 
+  // NOW should be a price, not the close of an hour that may be nearly over. The
+  // series is hourly bars — right for the line, wrong for "what is it worth" — so
+  // the live mark leads and the last bar stands in when the broker cannot be
+  // reached. Labelled either way: a number whose age is unknown is worth less than
+  // a stale one that says so.
+  const live = useMarks()?.marks[chart.structure_id];
+  const now = live?.mark ?? (last === null ? null : String(last));
+  const isLive = live?.mark != null;
+  const pnl = live?.unrealized_usd ?? null;
+
   return (
     <>
       {/* Which underlying, from the chart's own field. A structure opened before
@@ -50,7 +69,7 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
         </span>
       </div>
 
-      <div className="mb-3 grid grid-cols-2 gap-px bg-line min-[701px]:grid-cols-4">
+      <div className="mb-3 grid grid-cols-2 gap-px bg-line min-[701px]:grid-cols-3 min-[961px]:grid-cols-5">
         {levels ? (
           <>
             <Level label={t.chart.entry} value={premium(levels.entry)} tone="text-ink" />
@@ -58,14 +77,20 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
             <Level label={t.chart.stop} value={toClose(levels.stop)} tone="text-fail" />
           </>
         ) : (
-          <div className="col-span-3 bg-void px-[10px] py-[9px] font-sans text-[11.5px] leading-[1.5] text-ink/40">
+          <div className="col-span-2 min-[961px]:col-span-3 bg-void px-[10px] py-[9px] font-sans text-[11.5px] leading-[1.5] text-ink/40">
             {t.chart.noEntry}
           </div>
         )}
         <Level
           label={t.chart.last}
-          value={last === null ? "—" : toClose(last)}
-          tone={levels && last !== null && last >= Number(levels.target) ? "text-pass" : "text-ink"}
+          value={now === null ? "—" : toClose(now)}
+          tone="text-ink"
+          note={now === null ? null : isLive ? t.chart.liveTag : t.chart.barTag}
+        />
+        <Level
+          label={t.chart.pnl}
+          value={pnl === null ? "—" : money(pnl)}
+          tone={pnl === null ? "text-ink/40" : Number(pnl) >= 0 ? "text-pass" : "text-fail"}
         />
       </div>
 
@@ -81,6 +106,7 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
         <span>{t.chart.legend(chart.policy.take_profit_pct, chart.policy.stop_loss_pct)}</span>
         <span>{t.chart.forceClose(chart.policy.force_close_dte)}</span>
         <span>{levels?.credit ? t.chart.credit : t.chart.debit}</span>
+        <span>{t.chart.seriesNote}</span>
       </div>
 
       <div className="mt-3 border border-line bg-panel">
