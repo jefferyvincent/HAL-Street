@@ -7,8 +7,10 @@ const trade = (id: string, realized: string | null): ClosedStructure =>
 
 const market = (state: "open" | "closed", at: string, observed = false): Market =>
   ({ state, at, observed, session_date: "2026-08-27", next_open: null, next_close: null,
-     // Not stale: these are cues from a live run. A stale record means no agent is
-     // writing boundaries, and there is no bell to ring for one that never happened.
+     // A live run: the agent is there to write the crossing, which is the only
+     // situation a bell should ring in. A boundary the panel merely inferred was
+     // never heard by anyone, and there is nothing to sound for it.
+     source: "observed", recorded: state, crossed_at: null,
      stale: false, quiet_for_s: 0 });
 
 describe("the first snapshot", () => {
@@ -108,5 +110,36 @@ describe("the bell", () => {
     const w = watch();
     decide(w, [], market("open", "T1"));
     expect(decide(w, [], market("open", "T1"))).toEqual([]);
+  });
+});
+
+describe("a crossing nobody watched", () => {
+  it("does not ring a bell the panel worked out for itself", () => {
+    // The failure this prevents: the agent writes `open` at 09:30 and exits at
+    // 15:40. At 16:00 the server derives `closed` from the broker's published
+    // boundary, the bell key changes, and the panel rings a closing bell for a
+    // crossing that happened after everything had stopped running.
+    const w = watch();
+    const morning: Market = { ...market("open", "T-0930"), source: "observed" };
+    expect(decide(w, [], morning)).toEqual([]);            // primes
+
+    const inferred: Market = {
+      ...market("closed", "T-0930"), source: "boundary",
+      recorded: "open", crossed_at: "2026-08-27 16:00:00-04:00", stale: true,
+    };
+    expect(decide(w, [], inferred)).toEqual([]);
+  });
+
+  it("still rings for one the agent actually recorded", () => {
+    const w = watch();
+    expect(decide(w, [], market("open", "T1"))).toEqual([]);
+    expect(decide(w, [], market("closed", "T2"))).toEqual(["closingBell"]);
+  });
+
+  it("does not ring when nothing is writing and nothing has been worked out", () => {
+    const w = watch();
+    expect(decide(w, [], market("open", "T1"))).toEqual([]);
+    const lastSeen: Market = { ...market("closed", "T2"), source: "last-seen", stale: true };
+    expect(decide(w, [], lastSeen)).toEqual([]);
   });
 });

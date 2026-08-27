@@ -444,41 +444,102 @@ def _legs_view(structure: Any, chain: dict[str, dict]) -> list[dict]:
 SESSION_STALE_S = 900.0
 
 
+def _when(value: Any) -> datetime | None:
+    """One of Alpaca's boundary timestamps, parsed. They carry their own offset —
+    `2026-08-27 16:00:00-04:00` — so nothing here needs to know where the exchange is."""
+    try:
+        parsed = datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else None
+
+
+def _crossed(record: dict) -> tuple[str, str] | None:
+    """The most recent session boundary that has already passed, and what it implies.
+
+    The session record carries the broker's own answer to "when does this session
+    next open and next close". Those are forward-looking and published *by Alpaca*,
+    so reading them is not a second claim about when the market is open — it is the
+    same claim `clock.py` already relies on, read one step further ahead.
+
+    That matters because the alternative is a hardcoded exchange calendar, which is
+    the thing this codebase specifically refuses to keep: New York, daylight saving,
+    half-days, holidays. None of that is knowledge this process should hold.
+
+    The later of the two passed boundaries wins, so this keeps working across a whole
+    weekend: on Saturday the Friday close is the last thing that happened, and on
+    Monday morning it is the Monday open.
+    """
+    now = datetime.now(UTC)
+    passed = [
+        (when, state, str(record.get(key)))
+        for key, state in (("next_open", "open"), ("next_close", "closed"))
+        if (when := _when(record.get(key))) is not None and when <= now
+    ]
+    if not passed:
+        return None
+    _, state, raw = max(passed)
+    return state, raw
+
+
 def _last_session(events: list[dict]) -> dict | None:
-    """The most recent session transition the scheduler wrote down, and whether it
-    is still current.
+    """What the market is doing, and how confident the panel is entitled to be.
 
-    `observed` distinguishes a bell that rang from the state the scheduler found on
-    startup — the difference between a sound and a label, for anything downstream
-    that makes noise about it.
+    A session record is a report of a *crossing*, not a live reading. So when the
+    agent exits mid-session nothing writes the close, and the badge went on asserting
+    OPEN into the evening — the soak stopped at 15:40 and the panel still said the
+    market was open at 16:10.
 
-    `stale` is the newer distinction and a different one: whether anything is still
-    running that *could* write the next boundary. A session record is a report of a
-    crossing, not a live reading, so with no agent alive "open" means "open when we
-    last looked" — and the panel has to be able to say so rather than keep asserting
-    a market state hours after the desk went home.
+    The first fix for that hedged: it showed the last-seen state with a question mark.
+    That was the wrong answer to a question that has a right one. The record already
+    carries `next_close` from Alpaca's own clock, that time has passed, and "the
+    market is closed" is a statement the panel is fully entitled to make.
 
-    Measured against the whole journal rather than against the session record itself,
-    because the record is meant to be old: a market open at 09:30 is a nine-hour-old
-    record at 18:30 and perfectly current at 14:00. What makes it stale is silence
-    everywhere else.
+    So `state` is derived from the last boundary that has actually passed, falling
+    back to the recorded state when none has. `source` says which, because the three
+    are genuinely different claims and the panel says different things for each:
+
+      observed   — the agent is running and wrote this crossing down.
+      boundary   — nobody wrote it down, but the broker had already published when it
+                   would happen and that time has passed.
+      last-seen  — no boundary to reason from and nothing writing. The one case where
+                   the panel does not know, and has to say so.
+
+    `observed` (the bool) is a different and older distinction, kept unchanged: a bell
+    that rang versus the state the scheduler merely found on startup. It gates a
+    sound; `source` gates a label.
+
+    `stale` is measured against the whole journal rather than against the session
+    record, because the record is *meant* to be old: a market open at 09:30 is a
+    nine-hour-old record at 18:30 and a perfectly current one at 14:00. What makes it
+    stale is silence everywhere else.
     """
     latest = _age(events[-1].get("ts")) if events else None
     for event in reversed(events):
-        if event.get("event") == "session":
-            return {
-                "state": event.get("state"),
-                "at": event.get("ts"),
-                "session_date": event.get("session_date"),
-                "next_open": event.get("next_open"),
-                "next_close": event.get("next_close"),
-                "observed": bool(event.get("observed")),
-                # Nothing has written anything for a while, so nothing is left to
-                # write the next boundary. The state below is the last one observed,
-                # not the one now.
-                "stale": latest is None or latest > SESSION_STALE_S,
-                "quiet_for_s": None if latest is None else round(latest),
-            }
+        if event.get("event") != "session":
+            continue
+        recorded = event.get("state")
+        stale = latest is None or latest > SESSION_STALE_S
+        crossed = _crossed(event)
+        if crossed is not None:
+            state, source, at = crossed[0], "boundary", crossed[1]
+        else:
+            state, source, at = recorded, ("last-seen" if stale else "observed"), None
+        return {
+            "state": state,
+            # What the journal actually said, kept beside what we concluded. A
+            # derivation that hides its input cannot be checked against it.
+            "recorded": recorded,
+            "source": source,
+            "crossed_at": at,
+            "at": event.get("ts"),
+            "session_date": event.get("session_date"),
+            "next_open": event.get("next_open"),
+            "next_close": event.get("next_close"),
+            "observed": bool(event.get("observed")),
+            "stale": stale,
+            "quiet_for_s": None if latest is None else round(latest),
+        }
     return None
 
 

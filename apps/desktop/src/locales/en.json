@@ -18,9 +18,9 @@
     "marketTitleClosed": "The broker's clock said the session was closed at {{at}}",
     "marketTitleUnknown": "No scheduled run has recorded a session boundary yet",
     "busyTitle": "The agent is mid-cycle. This is read from the last record it wrote, so it clears itself if the process stops.",
-    "marketWasOpen": "OPEN?",
-    "marketTitleStale": "Last seen open at {{at}}, but nothing has written to the journal since — with no agent running there is nothing left to record the close. This is the last state observed, not the state now.",
-    "soundArming": "ARMING"
+    "soundArming": "ARMING",
+    "marketTitleBoundary": "Nothing recorded this crossing — the agent was not running — but the broker had already published it for {{crossed}}, and that time has passed. Derived from Alpaca's own clock, not from a calendar kept here.",
+    "marketTitleLastSeen": "Last seen at {{at}}, and nothing has written to the journal since. There is no published boundary to work from either, so this is the last state observed rather than the state now."
   },
   "tabs": {
     "console": "CONSOLE",

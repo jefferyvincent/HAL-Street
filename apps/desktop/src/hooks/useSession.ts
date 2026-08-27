@@ -10,12 +10,10 @@ import { useConnection } from "@/stores/connection";
  * closed half. Collapsing unknown into closed would have the panel assert a session
  * had ended when nothing ever said so.
  *
- * And a fourth thing on top of the three: whether the record is still current. A
- * session record reports a crossing, not a live reading, so once the agent has
- * exited nothing is left to write the next one — the badge went on saying OPEN into
- * the evening after a run stopped at 15:40. A stale record still shows what it last
- * saw, dimmed and stamped with when, because that is a true statement where a lit
- * OPEN is not.
+ * The server decides *what* the market is doing, including when it had to work that
+ * out from a broker-published boundary nobody wrote down. This decides how loudly to
+ * say it. A state inferred from the broker's own next-close is a fact and reads as
+ * one; only `last-seen` — nothing writing and no boundary to reason from — is hedged.
  */
 export function useSession() {
   const t = useStrings();
@@ -25,30 +23,40 @@ export function useSession() {
   if (!market) {
     return {
       known: false,
-      stale: false,
+      certain: false,
       open: false,
       label: t.chrome.marketUnknown,
       title: raw("chrome.marketTitleUnknown"),
     };
   }
+
   const open = market.state === "open";
-  if (market.stale) {
+  const label = open ? t.chrome.marketOpen : t.chrome.marketClosed;
+
+  // Nothing is writing and no published boundary has passed since. This is the only
+  // case where the panel genuinely does not know, and the only one that hedges.
+  if (market.source === "last-seen") {
     return {
       known: true,
-      stale: true,
-      // Not `open`, whatever the record says. This drives the colour and the dot,
-      // and a lit green OPEN is the assertion being withdrawn.
+      certain: false,
+      // Not `open` whatever the record says: this drives the colour, and a lit green
+      // OPEN is exactly the assertion being withdrawn.
       open: false,
-      label: open ? t.chrome.marketWasOpen : t.chrome.marketClosed,
-      title: raw("chrome.marketTitleStale", { at: market.at }),
+      label,
+      title: raw("chrome.marketTitleLastSeen", { at: market.at }),
     };
   }
+
   return {
     known: true,
-    stale: false,
+    certain: true,
     open,
-    label: open ? t.chrome.marketOpen : t.chrome.marketClosed,
-    title: raw(open ? "chrome.marketTitleOpen" : "chrome.marketTitleClosed",
-               { at: market.at }),
+    title: raw(
+      market.source === "boundary"
+        ? "chrome.marketTitleBoundary"
+        : open ? "chrome.marketTitleOpen" : "chrome.marketTitleClosed",
+      { at: market.at, crossed: market.crossed_at ?? "" },
+    ),
+    label,
   };
 }

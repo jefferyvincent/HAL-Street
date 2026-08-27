@@ -63,10 +63,17 @@ export function decide(
   if (rang) state.bell = key;
 
   const cues: Cue[] = [];
-  // The bell first: it frames whatever else arrived in the same push. `observed`
-  // marks a state the scheduler merely found on startup rather than heard change,
-  // and a bell nobody rang should not be sounded.
-  if (rang && market && !market.observed) {
+  // The bell first: it frames whatever else arrived in the same push. Two separate
+  // reasons not to sound one, and both are about a crossing nobody heard:
+  //
+  //   `observed` marks a state the scheduler merely *found* on startup rather than
+  //   watched change — it began mid-session, and there was no bell.
+  //
+  //   `source` marks a state the panel *worked out* from a boundary the broker had
+  //   published, because the agent had exited and never wrote the crossing down.
+  //   Without this gate a dead run rings a closing bell at 16:00 off a record from
+  //   09:30, which is the panel making a noise about something it inferred.
+  if (rang && market && !market.observed && market.source === "observed") {
     cues.push(market.state === "open" ? "openingBell" : "closingBell");
   }
   for (const trade of fresh) {

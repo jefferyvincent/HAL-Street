@@ -245,10 +245,19 @@ export interface Market {
    */
   observed: boolean;
   /**
-   * Whether anything is still running that could write the next boundary. When the
-   * agent exits mid-session nothing writes the close, and the state below is the
-   * last one observed rather than the one now.
+   * How the state above was arrived at:
+   *
+   *   observed   the agent is running and wrote this crossing down
+   *   boundary   nobody wrote it down, but the broker had published when it would
+   *              happen and that time has passed
+   *   last-seen  no boundary to reason from and nothing writing — we do not know
    */
+  source: "observed" | "boundary" | "last-seen";
+  /** What the journal said, beside what was concluded from it. */
+  recorded: "open" | "closed" | null;
+  /** The broker-published boundary the state was derived from, when it was. */
+  crossed_at: string | null;
+  /** Whether anything is still running that could write the next boundary. */
   stale: boolean;
   /** How long the journal has been silent, in seconds. Null if it has never spoken. */
   quiet_for_s: number | null;

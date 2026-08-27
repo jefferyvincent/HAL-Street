@@ -39,7 +39,6 @@ export function makeStrings(t: Translate) {
       soundArming: t("chrome.soundArming"),
       soundTitle: t("chrome.soundTitle"),
       marketOpen: t("chrome.marketOpen"),
-      marketWasOpen: t("chrome.marketWasOpen"),
       marketClosed: t("chrome.marketClosed"),
       marketUnknown: t("chrome.marketUnknown"),
     },

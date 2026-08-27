@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -109,32 +110,114 @@ def test_it_is_in_the_snapshot_the_panel_reads(tmp_path):
 
 
 # --- the session badge ----------------------------------------------------------
+#
+# A session record reports a *crossing*, not a live reading. When the agent exits
+# mid-session nothing writes the close, and the badge went on asserting OPEN into the
+# evening — the soak stopped at 15:40 and the panel said the market was open at 16:10.
+#
+# The first fix hedged: it showed the last-seen state with a question mark. That was
+# the wrong answer to a question with a right one. The record already carries the
+# broker's own `next_close`, that time has passed, and "closed" is a statement the
+# panel is entitled to make.
 
-def test_a_session_record_goes_stale_when_nothing_is_writing():
-    """Seen live: the soak stopped at 15:40 and the badge still said OPEN at 16:10.
+CLOSE = "2026-08-27 16:00:00-04:00"
+OPEN = "2026-08-28 09:30:00-04:00"
 
-    The record is a report of a crossing, not a live reading. With no agent running
-    there is nothing left to write the close, so "open" means "open when we last
-    looked" and the panel has to be able to say which.
+
+def session(**over) -> dict:
+    base = {"event": "session", "state": "open", "ts": at(20_000),
+            "next_open": OPEN, "next_close": CLOSE, "observed": True}
+    return {**base, **over}
+
+
+def test_a_close_nobody_recorded_is_still_a_close():
+    """The bug the user reported: the market shut at 16:00 and the badge said OPEN.
+
+    Nothing was running to write it down. The broker had published when it would
+    happen, and that time had passed.
     """
-    from halstreet.telemetry.server import SESSION_STALE_S, _last_session
-
-    quiet = _last_session([
-        {"event": "session", "state": "open", "ts": at(20_000)},
-        {"event": "cycle_start", "ts": at(SESSION_STALE_S + 60)},
-    ])
-    assert quiet["state"] == "open", "still reported — it is what was last seen"
-    assert quiet["stale"] is True, "but no longer asserted"
-
-
-def test_a_running_agent_keeps_its_session_record_current():
     from halstreet.telemetry.server import _last_session
 
-    live = _last_session([
-        {"event": "session", "state": "open", "ts": at(20_000)},
-        {"event": "cycle_start", "ts": at(4)},
-    ])
-    assert live["stale"] is False
+    market = _last_session([session(), {"event": "cycle_start", "ts": at(1800)}])
+    assert market["state"] == "closed"
+    assert market["source"] == "boundary"
+    assert market["crossed_at"] == CLOSE
+
+
+def test_the_record_it_was_derived_from_is_kept_beside_it():
+    """A derivation that hides its input cannot be checked against it."""
+    from halstreet.telemetry.server import _last_session
+
+    market = _last_session([session(), {"event": "cycle_start", "ts": at(1800)}])
+    assert market["recorded"] == "open"
+    assert market["state"] == "closed"
+
+
+def test_a_boundary_still_in_the_future_leaves_the_record_alone():
+    """Mid-session: the close has not happened, and inventing one would be worse than
+    the bug this replaced."""
+    from halstreet.telemetry.server import _last_session
+
+    ahead = (datetime.now(UTC) + timedelta(hours=2)).isoformat()
+    market = _last_session([session(next_open=ahead, next_close=ahead),
+                            {"event": "cycle_start", "ts": at(5)}])
+    assert market["state"] == "open"
+    assert market["source"] == "observed"
+
+
+def test_the_later_boundary_wins_so_it_survives_a_weekend():
+    """On Saturday the Friday close is the last thing that happened; on Monday morning
+    it is the Monday open. Taking whichever key happens to parse first would flip the
+    badge to whatever the dictionary order was."""
+    from halstreet.telemetry.server import _last_session
+
+    past_open = (datetime.now(UTC) - timedelta(hours=6)).isoformat()
+    past_close = (datetime.now(UTC) - timedelta(minutes=30)).isoformat()
+    market = _last_session([session(state="closed", next_open=past_open,
+                                    next_close=past_close)])
+    assert market["state"] == "closed", "the close is the more recent of the two"
+
+    market = _last_session([session(state="closed", next_open=past_close,
+                                    next_close=past_open)])
+    assert market["state"] == "open", "and now the open is"
+
+
+def test_with_no_boundary_and_nothing_writing_the_panel_says_it_does_not_know():
+    """The one case that is genuinely unknown, and the only one that hedges."""
+    from halstreet.telemetry.server import _last_session
+
+    market = _last_session([session(next_open=None, next_close=None),
+                            {"event": "cycle_start", "ts": at(20_000)}])
+    assert market["source"] == "last-seen"
+    assert market["state"] == "open", "still reported — it is what was last seen"
+
+
+def test_with_no_boundary_but_an_agent_running_the_record_stands():
+    from halstreet.telemetry.server import _last_session
+
+    market = _last_session([session(next_open=None, next_close=None),
+                            {"event": "cycle_start", "ts": at(5)}])
+    assert market["source"] == "observed"
+    assert market["stale"] is False
+
+
+@pytest.mark.parametrize("bad", [None, "", "tomorrow", 17, "2026-13-99"])
+def test_an_unreadable_boundary_is_ignored_rather_than_fatal(bad):
+    """This route is polled every five seconds. A raise here empties the whole panel."""
+    from halstreet.telemetry.server import _last_session, _when
+
+    assert _when(bad) is None
+    market = _last_session([session(next_open=bad, next_close=bad),
+                            {"event": "cycle_start", "ts": at(5)}])
+    assert market["state"] == "open"
+
+
+def test_a_boundary_with_no_offset_is_refused():
+    """`2026-08-27 16:00:00` could be any of twenty-four moments. Alpaca sends the
+    offset; a bare timestamp is not the broker's answer and must not be treated as one."""
+    from halstreet.telemetry.server import _when
+
+    assert _when("2026-08-27 16:00:00") is None
 
 
 def test_staleness_is_measured_from_the_journal_not_from_the_record():
@@ -142,14 +225,12 @@ def test_staleness_is_measured_from_the_journal_not_from_the_record():
     perfectly current one at 14:00. What makes it stale is silence everywhere else."""
     from halstreet.telemetry.server import _last_session
 
-    old_record_busy_agent = _last_session([
-        {"event": "session", "state": "open", "ts": at(30_000)},
-        {"event": "committee", "ts": at(10)},
-    ])
-    assert old_record_busy_agent["stale"] is False
+    market = _last_session([session(next_open=None, next_close=None, ts=at(30_000)),
+                            {"event": "committee", "ts": at(10)}])
+    assert market["stale"] is False
 
 
-def test_a_journal_with_no_session_record_has_nothing_to_stamp():
+def test_a_journal_with_no_session_record_has_nothing_to_report():
     from halstreet.telemetry.server import _last_session
 
     assert _last_session([{"event": "cycle_start", "ts": at(1)}]) is None
@@ -160,7 +241,19 @@ def test_an_unreadable_last_timestamp_reads_as_stale_rather_than_current():
     the market is open."""
     from halstreet.telemetry.server import _last_session
 
-    assert _last_session([
-        {"event": "session", "state": "open", "ts": at(100)},
-        {"event": "cycle_start", "ts": "not-a-time"},
-    ])["stale"] is True
+    market = _last_session([session(next_open=None, next_close=None),
+                            {"event": "cycle_start", "ts": "not-a-time"}])
+    assert market["stale"] is True
+    assert market["source"] == "last-seen"
+
+
+def test_nothing_here_knows_where_the_exchange_is():
+    """The whole reason this reads the broker's boundaries instead of a calendar.
+
+    New York, daylight saving, half-days and holidays are not knowledge this process
+    should hold — `clock.py` says so at length, and a timezone table here would be a
+    second claim about the world to keep in sync with the first.
+    """
+    source = Path("src/halstreet/telemetry/server.py").read_text()
+    for banned in ("ZoneInfo", "America/New_York", "pytz", "timedelta(hours=-4)"):
+        assert banned not in source, banned
