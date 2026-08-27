@@ -215,6 +215,7 @@ export function makeStrings(t: Translate) {
     chart: {
       back: t("chart.back"),
       loading: t("chart.loading"),
+      loadingNote: t("chart.loadingNote"),
       noHistory: t("chart.noHistory"),
       noEntry: t("chart.noEntry"),
       entry: t("chart.entry"),

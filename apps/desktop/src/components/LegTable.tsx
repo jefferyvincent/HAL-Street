@@ -1,5 +1,6 @@
 import { cn } from "@/lib/cn";
 import { money, plain } from "@/lib/format";
+import { legRows } from "@/lib/legRows";
 import { useStrings } from "@/hooks/useStrings";
 import { Note } from "@/components/Icon";
 import type { LegMark, StructureChart as Chart } from "@/types";
@@ -11,26 +12,29 @@ import type { LegMark, StructureChart as Chart } from "@/types";
  * the opening order's per-leg fills were kept there was nothing in this system that
  * could answer it — the ledger recorded the net and discarded the rest.
  *
- * Two sources, merged by symbol and neither recomputed here. `chart.legs` carries the
- * fills, which come off the order and never change; `live.legs` carries the marks,
- * which come from the same `mark_legs` the net is summed from. So a leg shown as
- * unpriced is a leg the net is refusing to include, and the P&L column adds to the
- * figure in the tile above it exactly rather than approximately.
+ * Two sources, merged by `legRows` and neither recomputed here. The fills come off
+ * the order and never change; the marks come from the same `mark_legs` the net is
+ * summed from. So a leg shown as unpriced is a leg the net is refusing to include,
+ * and the P&L column adds to the figure in the tile above it exactly rather than
+ * approximately.
  *
- * A closed position shows its exit and its realized P&L instead. There is nothing
- * left to mark, and the round trip is the whole story.
+ * `chart` may be null. That is not an error state — it is the second between opening
+ * a position and its history arriving, and the marks alone can fill this table.
+ * Rendering it then beats spinning over information already in hand.
  */
 export function LegTable({ chart, live }: {
-  chart: Chart;
-  live: { legs?: LegMark[] } | undefined;
+  chart: Chart | null;
+  live: { legs?: LegMark[] } | null | undefined;
 }) {
   const t = useStrings();
-  const marks = new Map((live?.legs ?? []).map((l) => [l.symbol, l]));
-  const closed = !chart.open;
+  const rows = legRows(chart, live);
+  const closed = chart ? !chart.open : false;
   // Only for a position still on. A structure opened before per-leg fills were kept
   // has no basis to show and no way to get one — the order is long since filled, and
   // the backfill only runs while it is held.
-  const pending = !closed && chart.legs.every((l) => l.basis === null);
+  const pending = !closed && rows.length > 0 && rows.every((r) => r.basis === null);
+
+  if (rows.length === 0) return null;
 
   return (
     <div className="mt-3">
@@ -45,14 +49,9 @@ export function LegTable({ chart, live }: {
       </div>
 
       <div className="border border-line bg-panel">
-        {chart.legs.map((leg) => {
-          const mark = marks.get(leg.symbol);
-          // Realized once closed, unrealized while open. Never both, and never one
-          // labelled as the other.
-          const value = closed ? leg.realized_usd : mark?.unrealized_usd ?? null;
-          const pnl = value === null || value === undefined ? null : Number(value);
-          const now = closed ? leg.exit : mark?.mid ?? null;
-          const short = leg.signed < 0;
+        {rows.map((leg) => {
+          const pnl = leg.pnl === null ? null : Number(leg.pnl);
+          const short = leg.contracts < 0;
           return (
             <div key={leg.symbol}
                  className="flex items-center gap-2 border-b border-line-soft px-3 py-[7px] last:border-b-0">
@@ -72,13 +71,14 @@ export function LegTable({ chart, live }: {
                   : plain(leg.basis)}
               </Cell>
               <Cell className="w-[74px]">
-                {now === null || now === undefined
+                {leg.now === null
                   ? <span className="text-ink/25">{t.chart.legNoQuote}</span>
-                  : plain(now)}
+                  : plain(leg.now)}
               </Cell>
               <Cell className={cn("w-[86px] font-semibold",
-                pnl === null ? "text-ink/25" : pnl >= 0 ? "text-pass" : "text-fail")}>
-                {pnl === null ? "—" : money(pnl)}
+                pnl === null || !Number.isFinite(pnl) ? "text-ink/25"
+                : pnl >= 0 ? "text-pass" : "text-fail")}>
+                {pnl === null || !Number.isFinite(pnl) ? "\u2014" : money(pnl)}
               </Cell>
             </div>
           );

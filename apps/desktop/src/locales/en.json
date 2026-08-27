@@ -162,7 +162,7 @@
   },
   "chart": {
     "back": "BOOK",
-    "loading": "fetching price history…",
+    "loading": "FETCHING PRICE HISTORY",
     "noHistory": "No price history for these contracts. The levels below are still exact — they come from the ledger and the exit policy, not from the tape.",
     "noEntry": "No entry price recorded, so there is nothing to measure a target or a stop from.",
     "entry": "OPENED FOR",
@@ -199,7 +199,8 @@
     "legLong": "long",
     "legsNote": "Fill prices come from the opening order's own legs, so they belong to this structure — the broker nets a shared contract across every structure holding it. The P&L column adds up to the position's, exactly.",
     "legsPending": "This position was opened before per-leg fills were recorded. The agent asks the broker for them once, on its next cycle.",
-    "exitAt": "CLOSED AT"
+    "exitAt": "CLOSED AT",
+    "loadingNote": "Everything above except the target and the stop is already known — the chart route is the one that reaches the broker."
   },
   "committee": {
     "title": "COMMITTEE",

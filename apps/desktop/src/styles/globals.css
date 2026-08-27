@@ -86,3 +86,26 @@
     overflow-x: auto;
   }
 }
+
+/*
+ * The placeholder for something still being fetched.
+ *
+ * A pulse rather than a sweeping gradient: the bars it stands in for are small, and a
+ * gradient travelling across a sixty-pixel block is a smear. Opacity also degrades
+ * honestly when the animation is off — the block is still visibly a gap.
+ */
+@keyframes shimmer {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 0.85; }
+}
+
+.shimmer {
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer {
+    animation: none;
+    opacity: 0.5;
+  }
+}

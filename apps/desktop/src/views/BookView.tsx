@@ -3,6 +3,7 @@ import { day, money, premium } from "@/lib/format";
 import { ICON } from "@/constants/icons";
 import { CLS } from "@/constants/theme";
 import { Icon, Note } from "@/components/Icon";
+import { ChartPending } from "@/components/ChartPending";
 import { StructureChart } from "@/components/StructureChart";
 import { PatternBadge } from "@/components/PatternBadge";
 import { Ticker } from "@/components/Ticker";
@@ -53,7 +54,14 @@ export function BookView() {
       </div>
 
       {charting ? (
-        loading ? (
+        // The whole view used to collapse to one line of text for the ~700ms the
+        // chart route takes, and again on every change of bar size. Almost none of
+        // that wait was necessary: the name, size, legs, fills, live prices and P&L
+        // are all on the panel before the click. `ChartPending` is the real view with
+        // two holes in it — same geometry, so nothing moves when the data lands.
+        loading && showing ? (
+          <ChartPending row={showing} />
+        ) : loading ? (
           <div className={cn(CLS.empty, "border border-line bg-panel")}>{t.chart.loading}</div>
         ) : chart ? (
           // Keyed, so a bar-size change builds a new canvas rather than reusing one

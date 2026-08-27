@@ -390,3 +390,62 @@ def test_the_forming_candle_has_room_to_the_right():
     canvas = (SRC / "hooks" / "useStructureChartCanvas.ts").read_text()
     assert canvas.count("rightOffset") >= 2, \
         "the offset must survive fitContent, which resets it"
+
+
+def test_the_loading_view_shows_what_is_already_known():
+    """The chart route takes about seven hundred milliseconds — it spawns an MCP
+    subprocess and waits on Alpaca — and runs again on every change of bar size. The
+    whole view used to collapse to one line of text for that long.
+
+    Almost none of that wait was necessary. The name, the size, the legs, their fills,
+    their live prices and the position's P&L are on the panel before anyone clicks:
+    they come from the snapshot and the marks route, and both have long since
+    answered. Only the price history and the two policy levels derived from it are
+    genuinely unknown.
+    """
+    pending = (SRC / "components" / "ChartPending.tsx").read_text()
+
+    # The real leg table, not a placeholder for one.
+    assert "<LegTable chart={null}" in pending
+    # And the figures that were already in hand.
+    assert "t.chart.pnl" in pending and "t.chart.last" in pending
+    assert "row.entry" in pending, "the entry price is on the ledger, not the chart route"
+
+
+def test_the_loading_view_does_not_compute_the_policy_levels_itself():
+    """The two holes are holes on purpose.
+
+    Target and stop come from `manager.exit_levels`, which a test pins to
+    `evaluate_exit`. Deriving them in the panel to avoid a placeholder would be the
+    one way this picture could come to disagree with what the agent will actually do,
+    which is worse than any loading state.
+    """
+    pending = (SRC / "components" / "ChartPending.tsx").read_text()
+    assert "take_profit" not in pending and "stop_loss" not in pending
+    assert "t.chart.target} value={null}" in pending
+    assert "t.chart.stop} value={null}" in pending
+
+
+def test_the_loading_view_reserves_the_height_the_chart_will_take():
+    """So the page does not jump when the data lands, which is the other half of what
+    makes a loading state read as busy rather than broken."""
+    pending = (SRC / "components" / "ChartPending.tsx").read_text()
+    canvas = (SRC / "components" / "StructureChart.tsx").read_text()
+    assert "h-[320px]" in pending
+    assert "h-[320px]" in canvas, "the two heights have to match or the layout shifts"
+
+
+def test_the_placeholder_animation_can_be_turned_off():
+    """A pulsing block is close to the top of the list of things that setting exists
+    for, and the placeholder still reads as a gap without it."""
+    css = (SRC / "styles" / "globals.css").read_text()
+    assert "@keyframes shimmer" in css
+    block = css[css.index("@keyframes shimmer"):]
+    assert "prefers-reduced-motion" in block
+    assert "animation: none" in block[block.index("prefers-reduced-motion"):]
+
+
+def test_the_ticker_stops_scrolling_for_reduced_motion_too():
+    css = (SRC / "styles" / "globals.css").read_text()
+    block = css[css.index("@keyframes ticker"):]
+    assert "prefers-reduced-motion" in block
