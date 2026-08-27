@@ -292,11 +292,28 @@ export interface Activity {
   detail: string;
 }
 
+/**
+ * What the agent is in the middle of, or null when it is between cycles.
+ *
+ * Derived on the server from the last record written plus a clock, not pushed by the
+ * agent — so a process that dies mid-cycle stops looking busy on its own rather than
+ * spinning forever.
+ */
+export interface InFlight {
+  /** What the stage is doing, in words. */
+  stage: string;
+  /** The journal event it was derived from. */
+  event: string;
+  underlying: string;
+  since: string;
+}
+
 export interface Snapshot {
   chain: ChainEntry[];
   families: string[];
   limits: Record<string, string>;
   circuit: Circuit;
+  in_flight: InFlight | null;
   pnl: Pnl;
   positions: Position[];
   closed: ClosedStructure[];

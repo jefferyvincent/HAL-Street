@@ -30,6 +30,7 @@ export function makeStrings(t: Translate) {
     chrome: {
       brand: t("chrome.brand"),
       paper: t("chrome.paper"),
+      busyTitle: t("chrome.busyTitle"),
       equity: t("chrome.equity"),
       breakerArmed: t("chrome.breakerArmed"),
       breakerHalted: t("chrome.breakerHalted"),
@@ -157,6 +158,11 @@ export function makeStrings(t: Translate) {
       confidence: (value: string) => t("committee.confidence", { value }),
       tokens: (out: number) => t("committee.tokens", { out }),
       note: t("committee.note"),
+      latest: t("committee.latest"),
+      working: (underlying: string) => t("committee.working", { underlying }),
+      workingAny: t("committee.workingAny"),
+      waiting: t("committee.waiting"),
+      ordered: t("committee.ordered"),
     },
 
     book: {

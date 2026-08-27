@@ -153,6 +153,70 @@ def _committees(events: list[dict]) -> list[dict]:
     return list(reversed(out[-RECENT_COMMITTEES:]))
 
 
+#: Beyond this, the agent is not mid-cycle — it has stopped, crashed, or is waiting
+#: for the next scan. A cycle is seconds of work; a stage that has said nothing for
+#: three minutes is not a stage in progress, and drawing a spinner over it is worse
+#: than drawing nothing because it says the opposite of what is true.
+IN_FLIGHT_S = 180.0
+
+#: What the agent is doing *next*, by the last thing it wrote down.
+#:
+#: Each record is written when a stage finishes, so the label is the stage that
+#: follows it — "candidates" on disk means the committee is now deliberating, which
+#: is the slow one and the one anyone watching is actually waiting on.
+#:
+#: `proposal` is deliberately absent. A cycle that ends in a considered pass writes
+#: it last and stops, so treating it as a stage would show "at the gates" for minutes
+#: on a book that is doing nothing. What follows a proposal is gate evaluation, which
+#: is deterministic and takes microseconds — there is no waiting to report.
+_STAGE = {
+    "cycle_start": "reading the tape",
+    "market_view": "building structures",
+    "candidates": "deliberating",
+    "committee": "writing the proposal",
+}
+
+
+def _in_flight(events: list[dict]) -> dict | None:
+    """What the agent is in the middle of, if anything, from the last record it wrote.
+
+    Most cycles produce no gate decision, so a panel keyed on outcomes looks asleep
+    while the agent is working — the same reason the activity feed exists. The
+    committee view had the sharper version of the problem: its slowest stage is three
+    model calls deep, and there was nothing on the screen between "nothing here yet"
+    and a finished card appearing.
+
+    Derived rather than pushed. Nothing reports "I am busy" — the agent writes a
+    record when a stage *finishes*, so the last record plus a clock says what is
+    running now, and only the last one: walking back past it to find a stage would
+    report one forever, because every completed cycle has four sitting behind its
+    outcome. It can be wrong in exactly one direction: a process killed mid-cycle
+    looks busy until `IN_FLIGHT_S` passes, which is why that ceiling is short.
+    """
+    if not events:
+        return None
+    event = events[-1]
+    stage = _STAGE.get(str(event.get("event")))
+    if stage is None:
+        # The last thing written finished something. Walking further back to find a
+        # stage would report one forever: every completed cycle has four of them
+        # sitting just behind its outcome.
+        return None
+    started = _age(event.get("ts"))
+    if started is None or started > IN_FLIGHT_S:
+        return None
+    return {"stage": stage, "event": event.get("event"),
+            "underlying": event.get("underlying") or "", "since": event.get("ts")}
+
+
+def _age(ts: Any) -> float | None:
+    """Seconds since a journal timestamp, or None if it cannot be read as one."""
+    try:
+        return (datetime.now(UTC) - datetime.fromisoformat(str(ts))).total_seconds()
+    except (TypeError, ValueError):
+        return None
+
+
 def _activity_line(event: dict) -> str:
     """One short phrase for what happened. No prices — this is a pulse, not a record."""
     kind = event.get("event")
@@ -444,6 +508,9 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
         "market": _last_session(events),
         # What it is doing, as opposed to what it decided. See `_activity`.
         "activity": _activity(events),
+        # What it is in the middle of, so a slow stage reads as work rather than
+        # as an empty screen. None when nothing has been written recently.
+        "in_flight": _in_flight(events),
         # The deliberation behind each proposal. See `_committees`.
         "committees": _committees(events),
         "circuit": {

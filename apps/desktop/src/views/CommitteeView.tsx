@@ -1,11 +1,12 @@
 import { cn } from "@/lib/cn";
-import { clock } from "@/lib/format";
+import { ago, clock } from "@/lib/format";
 import { ICON } from "@/constants/icons";
 import { CLS, STROKE } from "@/constants/theme";
 import { Icon } from "@/components/Icon";
 import { Ticker } from "@/components/Ticker";
 import { useCommittee } from "@/hooks/useCommittee";
 import { useStrings } from "@/hooks/useStrings";
+import { useConnection } from "@/stores/connection";
 
 /**
  * How each proposal was reached: catalyst, then bull and bear in parallel, then a
@@ -21,41 +22,87 @@ import { useStrings } from "@/hooks/useStrings";
 export function CommitteeView() {
   const t = useStrings();
   const cards = useCommittee();
+  // Whether a cycle is running right now. The committee is the slowest stage in the
+  // system — three model calls deep — so between "nothing here yet" and a finished
+  // card there was a minute of blank screen that read as a broken tab.
+  const busy = useConnection((s) => s.snapshot?.in_flight) ?? null;
+
+  const header = (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border border-line bg-panel px-3 py-[9px]">
+      <Icon d={ICON.committee} stroke={STROKE.amber} width={2.2} />
+      <span className="font-mono text-[10px] font-bold leading-none tracking-[.12em] text-ink/60">
+        {t.committee.title}
+      </span>
+      <span className="font-sans text-[10.5px] leading-none text-ink/40">
+        {t.committee.meta(cards.length)}
+      </span>
+      <span className="flex-1" />
+      {busy ? (
+        <span className="flex items-center gap-[6px] font-mono text-[10px] font-bold leading-none tracking-[.08em] text-amber">
+          <span className={cn(CLS.dot, "animate-pulse bg-amber")} />
+          {busy.underlying ? t.committee.working(busy.underlying) : t.committee.workingAny}
+        </span>
+      ) : (
+        <span className="font-mono text-[10px] leading-none text-ink/25">
+          {t.committee.waiting}
+        </span>
+      )}
+    </div>
+  );
 
   if (cards.length === 0) {
     return (
-      <div className="mb-3 border border-edge bg-panel">
-        <div className={CLS.empty}>{t.committee.empty}</div>
+      <div className="mb-3 flex flex-col gap-3">
+        {header}
+        <div className="border border-edge bg-panel">
+          <div className={CLS.empty}>{t.committee.empty}</div>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="mb-3 flex flex-col gap-3">
-      <div className="flex items-center gap-2 border border-line bg-panel px-3 py-[9px]">
-        <Icon d={ICON.committee} stroke={STROKE.amber} width={2.2} />
-        <span className="font-mono text-[10px] font-bold leading-none tracking-[.12em] text-ink/60">
-          {t.committee.title}
-        </span>
-        <span className="font-sans text-[10.5px] leading-none text-ink/40">
-          {t.committee.meta(cards.length)}
-        </span>
-      </div>
+      {header}
 
-      {cards.map(({ key, session, verdict, gated, missing }) => (
-        <article key={key} className="border border-edge bg-panel">
-          <header className="flex items-center gap-[9px] border-b border-edge px-3 py-[9px]">
+      {cards.map(({ key, session, verdict, gated, missing }, index) => (
+        // Newest first, so index 0 is the one that just happened. Ringed rather than
+        // merely labelled: the cards are otherwise identical at a glance, and "which
+        // of these is new" was the question being asked.
+        <article key={key}
+                 className={cn("border bg-panel",
+                   index === 0 ? "border-amber/60" : "border-edge")}>
+          <header className="flex flex-wrap items-center gap-x-[9px] gap-y-1 border-b border-edge px-3 py-[9px]">
             <Ticker symbol={session.underlying} size="md" />
+            {index === 0 && (
+              <span className="font-mono text-[9px] font-bold leading-none tracking-[.12em] text-amber">
+                {t.committee.latest}
+              </span>
+            )}
             <span className="font-mono text-[10px] leading-none text-ink/40">
               {t.committee.headlines(session.headlines)}
             </span>
             <span className="flex-1" />
+            {/* The loud one. A deliberation that ended in an order is a different
+                kind of event from one that ended in a decline, and it was reading
+                as one more grey word at the bottom of the card. */}
+            {gated?.ok && (
+              <span className="border border-pass/50 px-[6px] py-[3px] font-mono text-[9px] font-bold leading-none tracking-[.1em] text-pass">
+                {t.committee.ordered}
+              </span>
+            )}
             <span className="font-mono text-[10px] font-bold leading-none tracking-[.1em]"
                   style={{ color: verdict.tone }}>
               {verdict.label}
             </span>
-            <span className="font-mono text-[10px] leading-none text-ink/30">
+            {/* Both, because they answer different questions: "when" and "how long
+                ago". A wall clock alone makes a card from two hours back look as
+                current as one from two minutes back. */}
+            <span className="font-mono text-[10px] leading-none text-ink/30 tabular-nums">
               {clock(session.ts)}
+            </span>
+            <span className="font-mono text-[10px] leading-none text-ink/25">
+              {ago(session.ts)}
             </span>
           </header>
 

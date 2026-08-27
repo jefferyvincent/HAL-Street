@@ -16,7 +16,8 @@
     "marketUnknown": "—",
     "marketTitleOpen": "The broker's clock said the session was open at {{at}}",
     "marketTitleClosed": "The broker's clock said the session was closed at {{at}}",
-    "marketTitleUnknown": "No scheduled run has recorded a session boundary yet"
+    "marketTitleUnknown": "No scheduled run has recorded a session boundary yet",
+    "busyTitle": "The agent is mid-cycle. This is read from the last record it wrote, so it clears itself if the process stops."
   },
   "tabs": {
     "console": "CONSOLE",
@@ -205,7 +206,13 @@
     "ungated": "not yet gated",
     "confidence": "confidence {{value}}",
     "tokens": "{{out}} tokens out",
-    "note": "The committee cannot approve anything. Whichever path built a proposal, it meets the same sixteen gates."
+    "note": "The committee cannot approve anything. Whichever path built a proposal, it meets the same sixteen gates.",
+    "latest": "LATEST",
+    "working": "deliberating {{underlying}}…",
+    "workingAny": "working…",
+    "waiting": "between cycles",
+    "ordered": "ORDER SENT",
+    "ago": "{{when}}"
   },
   "scoreboard": {
     "title": "THE RUN",
