@@ -43,5 +43,28 @@ ACCOUNTS_USED = JOURNAL_DIR / "accounts-used.json"
 #: Where ./start.sh tees its output.
 AGENT_LOG = LOG_DIR / "halstreet.log"
 
+
+def for_env(env: str) -> tuple[Path, Path, Path]:
+    """Journal, ledger and breaker for one account. `comp` gets its own files.
+
+    The dev/comp split was, until now, only about which credentials were read: both
+    accounts appended to the same `run.jsonl` and the same `ledger.json`. Every figure
+    the report produces is computed over whole files, so the judged Results block would
+    have mixed a rehearsal into itself and said nothing about it — and the worst line
+    is `Equity: X -> Y`, which would have taken X from a dev cycle and Y from the
+    competition account, two different accounts averaged into one claim.
+
+    `config.py` makes the credentials structurally separate rather than merely
+    discouraged; this is the same argument applied to the record. A comp run cannot
+    mix with a dev run because it does not open the same file.
+
+    `dev` keeps the original names so existing history stays where it is.
+    """
+    stem = "" if env == "dev" else f"{env}-"
+    return (JOURNAL_DIR / f"{stem}run.jsonl",
+            JOURNAL_DIR / f"{stem}ledger.json",
+            JOURNAL_DIR / f"{stem}circuit.json")
+
+
 __all__ = ["ACCOUNTS_USED", "AGENT_LOG", "CACHE_DIR", "CIRCUIT", "JOURNAL_DIR",
-           "LEDGER", "LOG_DIR", "RUN_JOURNAL", "VAR"]
+           "LEDGER", "LOG_DIR", "RUN_JOURNAL", "VAR", "for_env"]

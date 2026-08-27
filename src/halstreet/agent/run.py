@@ -39,7 +39,25 @@ def universe_from_env(default: str = "SPY") -> list[str]:
     return [s.strip().upper() for s in raw.split(",") if s.strip()]
 
 
+def resolve_paths(args: argparse.Namespace) -> argparse.Namespace:
+    """Point the unset path arguments at the files for this account.
+
+    The record follows the account for the same reason the credentials do. A judged
+    run that appended to the dev journal would have every reported figure computed
+    over both — and `Equity: X -> Y` would take X from one account and Y from another.
+    """
+    journal, ledger, breaker = paths.for_env(args.env)
+    if args.journal is None:
+        args.journal = str(journal)
+    if args.ledger is None:
+        args.ledger = str(ledger)
+    if args.breaker is None:
+        args.breaker = str(breaker)
+    return args
+
+
 async def main_async(args: argparse.Namespace) -> int:
+    resolve_paths(args)
     try:
         load_env(args.env)
         limits = Limits.from_env()
@@ -176,12 +194,19 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--dte", type=int, default=45, help="target days to expiry")
     p.add_argument("--profile", default="", choices=["", *sorted(P.PROFILES)],
                    help="risk profile; defaults to $RISK_PROFILE, then moderate")
-    p.add_argument("--journal", default=str(paths.RUN_JOURNAL),
-                   help="append-only run journal")
-    p.add_argument("--ledger", default=str(paths.LEDGER),
-                   help="structure ledger — what the broker cannot tell us")
-    p.add_argument("--breaker", default=str(paths.CIRCUIT),
-                   help="circuit-breaker state (equity baseline, halt latch)")
+    # default=None so `resolve_paths` below can tell "unset" from "set to the dev
+    # path": unset follows the account, and an explicit path always wins. With a
+    # literal default the two are indistinguishable and a comp run could not be given
+    # its own files without the caller naming all three every time.
+    p.add_argument("--journal", default=None,
+                   help=f"append-only run journal (default: {paths.RUN_JOURNAL}, "
+                        f"or {paths.for_env('comp')[0]} for --env comp)")
+    p.add_argument("--ledger", default=None,
+                   help="structure ledger — what the broker cannot tell us "
+                        "(default: follows --env)")
+    p.add_argument("--breaker", default=None,
+                   help="circuit-breaker state (equity baseline, halt latch) "
+                        "(default: follows --env)")
     p.add_argument("--clear-halt", action="store_true",
                    help="clear a latched daily-loss halt; a human act, never automatic")
     p.add_argument("--submit", action="store_true",

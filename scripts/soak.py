@@ -115,10 +115,14 @@ def main() -> int:
     p.add_argument("--committee", action=argparse.BooleanOptionalAction, default=None,
                    help="force the committee path on or off for this soak; the default "
                         "is whatever a real run would do, which is the point of a soak")
-    p.add_argument("--journal", default=str(paths.RUN_JOURNAL))
+    p.add_argument("--journal", default=None,
+                   help="run journal; defaults to the one for --env")
     p.add_argument("--report-only", action="store_true",
                    help="read an existing journal and print the coverage table")
-    return asyncio.run(main_async(p.parse_args()))
+    args = p.parse_args()
+    if args.journal is None:
+        args.journal = str(paths.for_env(args.env)[0])
+    return asyncio.run(main_async(args))
 
 
 if __name__ == "__main__":

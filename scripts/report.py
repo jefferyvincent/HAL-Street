@@ -83,10 +83,13 @@ def main() -> int:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("--env", default="dev", choices=["dev", "comp"])
-    p.add_argument("--journal", default=str(paths.RUN_JOURNAL),
-                   help="append-only run journal")
-    p.add_argument("--ledger", default=str(paths.LEDGER),
-                   help="structure ledger — what the broker cannot tell us")
+    # Unset follows the account, like the agent's own paths — a report run with
+    # --env comp that read the dev journal would put a rehearsal's numbers under a
+    # judged window's heading, and say nothing about it.
+    p.add_argument("--journal", default=None, help="append-only run journal "
+                                                   "(default: follows --env)")
+    p.add_argument("--ledger", default=None, help="structure ledger — what the broker "
+                                                  "cannot tell us (default: follows --env)")
     p.add_argument("--export", default="", help="directory to write exports into")
     p.add_argument("--writeup", action="store_true",
                    help="emit the Results section of docs/WRITEUP.md as markdown")
@@ -94,7 +97,13 @@ def main() -> int:
                    help="window description for --writeup, e.g. '2026-09-01 to 2026-09-30'")
     p.add_argument("--offline", action="store_true",
                    help="skip live quotes; realized P&L and gate counts only")
-    return asyncio.run(main_async(p.parse_args()))
+    args = p.parse_args()
+    journal, ledger, _ = paths.for_env(args.env)
+    if args.journal is None:
+        args.journal = str(journal)
+    if args.ledger is None:
+        args.ledger = str(ledger)
+    return asyncio.run(main_async(args))
 
 
 if __name__ == "__main__":

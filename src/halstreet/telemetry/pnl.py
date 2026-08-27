@@ -85,6 +85,17 @@ class Report:
     max_drawdown_usd: Decimal | None = None
     max_drawdown_pct: Decimal | None = None
     equity_samples: int = 0
+    #: Every session date the journal covers, ascending. The window is a *finding*,
+    #: not something the caller asserts — see `writeup_results`.
+    sessions: tuple[str, ...] = ()
+
+    @property
+    def window(self) -> str:
+        """The dates this report actually covers, from the journal itself."""
+        if not self.sessions:
+            return ""
+        first, last = self.sessions[0], self.sessions[-1]
+        return first if first == last else f"{first} to {last}"
 
     @property
     def total_usd(self) -> Decimal:
@@ -127,6 +138,21 @@ def equity_series(journal: Journal) -> list[tuple[str, Decimal]]:
         if value is not None and value > 0 and ts:
             out.append((str(ts), value))
     return out
+
+
+def sessions_covered(journal: Journal) -> tuple[str, ...]:
+    """The distinct session dates in a journal, ascending.
+
+    `session_date` is the exchange's own date and is what a cycle records now; the
+    timestamp's date is the fallback for records written before that existed. Both
+    are dates the run happened on, which is all this claim needs.
+    """
+    seen = {
+        str(record.get("session_date") or str(record.get("ts") or "")[:10])
+        for record in journal.read()
+        if record.get("event") == "cycle_start"
+    }
+    return tuple(sorted(d for d in seen if len(d) == 10))
 
 
 def equity_curve(journal: Journal) -> list[Decimal]:
@@ -204,6 +230,7 @@ def build(ledger: Ledger, journal: Journal, *,
     report.rejections_by_gate = summary["rejections_by_gate"]
 
     curve = equity_curve(journal)
+    report.sessions = sessions_covered(journal)
     report.equity_samples = len(curve)
     if curve:
         report.equity_start = curve[0]
@@ -285,6 +312,20 @@ def write_exports(report: Report, directory: str | Path) -> dict[str, Path]:
     return paths
 
 
+def _describes(label: str, sessions: tuple[str, ...]) -> bool:
+    """Whether a human's window label is consistent with the dates in the journal.
+
+    Deliberately lenient: the label is prose ("2026-09-01 to 2026-09-30", "week one"),
+    and the point is to catch a label naming dates the data does not contain, not to
+    parse English. A label with no dates in it makes no checkable claim and passes.
+    """
+    import re
+    claimed = set(re.findall(r"\d{4}-\d{2}-\d{2}", label))
+    if not claimed or not sessions:
+        return True
+    return min(claimed) <= sessions[-1] and max(claimed) >= sessions[0]
+
+
 def writeup_results(report: Report, *, window: str = "") -> str:
     """The write-up's Results section, rendered from the run rather than typed.
 
@@ -298,7 +339,22 @@ def writeup_results(report: Report, *, window: str = "") -> str:
     because an agent that declined 12 cycles is being selective and a total that hides
     that reads as an agent that found nothing.
     """
-    lines = ["- **Window traded:** " + (window or "_not stated_")]
+    # Derived from the journal, never from the caller. `--window` was a label
+    # interpolated straight into this line and used to filter nothing, so a judged
+    # window's dates could sit above numbers computed over every session in the file
+    # — in a section whose own heading promises the figures are generated, not typed.
+    # The caller may still describe the window; a description that contradicts the
+    # data is reported rather than printed as fact.
+    measured = report.window
+    if measured and window and not _describes(window, report.sessions):
+        lines = [f"- **Window traded:** {measured} — measured from the journal. "
+                 f"(The run was labelled {window!r}, which does not match; the "
+                 f"figures below cover {measured}.)"]
+    else:
+        # Only when the label says something the dates do not already say.
+        stated = f" ({window})" if window and window.strip() != measured else ""
+        lines = ["- **Window traded:** " + ((measured + stated) if measured
+                                            else (window or "_not stated_"))]
 
     total_cycles = report.proposals + report.passed
     lines.append(
