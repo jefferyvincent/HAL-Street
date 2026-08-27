@@ -36,8 +36,10 @@ export function makeStrings(t: Translate) {
       breakerHalted: t("chrome.breakerHalted"),
       soundOn: t("chrome.soundOn"),
       soundOff: t("chrome.soundOff"),
+      soundArming: t("chrome.soundArming"),
       soundTitle: t("chrome.soundTitle"),
       marketOpen: t("chrome.marketOpen"),
+      marketWasOpen: t("chrome.marketWasOpen"),
       marketClosed: t("chrome.marketClosed"),
       marketUnknown: t("chrome.marketUnknown"),
     },
@@ -163,6 +165,8 @@ export function makeStrings(t: Translate) {
       workingAny: t("committee.workingAny"),
       waiting: t("committee.waiting"),
       ordered: t("committee.ordered"),
+      cost: t("committee.cost"),
+      costNote: t("committee.costNote"),
     },
 
     book: {

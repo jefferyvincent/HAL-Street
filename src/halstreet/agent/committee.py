@@ -93,6 +93,23 @@ JUDGE_TOKENS = 32000
 #: the judge's own would let a cheap correction cost as much as the decision did.
 EXPLAIN_TOKENS = 6000
 
+#: Which model runs which stage, and why they are not all the same one.
+#:
+#: The committee costs four calls where the single-call path costs one, and three of
+#: those four are not deciding anything. The catalyst turns headlines into a lean and
+#: a confidence against a closed schema; the two researchers write a paragraph each,
+#: to be read by something else. Only the judge picks a structure, and only the judge
+#: writes the rationale that ends up in the ledger and the write-up.
+#:
+#: So the judge keeps the strongest model and the other three drop a tier. Measured
+#: on the 2026-08-27 soak, those three carry roughly two thirds of the input tokens,
+#: which is where the money is: 24 cycles spent 692,755 input against 113,626 output.
+#:
+#: Both are overridable, and the judge's is the existing `LLM_MODEL` — so a run that
+#: sets nothing gets the tiering, and a run that wants one model everywhere can say
+#: so in one variable.
+ANALYST_MODEL = "claude-sonnet-5"
+
 LEAN = ("bullish", "bearish", "neutral")
 
 
@@ -192,14 +209,36 @@ class Session:
     headlines: int = 0
     reflection: list[dict] = field(default_factory=list)
     tokens: dict[str, int] = field(default_factory=lambda: {"in": 0, "out": 0, "cache_read": 0})
+    #: The same spend, per stage, with the model that produced it. Kept alongside the
+    #: total rather than instead of it: the total is what the panel shows and what
+    #: every existing reader already parses, and this is what makes it actionable.
+    #:
+    #: One aggregate was enough while all four calls used one model. It stopped being
+    #: enough the moment they did not — 5,000 tokens has no price until you know what
+    #: spent them, and "the committee is expensive" is not a finding you can act on
+    #: without knowing which quarter of it to look at.
+    stages: dict[str, dict[str, Any]] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
-    def spend(self, counts: dict[str, int]) -> None:
+    def spend(self, counts: dict[str, Any], stage: str = "") -> None:
         """Accumulate one stage's usage. The journal reads `tokens`, so this is where
         a stage's cost has to land — the first version totalled into a local and
-        journalled an untouched zero."""
+        journalled an untouched zero.
+
+        `model` rides along in the same dictionary and is deliberately not summed;
+        adding two model names is not a number. What keeps it out is the loop being
+        over `self.tokens` rather than over `counts` — the total has exactly three
+        numeric keys, so there is nowhere for a name to land. Iterating the incoming
+        dictionary instead would be the whole bug, and it is a one-word edit away.
+        """
         for key in self.tokens:
             self.tokens[key] += counts.get(key, 0)
+        if stage:
+            self.stages[stage] = {
+                "in": counts.get("in", 0), "out": counts.get("out", 0),
+                "cache_read": counts.get("cache_read", 0),
+                "model": counts.get("model"),
+            }
 
     def to_journal(self) -> dict[str, Any]:
         return {
@@ -209,6 +248,7 @@ class Session:
             "headlines": self.headlines,
             "reflection": self.reflection,
             "tokens": self.tokens,
+            "stages": self.stages,
             "errors": self.errors,
         }
 
@@ -291,9 +331,11 @@ class Committee:
     """Runs the committee against one Anthropic client."""
 
     def __init__(self, client: anthropic.Anthropic | None = None, *,
-                 model: str = DEFAULT_MODEL, effort: str = DEFAULT_EFFORT) -> None:
+                 model: str = DEFAULT_MODEL, effort: str = DEFAULT_EFFORT,
+                 analyst_model: str = ANALYST_MODEL) -> None:
         self._client = client or anthropic.Anthropic()
         self.model = model
+        self.analyst_model = analyst_model
         self.effort = effort
 
     @classmethod
@@ -304,22 +346,33 @@ class Committee:
             client,
             model=(os.environ.get("LLM_MODEL") or "").strip() or DEFAULT_MODEL,
             effort=(os.environ.get("LLM_EFFORT") or "").strip() or DEFAULT_EFFORT,
+            # One variable to put the whole committee back on one model, for anyone
+            # who wants to measure what the tiering costs in decision quality.
+            analyst_model=(os.environ.get("COMMITTEE_ANALYST_MODEL") or "").strip()
+            or (os.environ.get("LLM_MODEL") or "").strip() or ANALYST_MODEL,
         )
 
     # --- one call --------------------------------------------------------------
 
     def _call(self, system: str, user: str, *, max_tokens: int,
-              schema: dict | None = None) -> tuple[str, dict[str, int], str | None]:
+              schema: dict | None = None,
+              model: str | None = None) -> tuple[str, dict[str, int], str | None]:
         """Returns (text, token counts, error). Never raises.
 
         Every stage degrades to neutral rather than aborting the cycle. A committee
         that fails closed on an analyst outage would make a news hiccup into a missed
         trading window, and the gates — not the committee — are what fail closed here.
+
+        The counts carry the model that produced them. Aggregating four calls into one
+        total was fine while they were all the same model and stops being fine the
+        moment they are not: 5,000 tokens does not have a price until you know what
+        spent them, and the write-up has to be able to say which model made which call.
         """
-        counts = {"in": 0, "out": 0, "cache_read": 0}
+        used = model or self.model
+        counts = {"in": 0, "out": 0, "cache_read": 0, "model": used}
         try:
             kwargs: dict[str, Any] = {
-                "model": self.model,
+                "model": used,
                 "max_tokens": max_tokens,
                 "thinking": {"type": "adaptive"},
                 "system": [{"type": "text", "text": system,
@@ -339,6 +392,7 @@ class Committee:
             "in": getattr(usage, "input_tokens", 0) or 0,
             "out": getattr(usage, "output_tokens", 0) or 0,
             "cache_read": getattr(usage, "cache_read_input_tokens", 0) or 0,
+            "model": used,
         }
         if response.stop_reason == "refusal":
             return "", counts, "model refused"
@@ -361,7 +415,8 @@ class Committee:
         if not headlines:
             # Not an error and not a neutral guess: there was nothing to read, and the
             # judge should know the difference between "quiet" and "unavailable".
-            return Verdict(note="no headlines in the window"), {"in": 0, "out": 0, "cache_read": 0}
+            return Verdict(note="no headlines in the window"), {
+                "in": 0, "out": 0, "cache_read": 0, "model": None}
         user = (
             f"Underlying: {underlying}\n\n"
             f"Desk's deterministic reads:\n{json.dumps(evidence, indent=2, default=str)}\n\n"
@@ -369,7 +424,7 @@ class Committee:
             f"{json.dumps([h.to_prompt() for h in headlines], indent=2, ensure_ascii=False)}\n"
             "--- END UNTRUSTED HEADLINES ---\n"
         )
-        text, counts, error = self._call(_CATALYST_SYS, user,
+        text, counts, error = self._call(_CATALYST_SYS, user, model=self.analyst_model,
                                          max_tokens=ANALYST_TOKENS, schema=VERDICT_SCHEMA)
         return (Verdict(error=error) if error else Verdict.parse(text)), counts
 
@@ -381,13 +436,16 @@ class Committee:
         """
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
             futures = {
-                side: pool.submit(self._call, system, brief, max_tokens=DEBATE_TOKENS)
+                side: pool.submit(self._call, system, brief,
+                                  max_tokens=DEBATE_TOKENS, model=self.analyst_model)
                 for side, system in (("bull", _BULL_SYS), ("bear", _BEAR_SYS))
             }
             out = {side: f.result() for side, f in futures.items()}
 
         errors = [f"{side}: {err}" for side, (_, _, err) in out.items() if err]
-        counts = {k: out["bull"][1][k] + out["bear"][1][k] for k in ("in", "out", "cache_read")}
+        counts = {k: out["bull"][1][k] + out["bear"][1][k]
+                  for k in ("in", "out", "cache_read")}
+        counts["model"] = self.analyst_model
         return out["bull"][0], out["bear"][0], counts, errors
 
     def judge(self, *, system: str, brief: str) -> tuple[LLMResult, dict[str, int]]:
@@ -420,7 +478,8 @@ class Committee:
 
         again, more, error = self._call(system, explain_the_pass(brief),
                                         max_tokens=EXPLAIN_TOKENS, schema=proposal_schema())
-        spent = {k: counts[k] + more[k] for k in counts}
+        spent = {**counts,
+                 **{k: counts[k] + more[k] for k in ("in", "out", "cache_read")}}
         if error:
             return first, spent
         second = LLMResult(parse_proposal(again), raw=again)

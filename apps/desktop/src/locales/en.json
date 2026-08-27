@@ -10,14 +10,17 @@
     "breakerHalted": "BREAKER HALTED",
     "soundOn": "SOUND",
     "soundOff": "MUTED",
-    "soundTitle": "Bell at the open and close, a till for a closed winner, a buzzer for a closed loser",
+    "soundTitle": "Bell at the open and close, a till for a closed winner, a buzzer for a closed loser. Sound is on by default; a browser will not let it play until you have clicked somewhere in the page.",
     "marketOpen": "OPEN",
     "marketClosed": "CLOSED",
     "marketUnknown": "—",
     "marketTitleOpen": "The broker's clock said the session was open at {{at}}",
     "marketTitleClosed": "The broker's clock said the session was closed at {{at}}",
     "marketTitleUnknown": "No scheduled run has recorded a session boundary yet",
-    "busyTitle": "The agent is mid-cycle. This is read from the last record it wrote, so it clears itself if the process stops."
+    "busyTitle": "The agent is mid-cycle. This is read from the last record it wrote, so it clears itself if the process stops.",
+    "marketWasOpen": "OPEN?",
+    "marketTitleStale": "Last seen open at {{at}}, but nothing has written to the journal since — with no agent running there is nothing left to record the close. This is the last state observed, not the state now.",
+    "soundArming": "ARMING"
   },
   "tabs": {
     "console": "CONSOLE",
@@ -212,7 +215,9 @@
     "workingAny": "working…",
     "waiting": "between cycles",
     "ordered": "ORDER SENT",
-    "ago": "{{when}}"
+    "ago": "{{when}}",
+    "cost": "COST",
+    "costNote": "Only the judge picks a structure; the other three feed it, and run a tier below."
   },
   "scoreboard": {
     "title": "THE RUN",

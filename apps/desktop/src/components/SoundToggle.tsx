@@ -2,14 +2,17 @@ import { ICON } from "@/constants/icons";
 import { cn } from "@/lib/cn";
 import { useStrings } from "@/hooks/useStrings";
 import { useSoundToggle } from "@/hooks/useAudioCues";
+import { ready } from "@/lib/sounds";
 import { Icon } from "./Icon";
 
 /**
  * The only control in the panel, and it changes nothing about the account.
  *
- * A button rather than a preference read at load, because browsers will not start
- * audio outside a real gesture: an AudioContext created on mount stays suspended,
- * so a toggle that merely set a flag would read as on and make no sound at all.
+ * Sound is on by default now, but a browser will not start audio outside a real
+ * gesture — an AudioContext created on mount stays suspended. `useAudioUnlock` arms
+ * it on the first click anywhere; until then this reads ARMING rather than SOUND,
+ * because a control that says it is on while nothing can play is the one failure
+ * worth avoiding here.
  */
 export function SoundToggle() {
   const t = useStrings();
@@ -26,7 +29,7 @@ export function SoundToggle() {
       )}
     >
       <Icon d={muted ? ICON.muted : ICON.sound} stroke="currentColor" />
-      {muted ? t.chrome.soundOff : t.chrome.soundOn}
+      {muted ? t.chrome.soundOff : ready() ? t.chrome.soundOn : t.chrome.soundArming}
     </button>
   );
 }

@@ -148,7 +148,7 @@ export function CommitteeView() {
           </Stage>
 
           {/* 4. The judge, and then the only thing that can actually stop it. */}
-          <Stage label={t.committee.judge} tone={STROKE.amber} last>
+          <Stage label={t.committee.judge} tone={STROKE.amber}>
             <div className="w-full">
               {session.outcome.error ? (
                 <Absent text={session.outcome.error} />
@@ -170,6 +170,29 @@ export function CommitteeView() {
                 <span className="font-mono text-[10px] leading-none text-ink/25">
                   {t.committee.tokens(session.tokens.out ?? 0)}
                 </span>
+              </div>
+            </div>
+          </Stage>
+
+          {/* Where the tokens went, and which model spent them. A single total said
+              the committee was expensive without saying which quarter of it to look
+              at — and now that the three research stages run a tier below the judge,
+              a total has no price at all. */}
+          <Stage label={t.committee.cost} tone={STROKE.muted} last>
+            <div className="w-full">
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {Object.entries(session.stages ?? {}).map(([stage, spend]) => (
+                  <span key={stage} className="font-mono text-[10px] leading-none text-ink/45 tabular-nums">
+                    <span className="text-ink/70">{stage}</span>{" "}
+                    {spend.in.toLocaleString()}/{spend.out.toLocaleString()}
+                    {spend.model && (
+                      <span className="text-ink/25"> · {spend.model}</span>
+                    )}
+                  </span>
+                ))}
+              </div>
+              <div className="mt-[6px] font-sans text-[10.5px] leading-[1.45] text-ink/30">
+                {t.committee.costNote}
               </div>
             </div>
           </Stage>

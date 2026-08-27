@@ -106,3 +106,61 @@ def test_it_is_in_the_snapshot_the_panel_reads(tmp_path):
     state = snapshot(journal_path=str(journal), ledger_path=str(tmp_path / "l.json"),
                      breaker_path=str(tmp_path / "c.json"))
     assert state["in_flight"]["underlying"] == "IWM"
+
+
+# --- the session badge ----------------------------------------------------------
+
+def test_a_session_record_goes_stale_when_nothing_is_writing():
+    """Seen live: the soak stopped at 15:40 and the badge still said OPEN at 16:10.
+
+    The record is a report of a crossing, not a live reading. With no agent running
+    there is nothing left to write the close, so "open" means "open when we last
+    looked" and the panel has to be able to say which.
+    """
+    from halstreet.telemetry.server import SESSION_STALE_S, _last_session
+
+    quiet = _last_session([
+        {"event": "session", "state": "open", "ts": at(20_000)},
+        {"event": "cycle_start", "ts": at(SESSION_STALE_S + 60)},
+    ])
+    assert quiet["state"] == "open", "still reported — it is what was last seen"
+    assert quiet["stale"] is True, "but no longer asserted"
+
+
+def test_a_running_agent_keeps_its_session_record_current():
+    from halstreet.telemetry.server import _last_session
+
+    live = _last_session([
+        {"event": "session", "state": "open", "ts": at(20_000)},
+        {"event": "cycle_start", "ts": at(4)},
+    ])
+    assert live["stale"] is False
+
+
+def test_staleness_is_measured_from_the_journal_not_from_the_record():
+    """A market that opened at 09:30 is a nine-hour-old record at 18:30 and a
+    perfectly current one at 14:00. What makes it stale is silence everywhere else."""
+    from halstreet.telemetry.server import _last_session
+
+    old_record_busy_agent = _last_session([
+        {"event": "session", "state": "open", "ts": at(30_000)},
+        {"event": "committee", "ts": at(10)},
+    ])
+    assert old_record_busy_agent["stale"] is False
+
+
+def test_a_journal_with_no_session_record_has_nothing_to_stamp():
+    from halstreet.telemetry.server import _last_session
+
+    assert _last_session([{"event": "cycle_start", "ts": at(1)}]) is None
+
+
+def test_an_unreadable_last_timestamp_reads_as_stale_rather_than_current():
+    """Fail toward withdrawing the claim. An unreadable clock is not evidence that
+    the market is open."""
+    from halstreet.telemetry.server import _last_session
+
+    assert _last_session([
+        {"event": "session", "state": "open", "ts": at(100)},
+        {"event": "cycle_start", "ts": "not-a-time"},
+    ])["stale"] is True

@@ -6,7 +6,10 @@ const trade = (id: string, realized: string | null): ClosedStructure =>
   ({ structure_id: id, realized_usd: realized } as ClosedStructure);
 
 const market = (state: "open" | "closed", at: string, observed = false): Market =>
-  ({ state, at, observed, session_date: "2026-08-27", next_open: null, next_close: null });
+  ({ state, at, observed, session_date: "2026-08-27", next_open: null, next_close: null,
+     // Not stale: these are cues from a live run. A stale record means no agent is
+     // writing boundaries, and there is no bell to ring for one that never happened.
+     stale: false, quiet_for_s: 0 });
 
 describe("the first snapshot", () => {
   it("records what is already there and sounds nothing", () => {

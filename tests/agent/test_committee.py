@@ -27,6 +27,13 @@ def _no_committee_env(monkeypatch):
 
 # --- the switch --------------------------------------------------------------------
 
+def spent(counts: dict) -> dict:
+    """Just the numbers. `counts` also names the model that produced them, and a
+    model name is not something you can add up — see `Session.spend`."""
+    return {k: counts[k] for k in ("in", "out", "cache_read")}
+
+
+
 def test_the_committee_runs_when_nothing_says_otherwise():
     # The whole point of the change: an operator who sets nothing gets the path that
     # reads the news, not the one that trades on arithmetic alone.
@@ -209,7 +216,7 @@ def test_no_headlines_means_no_call_and_no_invented_read():
     assert client.calls == []
     assert verdict.lean == "neutral" and verdict.error is None
     assert "no headlines" in verdict.note
-    assert counts == {"in": 0, "out": 0, "cache_read": 0}
+    assert spent(counts) == {"in": 0, "out": 0, "cache_read": 0}
 
 
 def test_headlines_are_fenced_as_untrusted_data():
@@ -362,7 +369,7 @@ def test_a_complete_answer_carries_no_error():
     client = _Replying(_Response("end_turn", [_Block("thinking", ""), _Block("text", "case")]))
     text, counts, error = C.Committee(client)._call("sys", "user", max_tokens=100)
     assert (text, error) == ("case", None)
-    assert counts == {"in": 1, "out": 2, "cache_read": 0}
+    assert spent(counts) == {"in": 1, "out": 2, "cache_read": 0}
 
 
 # --- the stages, as they are actually called ------------------------------------------
@@ -413,7 +420,7 @@ def test_the_catalyst_returns_the_parsed_verdict_and_its_cost():
         evidence={"hv_rank": 51})
     assert (verdict.lean, verdict.confidence) == ("bearish", 0.7)
     assert verdict.error is None
-    assert counts == {"in": 10, "out": 100, "cache_read": 5}
+    assert spent(counts) == {"in": 10, "out": 100, "cache_read": 5}
 
 
 def test_the_catalyst_is_constrained_to_the_verdict_schema():
@@ -460,7 +467,7 @@ def test_the_debate_runs_both_sides_and_sums_their_cost():
     bull, bear, counts, errors = C.Committee(client).debate("evidence")
     assert {bull, bear} == {"bull case", "bear case"}
     assert errors == []
-    assert counts == {"in": 20, "out": 100, "cache_read": 10}
+    assert spent(counts) == {"in": 20, "out": 100, "cache_read": 10}
 
 
 def test_neither_researcher_is_shown_the_others_argument():
@@ -503,7 +510,7 @@ def test_both_researchers_failing_is_two_errors_not_one():
     bull, bear, counts, errors = C.Committee(client).debate("evidence")
     assert (bull, bear) == ("", "")
     assert {e.split(":")[0] for e in errors} == {"bull", "bear"}
-    assert counts == {"in": 0, "out": 0, "cache_read": 0}
+    assert spent(counts) == {"in": 0, "out": 0, "cache_read": 0}
 
 
 def test_a_debate_error_is_attributed_to_the_side_that_had_it():
@@ -532,7 +539,7 @@ def test_the_judge_returns_a_result_in_the_single_call_shape():
     client = _Scripted(_ok(json.dumps(_GOOD_PROPOSAL)))
     result, counts = C.Committee(client).judge(system="SYS", brief="evidence")
     assert result.ok and result.parsed.proposal.underlying == "SPY"
-    assert counts == {"in": 10, "out": 100, "cache_read": 5}
+    assert spent(counts) == {"in": 10, "out": 100, "cache_read": 5}
 
 
 def test_the_judge_runs_under_the_real_system_prompt_plus_a_suffix():

@@ -244,6 +244,14 @@ export interface Market {
    * hearing it change. The difference between ringing a bell and labelling one.
    */
   observed: boolean;
+  /**
+   * Whether anything is still running that could write the next boundary. When the
+   * agent exits mid-session nothing writes the close, and the state below is the
+   * last one observed rather than the one now.
+   */
+  stale: boolean;
+  /** How long the journal has been silent, in seconds. Null if it has never spoken. */
+  quiet_for_s: number | null;
 }
 
 /** One confirmed setup on the underlying's daily bars. */
@@ -271,6 +279,13 @@ export interface Committee {
   bear: string;
   reflection: { structure: string; realized_usd: string | null; outcome: string }[];
   tokens: { in: number; out: number; cache_read: number };
+  /**
+   * The same spend per stage, with the model that produced it. The three research
+   * stages run a tier below the judge, so one total no longer has a price.
+   */
+  stages: Record<string, {
+    in: number; out: number; cache_read: number; model: string | null;
+  }>;
   /** Stages that failed. The cycle continues; the judge is told. */
   errors: string[];
   outcome: {

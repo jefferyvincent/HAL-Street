@@ -577,7 +577,7 @@ class Agent:
         session.catalyst, counts = await asyncio.to_thread(
             self.committee.catalyst, underlying=underlying,
             headlines=headlines, evidence=evidence)
-        session.spend(counts)
+        session.spend(counts, "catalyst")
         if session.catalyst.error:
             session.errors.append(f"catalyst: {session.catalyst.error}")
 
@@ -588,7 +588,7 @@ class Agent:
         debate_brief = brief(base_turn=base_turn, session=session, debate=True)
         session.bull, session.bear, counts, errors = await asyncio.to_thread(
             self.committee.debate, debate_brief)
-        session.spend(counts)
+        session.spend(counts, "debate")
         session.errors.extend(errors)
 
         llm, counts = await asyncio.to_thread(
@@ -596,7 +596,7 @@ class Agent:
             system=self.writer.system_prompt,
             brief=brief(base_turn=base_turn, session=session),
         )
-        session.spend(counts)
+        session.spend(counts, "judge")
         # Journalled after the judge, so the record carries the whole session's cost.
         self.journal.write("committee", underlying=underlying, **session.to_journal())
         return llm, dict(session.tokens)

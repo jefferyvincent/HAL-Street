@@ -65,21 +65,32 @@ interface UI {
 }
 
 /**
- * Muted by default, and remembered.
+ * Sound on by default, and remembered.
  *
- * Default-on would mean a page that makes noise the first time anyone opens it,
- * which is the wrong first impression for a risk console and is what browsers
- * refuse to allow anyway. Reading is wrapped because storage throws outright in a
- * private window and in a thumbnail capture, and a preference is never worth a
- * blank screen.
+ * This was muted by default, on the argument that a page should not make noise the
+ * first time anyone opens it. The argument was wrong for this page: the bells are
+ * the only thing that tells you the market turned while you were looking elsewhere,
+ * and a default that has to be found before it works is a feature nobody hears.
+ *
+ * The browser constraint behind the old default is real and does not go away —
+ * an AudioContext created outside a user gesture starts suspended and stays that
+ * way, so *wanting* sound and *being able to make it* are two different states. The
+ * preference now defaults to on and `useAudioUnlock` arms the context on the first
+ * click, key or touch anywhere in the page. Until that happens the panel is silent
+ * and the toggle says so.
+ *
+ * Reading is wrapped because storage throws outright in a private window and in a
+ * thumbnail capture, and a preference is never worth a blank screen.
  */
 const MUTE_KEY = "halstreet.muted";
 
 function storedMute(): boolean {
   try {
-    return window.localStorage.getItem(MUTE_KEY) !== "false";
+    // Only an explicit "true" mutes. An absent key is a first visit, and a first
+    // visit should hear the bell.
+    return window.localStorage.getItem(MUTE_KEY) === "true";
   } catch {
-    return true;
+    return false;
   }
 }
 

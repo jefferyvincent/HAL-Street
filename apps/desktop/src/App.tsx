@@ -4,7 +4,7 @@ import { Rail } from "@/components/Rail";
 import { StatusBar } from "@/components/StatusBar";
 import { Tape } from "@/components/Tape";
 import { GRID } from "@/constants/theme";
-import { useAudioCues } from "@/hooks/useAudioCues";
+import { useAudioCues, useAudioUnlock } from "@/hooks/useAudioCues";
 import { useConnect } from "@/hooks/useConnect";
 import { usePollMarks } from "@/hooks/useMarks";
 import { useDecisions } from "@/hooks/useDecisions";
@@ -38,6 +38,8 @@ export default function App() {
   // and silent on the first snapshot whatever the setting — opening a dashboard is
   // not an event, and replaying the morning is not a notification.
   useAudioCues(snap);
+  // Sound is on by default; this is what makes the browser agree to it.
+  useAudioUnlock();
 
   const View = VIEWS[view];
   // The rails describe the selected decision, so they belong to the console. The

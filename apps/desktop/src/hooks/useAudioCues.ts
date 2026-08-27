@@ -58,6 +58,34 @@ export function useAudioCues(snapshot: Snapshot | null) {
  * gesture starts suspended and stays that way, so the toggle would read as enabled
  * and produce nothing at all.
  */
+/**
+ * Arms the audio context on the first real gesture anywhere in the page.
+ *
+ * Sound is on by default now, and a preference the browser will not honour is worse
+ * than one that is off: the toggle reads "SOUND", nothing plays, and there is no way
+ * to tell a suspended context from a quiet market. A one-shot listener on the
+ * document turns the first click, key or touch — whatever it was for — into the
+ * gesture the AudioContext needs.
+ *
+ * `once` on all three and a removal on unmount, so this costs one listener that
+ * deletes itself. It does nothing while muted: arming audio for someone who asked
+ * for silence is the wrong side of the same mistake.
+ */
+export function useAudioUnlock(): void {
+  useEffect(() => {
+    if (ready()) return;
+    const arm = () => {
+      if (!useUI.getState().muted) void unlock();
+    };
+    const events: (keyof DocumentEventMap)[] = ["pointerdown", "keydown", "touchstart"];
+    for (const name of events) document.addEventListener(name, arm, { once: true });
+    return () => {
+      for (const name of events) document.removeEventListener(name, arm);
+    };
+  }, []);
+}
+
+
 export function useSoundToggle() {
   const muted = useUI((s) => s.muted);
   const setMuted = useUI((s) => s.setMuted);

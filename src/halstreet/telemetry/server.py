@@ -137,6 +137,9 @@ def _committees(events: list[dict]) -> list[dict]:
             "bear": event.get("bear") or "",
             "reflection": event.get("reflection") or [],
             "tokens": event.get("tokens") or {},
+            # And where they went. One total says the committee is expensive; this
+            # says which quarter of it to look at, and which model spent it.
+            "stages": event.get("stages") or {},
             "errors": event.get("errors") or [],
             # What came out of it, so the tree ends somewhere rather than trailing off.
             "outcome": {
@@ -428,13 +431,39 @@ def _legs_view(structure: Any, chain: dict[str, dict]) -> list[dict]:
     ]
 
 
+#: How long the journal can go quiet before its session record stops being current.
+#:
+#: The scheduler writes a boundary when it crosses one, so the record only stays true
+#: while something is running to write the next. When the agent exits mid-session
+#: nothing writes the close, and the badge went on asserting OPEN into the evening —
+#: seen on 2026-08-27, where the soak stopped at 15:40 and the panel still said the
+#: market was open at 16:10.
+#:
+#: Generous, because a cycle takes minutes and a quiet stretch is not a dead agent.
+#: The point is to stop a *dead* one making a live claim, not to blink.
+SESSION_STALE_S = 900.0
+
+
 def _last_session(events: list[dict]) -> dict | None:
-    """The most recent session transition the scheduler wrote down.
+    """The most recent session transition the scheduler wrote down, and whether it
+    is still current.
 
     `observed` distinguishes a bell that rang from the state the scheduler found on
     startup — the difference between a sound and a label, for anything downstream
     that makes noise about it.
+
+    `stale` is the newer distinction and a different one: whether anything is still
+    running that *could* write the next boundary. A session record is a report of a
+    crossing, not a live reading, so with no agent alive "open" means "open when we
+    last looked" — and the panel has to be able to say so rather than keep asserting
+    a market state hours after the desk went home.
+
+    Measured against the whole journal rather than against the session record itself,
+    because the record is meant to be old: a market open at 09:30 is a nine-hour-old
+    record at 18:30 and perfectly current at 14:00. What makes it stale is silence
+    everywhere else.
     """
+    latest = _age(events[-1].get("ts")) if events else None
     for event in reversed(events):
         if event.get("event") == "session":
             return {
@@ -444,6 +473,11 @@ def _last_session(events: list[dict]) -> dict | None:
                 "next_open": event.get("next_open"),
                 "next_close": event.get("next_close"),
                 "observed": bool(event.get("observed")),
+                # Nothing has written anything for a while, so nothing is left to
+                # write the next boundary. The state below is the last one observed,
+                # not the one now.
+                "stale": latest is None or latest > SESSION_STALE_S,
+                "quiet_for_s": None if latest is None else round(latest),
             }
     return None
 
