@@ -19,6 +19,7 @@ from halstreet.agent import committee as committee_mod
 from halstreet.agent.breaker import CircuitState
 from halstreet.agent.ledger import Ledger
 from halstreet.agent.llm import ProposalWriter
+from halstreet.agent.lock import AlreadyRunning, JournalLock
 from halstreet.agent.loop import Agent
 from halstreet.agent.manager import ExitPolicy
 from halstreet.agent.schedule import Scheduler, market_clock
@@ -77,6 +78,17 @@ async def main_async(args: argparse.Namespace) -> int:
     try:
         client = AlpacaMCP.from_env(args.env)
     except LiveEnvironmentError as exc:
+        log(f"BLOCKED: {exc}")
+        return 1
+
+    # One agent per journal, before anything else opens the broker. Two agents on
+    # one account interleave their scans and write a single file that reads as one
+    # run — and the stale one is usually the dangerous half, because it is running
+    # whatever the code was when it started.
+    lock = JournalLock(args.journal)
+    try:
+        lock.acquire()
+    except AlreadyRunning as exc:
         log(f"BLOCKED: {exc}")
         return 1
 
@@ -164,6 +176,8 @@ async def main_async(args: argparse.Namespace) -> int:
                                 until_close=args.until_close)
         except KeyboardInterrupt:
             log("interrupted")
+
+    lock.release()
 
     log(f"\n{totals['cycles']} cycle(s): {totals['approved']} approved, "
         f"{totals['submitted']} submitted")
