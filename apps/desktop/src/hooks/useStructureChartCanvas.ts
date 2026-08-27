@@ -69,7 +69,14 @@ export function useStructureChartCanvas(series: Series[], lines: Line[]) {
         price: l.value,
         color: l.color,
         lineWidth: 1,
-        lineStyle: l.key === "entry" ? LineStyle.Solid : LineStyle.Dashed,
+        // Solid for where the position went in; dashed for a level the policy is
+        // waiting on; dotted for one it names but the market cannot print, so the
+        // reader can tell "not yet" from "not ever" without reading the label.
+        lineStyle: l.unreachable
+          ? LineStyle.Dotted
+          : l.key === "entry"
+            ? LineStyle.Solid
+            : LineStyle.Dashed,
         axisLabelVisible: true,
         title: l.label,
       }),

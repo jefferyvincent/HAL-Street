@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { STROKE } from "@/constants/theme";
 import type { StructureChart } from "@/types";
 
@@ -7,6 +8,12 @@ export interface Line {
   value: number;
   color: string;
   label: string;
+  /**
+   * A level the market cannot reach. Drawn dashed and labelled, rather than dropped:
+   * the reader should see that the policy names a stop *and* that this structure
+   * cannot hit it, which is a fact about the position worth knowing.
+   */
+  unreachable?: boolean;
 }
 
 export interface Series {
@@ -23,6 +30,7 @@ export interface Series {
  * and a stop line you cannot see is the one thing this view exists to show.
  */
 export function useStructureLevels(chart: StructureChart | null) {
+  const { t } = useTranslation();
   return useMemo(() => {
     if (!chart) return { series: [] as Series[], lines: [] as Line[], last: null as number | null };
 
@@ -40,11 +48,19 @@ export function useStructureLevels(chart: StructureChart | null) {
 
     const lines: Line[] = [];
     if (chart.levels) {
-      const { entry, target, stop } = chart.levels;
+      const { entry, target, stop, stop_reachable } = chart.levels;
       lines.push(
-        { key: "entry", value: Number(entry), color: STROKE.ink, label: "ENTRY" },
-        { key: "target", value: Number(target), color: STROKE.pass, label: "TARGET" },
-        { key: "stop", value: Number(stop), color: STROKE.fail, label: "STOP" },
+        { key: "entry", value: Number(entry), color: STROKE.ink, label: t("chart.entry") },
+        { key: "target", value: Number(target), color: STROKE.pass, label: t("chart.target") },
+        {
+          key: "stop",
+          value: Number(stop),
+          color: STROKE.fail,
+          // A stop that cannot print is still the level the policy names; saying so
+          // beats drawing it as though the market could get there.
+          label: stop_reachable === false ? t("chart.stopUnreachable") : t("chart.stop"),
+          unreachable: stop_reachable === false,
+        },
       );
     }
 
@@ -53,5 +69,5 @@ export function useStructureLevels(chart: StructureChart | null) {
       lines: lines.filter((l) => Number.isFinite(l.value)),
       last: series.length ? series[series.length - 1]!.value : null,
     };
-  }, [chart]);
+  }, [chart, t]);
 }

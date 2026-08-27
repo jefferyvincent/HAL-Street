@@ -331,14 +331,22 @@ def test_levels_agree_with_the_policy_that_acts_on_them(entry):
     assert evaluate_exit(structure, _at_mark(structure, levels.target + nudge), policy,
                          asof=TODAY).action is Action.TAKE_PROFIT
 
-    if levels.credit:
-        # A 200% stop on a debit structure sits below zero and is unreachable — you
-        # cannot lose more than the premium paid — so only the credit case has a stop
-        # a market can actually print. This project trades credit structures.
+    # A 200% stop on a debit structure is unreachable — you cannot lose more than the
+    # premium you paid — and `Levels.stop_reachable` is how that is now said rather
+    # than left as a gap in this test. Where the stop *can* print, it must print
+    # exactly where the chart draws it.
+    assert levels.stop_reachable == (levels.credit or levels.stop > 0)
+    if levels.stop_reachable:
         assert evaluate_exit(structure, _at_mark(structure, levels.stop + nudge), policy,
                              asof=TODAY).action is not Action.STOP_LOSS
         assert evaluate_exit(structure, _at_mark(structure, levels.stop - nudge), policy,
                              asof=TODAY).action is Action.STOP_LOSS
+    else:
+        # Clamped to zero: a worthless long structure. The policy does not act here,
+        # and the flag is what stops the chart implying it would.
+        assert levels.stop == 0
+        assert evaluate_exit(structure, _at_mark(structure, Decimal("0.01")), policy,
+                             asof=TODAY).action is not Action.STOP_LOSS
 
 
 def test_levels_do_not_move_with_size():
@@ -346,3 +354,53 @@ def test_levels_do_not_move_with_size():
     one = exit_levels(Decimal("-1.60"), ExitPolicy())
     assert one.target == Decimal("-1.60") * Decimal("0.5")
     assert one.stop == Decimal("-1.60") * Decimal(3)
+
+
+
+# --- a level the market cannot print --------------------------------------------------
+
+def test_a_debit_stop_is_never_a_negative_price():
+    """The chart's half of the unreachable-stop problem.
+
+    `evaluate_exit` simply never fires there, which is correct and was documented. The
+    chart is the half that would have been visibly wrong: the arithmetic puts a 200%
+    stop on a $2.99 debit at **-$2.99**, and a line at a negative price sits off the
+    bottom of an axis whose series never goes below zero. A stop line the market
+    cannot reach is worse than none, because it reads as protection.
+    """
+    levels = exit_levels(Decimal("2.99"), ExitPolicy(
+        take_profit_pct=Decimal(50), stop_loss_pct=Decimal(200), force_close_dte=5))
+    assert levels.stop >= 0, "a long structure's mark cannot go below zero"
+    assert levels.stop == 0, "clamped to worthless, which is the real maximum loss"
+    assert levels.stop_reachable is False
+
+
+def test_a_debit_stop_inside_the_premium_is_reachable_and_exact():
+    # Below 100% the stop is an ordinary level and must stay exact — the clamp must
+    # not round off a stop that can actually print.
+    levels = exit_levels(Decimal("3.00"), ExitPolicy(
+        take_profit_pct=Decimal(50), stop_loss_pct=Decimal(60), force_close_dte=5))
+    assert levels.stop == Decimal("1.20") and levels.stop_reachable is True
+
+
+def test_a_stop_at_exactly_the_whole_premium_is_still_reachable():
+    # 100% is the boundary: the structure expiring worthless is a real outcome the
+    # policy can act on, so zero is reachable rather than clamped.
+    levels = exit_levels(Decimal("2.50"), ExitPolicy(
+        take_profit_pct=Decimal(50), stop_loss_pct=Decimal(100), force_close_dte=5))
+    assert levels.stop == 0 and levels.stop_reachable is True
+
+
+def test_a_credit_stop_has_no_ceiling_and_is_always_reachable():
+    # The short leg can be bought back at any price, so there is no equivalent bound
+    # on this side. The clamp must not touch it.
+    levels = exit_levels(Decimal("-1.00"), ExitPolicy(
+        take_profit_pct=Decimal(50), stop_loss_pct=Decimal(500), force_close_dte=5))
+    assert levels.stop == Decimal(-6) and levels.stop_reachable is True
+
+
+def test_reachability_reaches_the_panel():
+    # The flag is only worth having if the thing that draws the line can see it.
+    levels = exit_levels(Decimal("2.99"), ExitPolicy(
+        take_profit_pct=Decimal(50), stop_loss_pct=Decimal(200), force_close_dte=5))
+    assert levels.to_prompt()["stop_reachable"] is False

@@ -182,10 +182,17 @@ class Levels:
     stop: Decimal            # mark at which the stop fires
     #: True for a credit structure, where a *rising* mark is a loss.
     credit: bool
+    #: False when the policy's stop sits at a price the market cannot print — a long
+    #: structure with a stop above 100% of the premium, which is unreachable because
+    #: the mark stops at zero. The level is clamped to zero when this is False, so it
+    #: is drawable and true; this flag is what stops it being read as a threshold the
+    #: policy would act on.
+    stop_reachable: bool = True
 
     def to_prompt(self) -> dict[str, str | bool]:
         return {"entry": str(self.entry), "target": str(self.target),
-                "stop": str(self.stop), "credit": self.credit}
+                "stop": str(self.stop), "credit": self.credit,
+                "stop_reachable": self.stop_reachable}
 
 
 def exit_levels(entry_price: Decimal, policy: ExitPolicy) -> Levels:
@@ -201,15 +208,33 @@ def exit_levels(entry_price: Decimal, policy: ExitPolicy) -> Levels:
     The multiplier and quantity cancel on both sides, which is why they do not appear:
     a target is a price, not a P&L, and it does not move when you trade ten instead of
     one.
+
+    **A debit's stop is clamped at zero, and `reachable` says whether it can print.**
+    The arithmetic above is happy to put a long structure's stop below zero — at a 200%
+    stop that is where it lands, because you cannot lose 200% of a premium you have
+    already paid. `evaluate_exit` has the same ceiling and it is documented there, but
+    the chart is the half that would have been visibly wrong: a stop line drawn at
+    -2.99 sits off the bottom of a price axis whose series never goes below zero, and
+    a line the market cannot reach is worse than no line, because it looks like
+    protection. Clamped to zero it is at least a true statement — a long structure
+    expiring worthless is the whole loss — and `reachable` lets the chart say so
+    rather than implying the policy would act there.
+
+    This project trades net-credit structures only, so nothing currently opens a debit.
+    That is a fact about today's profiles, not about this function.
     """
     tp = policy.take_profit_pct / 100
     sl = policy.stop_loss_pct / 100
     credit = entry_price < 0
     if credit:
+        # A rising mark is the loss here, and it has no ceiling: the short leg can be
+        # bought back for any price. Every level is reachable.
         return Levels(entry=entry_price, target=entry_price * (1 - tp),
                       stop=entry_price * (1 + sl), credit=True)
+    stop = entry_price * (1 - sl)
     return Levels(entry=entry_price, target=entry_price * (1 + tp),
-                  stop=entry_price * (1 - sl), credit=False)
+                  stop=max(stop, Decimal(0)), credit=False,
+                  stop_reachable=stop >= 0)
 
 
 def mark_structure(structure: OpenStructure, chain: dict[str, dict]) -> Mark:

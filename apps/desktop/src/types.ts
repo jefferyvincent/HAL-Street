@@ -114,6 +114,13 @@ export interface ExitLevels {
   stop: string;
   /** True for a credit structure, where a rising mark is profit toward zero. */
   credit: boolean;
+  /**
+   * False when the policy's stop sits at a price the market cannot print — a long
+   * structure whose stop is more than 100% of the premium paid. The level is clamped
+   * to zero so it is drawable and true; this flag is what stops the line being read
+   * as a threshold the policy would act on.
+   */
+  stop_reachable: boolean;
 }
 
 export interface StructureChart {

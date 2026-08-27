@@ -7,6 +7,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from halstreet.gates.base import Limits
+from halstreet.marketdata.occ import Right
 from halstreet.strategy import blackscholes as bs
 from halstreet.strategy import candidates as C
 from halstreet.strategy import profiles as P
@@ -315,3 +316,46 @@ def test_the_prompt_shape_carries_the_reasoning_not_just_the_ranking():
 
 def test_an_empty_chain_yields_an_empty_menu_rather_than_raising():
     assert C.generate({}, spot=SPOT, limits=Limits(), asof=ASOF) == []
+
+
+# --- the invariant that keeps a bad quote out of the scorer -------------------------
+
+def test_a_credit_wider_than_the_wing_is_refused_rather_than_priced():
+    """Arbitrage does not exist, so a quote implying it is a bad quote.
+
+    A credit larger than the distance between the strikes means a spread that cannot
+    lose — `max_loss = (width - credit) * 100` goes negative — and the fixture's own
+    docstring records seeing this from a mispriced surface. It was never pinned by a
+    test, which mattered more than it looked: the probability calculation downstream
+    takes the credit on trust and widens the profit zone by it, so a 99-point credit
+    on a 2-point wing returns a serene 95% chance of profit and the structure tops the
+    ranking. This one line is what stops that reaching the model at all.
+
+    Crossed or stale quotes are ordinary in options data. This is not a hypothetical.
+    """
+    short_call = _occ(766, "C")
+    chain = _chain(**{short_call: _snapshot(bid=99.0, ask=99.1, delta=0.45)})
+    quotes = C.quotes_for(chain, EXPIRY)
+    built = C.credit_spread(quotes, Right.CALL, Decimal("0.45"), 1, 45, spot=SPOT)
+    assert built is None, "a spread that cannot lose is a bad quote, not an opportunity"
+
+
+def test_a_condor_inherits_the_refusal_from_the_wing_that_had_it():
+    short_call = _occ(766, "C")
+    chain = _chain(**{short_call: _snapshot(bid=99.0, ask=99.1, delta=0.45)})
+    quotes = C.quotes_for(chain, EXPIRY)
+    assert C.iron_condor(quotes, Decimal("0.45"), 1, 45, spot=SPOT) is None
+
+
+def test_every_structure_built_can_actually_lose_something():
+    """The invariant, over the whole menu rather than one hand-made case.
+
+    `max_loss_usd > 0` is what makes `pop`'s inputs meaningful: those functions take
+    the credit on trust and cannot see the wing width, so the guarantee that a credit
+    is smaller than the width has to hold here or nowhere.
+    """
+    menu = _generate()
+    assert menu, "the fixture should build a menu"
+    for candidate in menu:
+        assert candidate.max_loss_usd > 0, f"{candidate.name} cannot lose anything"
+        assert candidate.max_gain_usd > 0, f"{candidate.name} cannot gain anything"

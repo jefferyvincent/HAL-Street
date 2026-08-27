@@ -123,6 +123,8 @@
     "credit": "credit structure — the mark rises toward zero as it wins",
     "debit": "debit structure — the mark rises as it wins",
     "note": "Entry, target and stop come from the same function the exit policy acts on, so this picture cannot disagree with what the agent will actually do.",
-    "forceClose": "force-close at {{dte}} DTE regardless of price"
+    "forceClose": "force-close at {{dte}} DTE regardless of price",
+    "stopUnreachable": "STOP (unreachable)",
+    "unreachableNote": "This structure was opened for a debit, so the most it can lose is the premium paid. A stop set above 100% of that cannot print — the line sits at zero, which is where the position becomes worthless."
   }
 }

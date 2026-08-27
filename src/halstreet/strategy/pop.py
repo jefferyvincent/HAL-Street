@@ -17,6 +17,16 @@ Breakevens, not short strikes, are what get tested. The credit received moves th
 breakeven past the strike you sold, and using the strike instead would understate
 every credit structure's odds by the width of its own premium.
 
+**The credit is taken on trust, and cannot be checked here.** None of these functions
+receives the wing width, so none of them can tell a real premium from a crossed quote:
+a 99-point credit on a 2-point wing simply widens the profit zone by 99 and returns a
+serene 95%, which would put the structure straight to the top of the ranking. The
+invariant that stops that — `max_loss = (width - credit) * 100` must be positive, since
+a spread that cannot lose is a bad quote rather than an opportunity — belongs to
+`candidates.py`, which is the only layer that knows both numbers. It is enforced there
+and pinned by `test_every_structure_built_can_actually_lose_something`; a credit
+arriving here has already passed it. What *can* be checked here is checked below.
+
 One improvement over the TypeScript: **each tail is priced with its own leg's IV.**
 TradeScans passed a single volatility into the two-sided iron-condor calculation,
 which ignores skew — and index put skew is steep enough that the downside tail is
@@ -33,12 +43,16 @@ from halstreet.strategy.blackscholes import prob_above, prob_below
 def credit_put_spread(spot: float, short_strike: float, credit: float,
                       dte: int, vol: float) -> float | None:
     """Bull put spread: wins as long as the underlying stays above the breakeven."""
+    if credit < 0:
+        return None
     return prob_above(spot, short_strike - credit, dte, vol)
 
 
 def credit_call_spread(spot: float, short_strike: float, credit: float,
                        dte: int, vol: float) -> float | None:
     """Bear call spread: wins as long as the underlying stays below the breakeven."""
+    if credit < 0:
+        return None
     return prob_below(spot, short_strike + credit, dte, vol)
 
 
@@ -56,6 +70,15 @@ def iron_condor(spot: float, short_put: float, short_call: float, credit: float,
     """
     if short_put >= short_call:
         return None
+    if credit < 0:
+        # A condor taken on for a debit is not a structure this desk builds, and a
+        # negative credit here narrows the profit zone instead of widening it — so
+        # the number that came back was not conservative, it was a different
+        # structure's answer wearing this one's name.
+        #
+        # Zero is allowed: it is the un-cushioned limit case, breakevens sitting on
+        # the short strikes, and it is how you show what the credit is worth.
+        return None
     lower = short_put - credit
     upper = short_call + credit
     if lower >= upper:
@@ -70,9 +93,13 @@ def iron_condor(spot: float, short_put: float, short_call: float, credit: float,
 def debit_call_spread(spot: float, long_strike: float, debit: float,
                       dte: int, vol: float) -> float | None:
     """Bull call spread: needs the underlying above the long strike plus the debit."""
+    if debit < 0:
+        return None
     return prob_above(spot, long_strike + debit, dte, vol)
 
 
 def debit_put_spread(spot: float, long_strike: float, debit: float,
                      dte: int, vol: float) -> float | None:
+    if debit < 0:
+        return None
     return prob_below(spot, long_strike - debit, dte, vol)

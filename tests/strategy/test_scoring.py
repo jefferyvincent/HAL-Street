@@ -282,3 +282,46 @@ def test_scores_are_recorded_as_stable_decimals():
     # value has to be byte-stable for the journal to be reproducible.
     assert scoring.as_decimal(71.98765) == Decimal("71.9877")
     assert str(scoring.as_decimal(60.0)) == "60.0000"
+
+
+# --- what pop can and cannot check for itself -------------------------------------
+
+def test_a_negative_credit_is_refused_rather_than_priced():
+    """A negative credit narrows the profit zone instead of widening it.
+
+    Which means the number that came back was not conservative — it was a different
+    structure's answer wearing this one's name, and it would have gone into the
+    ranking as a probability of profit.
+    """
+    assert pop.credit_put_spread(765, 745, -2.0, 45, 0.15) is None
+    assert pop.credit_call_spread(765, 790, -2.0, 45, 0.15) is None
+    assert pop.iron_condor(765, 745, 790, -2.0, 45, 0.15) is None
+    assert pop.debit_call_spread(765, 770, -1.0, 45, 0.15) is None
+    assert pop.debit_put_spread(765, 760, -1.0, 45, 0.15) is None
+
+
+def test_a_zero_credit_is_the_limit_case_and_still_answers():
+    # Breakevens sitting on the short strikes. Not a trade anyone takes, but it is how
+    # you show what the credit is worth, and refusing it would break that comparison.
+    assert pop.credit_put_spread(765, 745, 0.0, 45, 0.15) is not None
+    assert pop.iron_condor(765, 745, 790, 0.0, 45, 0.15) is not None
+
+
+def test_pop_cannot_see_the_wing_width_and_does_not_pretend_to():
+    """The invariant these functions depend on and cannot check.
+
+    None of them receives the wing width, so none can tell a real premium from a
+    crossed quote: a 99-point credit on a 2-point wing widens the profit zone by 99
+    and returns a serene 95%, which would put the structure top of the ranking. That
+    is not a bug here — it is arithmetic on impossible inputs — but it is worth
+    pinning that the number really is that confident, because it is the reason
+    `candidates.py` must reject the structure before this is ever called.
+
+    See `test_every_structure_built_can_actually_lose_something`, which is where the
+    guarantee actually lives.
+    """
+    absurd = pop.iron_condor(765, 755, 760, 99.0, 45, 0.15)
+    assert absurd is not None and absurd > 0.9, (
+        "this is the confident wrong answer the strategy layer exists to prevent "
+        "reaching; if it ever returns None on its own, the note above is stale"
+    )
