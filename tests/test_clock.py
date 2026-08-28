@@ -15,7 +15,7 @@ from datetime import UTC, date, datetime, timedelta, timezone
 import pytest
 
 from halstreet import clock
-from halstreet.agent.schedule import MarketClock
+from halstreet.agent.brainstem.schedule import MarketClock
 
 ET = timezone(timedelta(hours=-4))
 

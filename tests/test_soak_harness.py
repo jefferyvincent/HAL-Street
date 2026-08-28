@@ -1,22 +1,30 @@
-"""`scripts/soak.py` — the harness, not the agent it drives.
+"""`./start.sh soak` — the harness, not the agent it drives.
 
 Thin enough to look obviously correct, which is why the one thing it does wrong went
 unnoticed: it reported on a journal it had not asked the agent to write.
+
+The harness now imports like anything else. It used to be reached with
+
+    _spec = importlib.util.spec_from_file_location("soak_script", ROOT / "scripts" / "soak.py")
+    soak = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(soak)
+
+— three lines of import machinery, because the code was in a file rather than a
+package. The coverage logic is now `halstreet.agent.hippocampus.soak` (unit-tested in
+`tests/agent/test_soak_coverage.py`) and the wiring is `halstreet.cli.soak`, which is
+what this file tests.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import importlib.util
 from pathlib import Path
 
 import pytest
 
-_spec = importlib.util.spec_from_file_location(
-    "soak_script", Path(__file__).resolve().parents[1] / "scripts" / "soak.py")
-soak = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(soak)
+from halstreet.agent.hippocampus import soak
+from halstreet.cli import soak as harness
 
 
 def _argv(**over):
@@ -33,13 +41,13 @@ def _argv(**over):
         return 0
 
     from halstreet.agent import run as run_mod
-    real_main, real_report = run_mod.main_async, soak.report
+    real_main, real_render = run_mod.main_async, soak.render
     run_mod.main_async = fake_run
-    soak.report = lambda path: captured.setdefault("reported", path) and 0
+    soak.render = lambda path: captured.setdefault("reported", path) and ""
     try:
-        asyncio.run(soak.main_async(args))
+        asyncio.run(harness.main_async(args))
     finally:
-        run_mod.main_async, soak.report = real_main, real_report
+        run_mod.main_async, soak.render = real_main, real_render
     return captured
 
 
@@ -64,6 +72,13 @@ def test_the_default_is_still_the_real_journal():
     assert got["parsed"].journal == got["reported"] == "var/journal/run.jsonl"
 
 
+def test_the_default_journal_follows_the_account():
+    """--env comp reading the dev journal would report a rehearsal as the judged run."""
+    dev = harness.resolve(harness.build_parser().parse_args([]))
+    comp = harness.resolve(harness.build_parser().parse_args(["--env", "comp"]))
+    assert dev.journal != comp.journal
+
+
 def test_a_soak_always_runs_to_the_close():
     # A soak that stopped after one cycle would not reach the events it exists for:
     # a fill correction, an exit decision and a divergence all need a *later* cycle.
@@ -80,6 +95,30 @@ def test_the_committee_choice_is_passed_through_in_all_three_states(flag, want):
 def test_submission_is_off_unless_asked_for():
     assert _argv().get("parsed").submit is False
     assert _argv(submit=True)["parsed"].submit is True
+
+
+def test_report_only_never_starts_a_session(tmp_path):
+    """Reading an existing journal must not launch an agent against a paper account."""
+    path = tmp_path / "old.jsonl"
+    path.write_text("")
+    started = False
+
+    from halstreet.agent import run as run_mod
+    real = run_mod.main_async
+
+    async def _fail(parsed):
+        nonlocal started
+        started = True
+        return 0
+
+    run_mod.main_async = _fail
+    try:
+        args = argparse.Namespace(env="dev", submit=False, committee=None,
+                                  journal=str(path), report_only=True)
+        assert asyncio.run(harness.main_async(args)) == 0
+    finally:
+        run_mod.main_async = real
+    assert not started
 
 
 def test_every_lifecycle_event_the_report_names_is_one_the_agent_writes():
@@ -120,13 +159,16 @@ def test_the_report_covers_the_events_that_only_a_sequence_produces():
     assert {"fill_correction", "exit_decision", "divergence", "halt"} <= set(soak.LIFECYCLE)
 
 
-def test_a_journal_written_by_two_runs_says_so(tmp_path, capsys):
+def test_a_journal_written_by_two_runs_says_so(tmp_path):
     """The soak's only output is a coverage table, and it cannot tell whose events.
 
     Two soaks once shared a journal for an hour — one of them a version behind, its
     cycles producing nothing — and the table read as a single clean session. The
     only evidence was that the cycle timings interleaved in a way one 30-minute
     scheduler cannot produce, which is not a thing anyone should have to notice.
+
+    Against real run ids from real Journal opens, rather than hand-written ones: the
+    warning depends on the agent actually stamping each open distinctly.
     """
     from halstreet.telemetry.journal import Journal
 
@@ -137,20 +179,18 @@ def test_a_journal_written_by_two_runs_says_so(tmp_path, capsys):
     b.write("cycle_start", underlying="SPY")
 
     assert soak.runs_in(str(tmp_path / "run.jsonl")) == [a.run_id, b.run_id]
-    soak.report(str(tmp_path / "run.jsonl"))
-    out = capsys.readouterr().out
+    out = soak.render(str(tmp_path / "run.jsonl"))
     assert "written by 2 runs" in out
     assert a.run_id in out and b.run_id in out
 
 
-def test_one_run_says_nothing(tmp_path, capsys):
+def test_one_run_says_nothing(tmp_path):
     # The ordinary case must stay quiet, or the warning becomes wallpaper.
     from halstreet.telemetry.journal import Journal
 
     j = Journal.open(tmp_path / "run.jsonl")
     j.write("cycle_start", underlying="SPY")
-    soak.report(str(tmp_path / "run.jsonl"))
-    assert "runs:" not in capsys.readouterr().out
+    assert "runs:" not in soak.render(str(tmp_path / "run.jsonl"))
 
 
 def test_records_written_before_run_ids_existed_are_not_miscounted(tmp_path):

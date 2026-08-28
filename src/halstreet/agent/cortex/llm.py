@@ -39,7 +39,7 @@ from typing import Any
 
 import anthropic
 
-from halstreet.agent.proposal import SCHEMA, ParseResult, parse_proposal
+from halstreet.agent.cortex.proposal import SCHEMA, ParseResult, parse_proposal
 from halstreet.gates.base import Limits
 from halstreet.gates.portfolio import _gross_by_root
 

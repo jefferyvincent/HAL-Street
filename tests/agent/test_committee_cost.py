@@ -17,7 +17,7 @@ import json
 
 import pytest
 
-from halstreet.agent import committee as C
+from halstreet.agent.cortex import committee as C
 from halstreet.marketdata.news import Headline
 from tests.support import StreamingOnly
 
@@ -233,7 +233,7 @@ def test_the_loop_names_every_stage_it_spends_on(stage):
     exactly the state this replaced — and it looks like a stage that costs nothing."""
     from pathlib import Path
 
-    source = Path("src/halstreet/agent/loop.py").read_text()
+    source = Path("src/halstreet/agent/cerebellum/loop.py").read_text()
     assert f'session.spend(counts, "{stage}")' in source
 
 

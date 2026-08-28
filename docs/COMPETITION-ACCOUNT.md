@@ -23,7 +23,7 @@ actually takes.
 
 ## Before the judged run
 
-Run `python -m scripts.preflight --env comp`. It must pass all of:
+Run `python -m halstreet.cli.preflight --env comp`. It must pass all of:
 
 1. Credentials resolve to a **paper** endpoint
 2. Account equity is exactly $100,000.00

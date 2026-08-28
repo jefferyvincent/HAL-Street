@@ -13,7 +13,7 @@ busy until the ceiling passes — and these tests are mostly about that directio
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -120,8 +120,17 @@ def test_it_is_in_the_snapshot_the_panel_reads(tmp_path):
 # broker's own `next_close`, that time has passed, and "closed" is a statement the
 # panel is entitled to make.
 
-CLOSE = "2026-08-27 16:00:00-04:00"
-OPEN = "2026-08-28 09:30:00-04:00"
+# Relative to now, not written down. These were absolute — a Thursday close and the
+# Friday open after it — and the suite went red at 13:30 UTC on the Friday, when the
+# hardcoded open became a boundary that had *also* passed and the derivation correctly
+# answered "open" to a test that wanted "closed". Nothing about the panel had changed;
+# the calendar had. A test whose answer depends on the hour it is run cannot tell you
+# whether the code is right.
+_ET = timezone(timedelta(hours=-4))
+_NOW_ET = datetime.now(_ET)
+#: A close that has already happened, and the next open still ahead of it.
+CLOSE = (_NOW_ET - timedelta(hours=2)).isoformat(sep=" ")
+OPEN = (_NOW_ET + timedelta(hours=17)).isoformat(sep=" ")
 
 
 def session(**over) -> dict:

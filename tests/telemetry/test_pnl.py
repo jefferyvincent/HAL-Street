@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from halstreet.agent.ledger import Ledger
+from halstreet.agent.hippocampus.ledger import Ledger
 from halstreet.execution.structures import iron_condor, vertical
 from halstreet.telemetry import pnl
 from halstreet.telemetry.journal import Journal

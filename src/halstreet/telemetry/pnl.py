@@ -31,7 +31,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
 
-from halstreet.agent.ledger import Ledger, OpenStructure
+from halstreet.agent.hippocampus.ledger import Ledger, OpenStructure
 from halstreet.telemetry.journal import Journal
 
 

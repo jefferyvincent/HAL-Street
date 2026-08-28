@@ -15,7 +15,7 @@ from decimal import Decimal
 import pytest
 
 from halstreet import paths
-from halstreet.agent.ledger import Ledger
+from halstreet.agent.hippocampus.ledger import Ledger
 from halstreet.telemetry import pnl
 from halstreet.telemetry.journal import Journal
 

@@ -26,7 +26,7 @@ stupid; it still cannot put on an undefined-risk position or exceed a per-underl
 | Options trading | Defined-risk multi-leg structures only — put/call credit spreads and iron condors. Calendars and diagonals are excluded by construction: `defined_risk_only` and Alpaca's 4-leg ceiling between them rule out everything wider. | `strategy/` |
 | Paper trading environment | `ALPACA_ENV=paper` enforced at startup; a gate refuses to run against live keys | `gates/` |
 | Demonstrable P&L | Per-trade and cumulative P&L journal, exportable for the demo | `telemetry/` |
-| Fresh account, $100k balance | Enforced by preflight; judged run refuses a dirty account | `scripts/preflight.py` |
+| Fresh account, $100k balance | Enforced by preflight; judged run refuses a dirty account | `src/halstreet/execution/preflight.py` |
 | One-page write-up | AI logic / risk gates / Alpaca infrastructure | `docs/WRITEUP.md` |
 | Build in public (extra) | Five-post plan, links logged as you go | `docs/BUILD-IN-PUBLIC.md` |
 
@@ -61,7 +61,11 @@ probabilistic. Everything below it is auditable.
 
 ```
 src/halstreet/
-  agent/        LLM loop, prompt construction, proposal schema
+  agent/        the agent, by brain region (HAL's naming)
+    cortex/       the model: proposal writer, committee, response schema
+    cerebellum/   the cycle, and the exit policy
+    brainstem/    schedule, single-instance lock, circuit breaker
+    hippocampus/  the structure ledger, and reading a soak back
   gates/        deterministic risk gates — the safety layer
   strategy/     structure construction, and the six-term ranking that orders them
   marketdata/   chains, quotes, IV, greeks
@@ -199,7 +203,7 @@ run from starting early. See [docs/COMPETITION-ACCOUNT.md](docs/COMPETITION-ACCO
 
 `./start.sh` refuses to launch on a non-paper `ALPACA_ENV` or a live `AK…` key before it does
 anything else; the Python path asserts the same at every order. The underlying commands are
-`python -m halstreet.agent.run` and `python -m scripts.preflight` if you would rather call them
+`python -m halstreet.agent.run` and `python -m halstreet.cli.preflight` if you would rather call them
 directly — the launcher exists to put `uv` on `PATH` for the MCP subprocess and to tee to
 `var/log/halstreet.log`.
 

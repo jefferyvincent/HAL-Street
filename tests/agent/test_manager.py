@@ -12,8 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from halstreet.agent.ledger import Ledger, OpenStructure
-from halstreet.agent.manager import (
+from halstreet.agent.cerebellum.manager import (
     Action,
     ExitPolicy,
     closing_order,
@@ -22,6 +21,7 @@ from halstreet.agent.manager import (
     mark_structure,
     review,
 )
+from halstreet.agent.hippocampus.ledger import Ledger, OpenStructure
 from halstreet.execution.structures import iron_condor, vertical
 
 TODAY = date(2026, 8, 26)
@@ -207,7 +207,7 @@ def test_friction_is_priced_per_leg_not_per_structure():
     # Comparing that lump against one structure's per-contract max gain overstated
     # friction roughly 4x on a condor, and the agent declined trades on the strength
     # of it.
-    from halstreet.agent.manager import FRICTION_PER_LEG_USD, round_trip_cost
+    from halstreet.agent.cerebellum.manager import FRICTION_PER_LEG_USD, round_trip_cost
     assert round_trip_cost(2) == FRICTION_PER_LEG_USD * 2      # ~$15 a spread
     assert round_trip_cost(4) == FRICTION_PER_LEG_USD * 4      # ~$30 a condor
     assert round_trip_cost(4, qty=10) == round_trip_cost(4) * 10
@@ -278,7 +278,7 @@ def test_exit_review_consults_no_gates():
     """
     import inspect
 
-    from halstreet.agent import manager
+    from halstreet.agent.cerebellum import manager
     source = inspect.getsource(manager)
     assert "from halstreet.gates" not in source
     assert "evaluate(" not in source

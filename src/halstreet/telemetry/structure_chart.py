@@ -24,8 +24,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from halstreet.agent.ledger import Ledger, OpenStructure
-from halstreet.agent.manager import ExitPolicy, exit_levels
+from halstreet.agent.cerebellum.manager import ExitPolicy, exit_levels
+from halstreet.agent.hippocampus.ledger import Ledger, OpenStructure
 
 #: How far back to chart. A structure is opened inside the scan window, so this covers
 #: its whole life with room for the run-up that preceded it.

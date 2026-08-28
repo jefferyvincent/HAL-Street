@@ -17,10 +17,10 @@ from decimal import Decimal
 
 import pytest
 
-from halstreet.agent.breaker import CircuitState
-from halstreet.agent.ledger import Ledger, OpenStructure
-from halstreet.agent.loop import Agent
-from halstreet.agent.manager import ExitPolicy
+from halstreet.agent.brainstem.breaker import CircuitState
+from halstreet.agent.cerebellum.loop import Agent
+from halstreet.agent.cerebellum.manager import ExitPolicy
+from halstreet.agent.hippocampus.ledger import Ledger, OpenStructure
 from halstreet.execution.mcp_client import MCPError
 from halstreet.gates.base import Limits
 from halstreet.telemetry.journal import Journal

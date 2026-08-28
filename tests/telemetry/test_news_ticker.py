@@ -163,7 +163,7 @@ def test_the_agent_writes_the_feed_and_not_only_its_length():
     two answer different questions and both are cheap."""
     from pathlib import Path
 
-    source = Path("src/halstreet/agent/loop.py").read_text()
+    source = Path("src/halstreet/agent/cerebellum/loop.py").read_text()
     assert "session.feed = [h.to_ticker() for h in headlines]" in source
     assert "session.headlines = len(headlines)" in source
 

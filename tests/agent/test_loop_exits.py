@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from halstreet.agent.ledger import Ledger
-from halstreet.agent.loop import Agent
-from halstreet.agent.manager import Action, ExitPolicy
+from halstreet.agent.cerebellum.loop import Agent
+from halstreet.agent.cerebellum.manager import Action, ExitPolicy
+from halstreet.agent.hippocampus.ledger import Ledger
 from halstreet.execution.mcp_client import MCPError
 from halstreet.execution.structures import iron_condor
 from halstreet.gates.base import Limits

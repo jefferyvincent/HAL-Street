@@ -13,8 +13,8 @@ from decimal import Decimal
 
 import pytest
 
-from halstreet.agent.ledger import Ledger, OpenStructure
-from halstreet.agent.manager import ExitPolicy, exit_levels
+from halstreet.agent.cerebellum.manager import ExitPolicy, exit_levels
+from halstreet.agent.hippocampus.ledger import Ledger, OpenStructure
 from halstreet.telemetry import server, structure_chart
 
 SHORT, LONG = "QQQ261016C00755000", "QQQ261016C00765000"

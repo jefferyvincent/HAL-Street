@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from halstreet.agent.ledger import Ledger
+from halstreet.agent.hippocampus.ledger import Ledger
 from halstreet.execution.structures import iron_condor, vertical
 
 C765 = "SPY261016C00765000"
@@ -180,7 +180,7 @@ def test_opening_a_structure_is_durable_immediately(tmp_path):
     # An order accepted by the broker with no ledger record is an untracked position:
     # reconciliation reports it as a divergence forever and nothing knows when to
     # close it. Durability must not depend on the caller remembering to save.
-    from halstreet.agent.ledger import Ledger
+    from halstreet.agent.hippocampus.ledger import Ledger
     path = tmp_path / "ledger.json"
     led = Ledger.load(path)
     led.record_open(_spread(), "SPY", structure_id="abc123",
@@ -191,7 +191,7 @@ def test_opening_a_structure_is_durable_immediately(tmp_path):
 def test_closing_a_structure_is_durable_immediately(tmp_path):
     # Mirrored: a structure whose closing order was accepted must not come back as
     # open after a restart, or the next cycle tries to close it a second time.
-    from halstreet.agent.ledger import Ledger
+    from halstreet.agent.hippocampus.ledger import Ledger
     path = tmp_path / "ledger.json"
     led = Ledger.load(path)
     led.record_open(_spread(), "SPY", structure_id="abc123",
@@ -214,7 +214,7 @@ def test_a_fill_price_replaces_the_provisional_limit(tmp_path):
     # number available is the limit. Limits and fills differ, and always in the
     # direction that flatters the ledger — a limit is the worst price you were willing
     # to take. The first live round trip: limit -1.59, fill -1.60.
-    from halstreet.agent.ledger import Ledger
+    from halstreet.agent.hippocampus.ledger import Ledger
     path = tmp_path / "ledger.json"
     led = Ledger.load(path)
     led.record_open(_spread(), "QQQ", structure_id="s1",
@@ -225,7 +225,7 @@ def test_a_fill_price_replaces_the_provisional_limit(tmp_path):
 
 def test_an_unchanged_fill_is_not_reported_as_a_correction(tmp_path):
     # The caller journals on True, so a no-op must not manufacture a record.
-    from halstreet.agent.ledger import Ledger
+    from halstreet.agent.hippocampus.ledger import Ledger
     led = Ledger.load(tmp_path / "ledger.json")
     led.record_open(_spread(), "QQQ", structure_id="s1",
                     entry_price=Decimal("-1.60"), order_id="o-1")
@@ -233,6 +233,6 @@ def test_an_unchanged_fill_is_not_reported_as_a_correction(tmp_path):
 
 
 def test_a_fill_for_an_unknown_structure_is_ignored(tmp_path):
-    from halstreet.agent.ledger import Ledger
+    from halstreet.agent.hippocampus.ledger import Ledger
     led = Ledger.load(tmp_path / "ledger.json")
     assert led.record_fill("nope", Decimal("-1.60")) is False

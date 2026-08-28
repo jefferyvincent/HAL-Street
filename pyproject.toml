@@ -82,7 +82,7 @@ ignore = [
 # The system prompt lives in this file verbatim. Reflowing it would change the prompt
 # and invalidate the ~1,592-token cached prefix — the line length is the prompt's, not
 # the code's.
-"src/halstreet/agent/llm.py" = ["E501"]
+"src/halstreet/agent/cortex/llm.py" = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

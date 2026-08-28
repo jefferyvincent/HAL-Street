@@ -138,5 +138,5 @@ def test_a_rehearsed_approval_still_links_to_no_position():
 def test_the_agent_stamps_its_own_mode_on_the_decision():
     from pathlib import Path
 
-    source = Path("src/halstreet/agent/loop.py").read_text()
+    source = Path("src/halstreet/agent/cerebellum/loop.py").read_text()
     assert "self.journal.decision(decision, dry_run=self.dry_run)" in source

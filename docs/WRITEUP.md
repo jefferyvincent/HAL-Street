@@ -213,7 +213,7 @@ outright.
 **Gates are deterministic Python.** No model call, no network, no clock beyond an injected date,
 and nothing the agent can rewrite at runtime. Every gate has a test proving it **rejects**, which
 is the only kind of test that shows a safety layer is load-bearing rather than decorative.
-1230 tests, and the per-gate rejection count for the window is in Results below — generated from
+1431 tests, and the per-gate rejection count for the window is in Results below — generated from
 the journal rather than asserted here, because a safety layer's own write-up is the last place a
 number should be taken on trust. Coverage is not the standard used: a test is accepted when the
 defect it names, planted back into the source, actually makes it fail.
@@ -257,8 +257,8 @@ real keys. Two things that survey came back with:
   overstated friction roughly 4× and had the agent declining trades it should have taken.
 
 **Account.** A brand-new dedicated paper account, starting balance $100,000, never used for
-anything else. `scripts/preflight.py` refuses to run against an account that is not fresh at
-$100,000, and the judged run reads `COMP_ALPACA_*` credentials where a dev run reads `ALPACA_*`,
+anything else. `halstreet/execution/preflight.py` refuses to run against an account that is not fresh
+at $100,000, and the judged run reads `COMP_ALPACA_*` credentials where a dev run reads `ALPACA_*`,
 with no fallback between them — pointing the dev config at the competition account "just to test
 something" is the mistake that ends a competition entry, so it is made structurally impossible
 rather than discouraged. The separation is the variable name, not a second config file: one `.env`

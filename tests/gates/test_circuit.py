@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal
 
-from halstreet.agent.breaker import CircuitState
+from halstreet.agent.brainstem.breaker import CircuitState
 from halstreet.execution.structures import Leg, PositionIntent, Side, Structure
 from halstreet.gates import ALL_GATES, evaluate
 from halstreet.gates.base import GateContext, Limits, Proposal

@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from halstreet.agent.schedule import MarketClock, Scheduler
+from halstreet.agent.brainstem.schedule import MarketClock, Scheduler
 from halstreet.execution.mcp_client import MCPError
 
 NOW = datetime(2026, 8, 26, 13, 45, tzinfo=UTC)
@@ -90,7 +90,7 @@ def test_market_hours_come_from_the_broker_not_the_local_clock():
     """A local datetime knows nothing about holidays or early closes."""
     import inspect
 
-    from halstreet.agent import schedule
+    from halstreet.agent.brainstem import schedule
     source = inspect.getsource(schedule.Scheduler.run)
     assert "market_clock" in source
     assert "weekday" not in source and "hour" not in source
@@ -256,7 +256,7 @@ def _clock(is_open: bool):
 
 
 def _sched(journal):
-    from halstreet.agent.schedule import Scheduler
+    from halstreet.agent.brainstem.schedule import Scheduler
     return Scheduler(client=None, interval_minutes=30, log=lambda _: None, journal=journal)
 
 
@@ -295,6 +295,6 @@ def test_the_bell_carries_the_exchanges_own_date_and_the_next_boundary():
 def test_a_scheduler_with_no_journal_still_runs():
     # Headless is the default; the journal is an optional observer, never a
     # dependency of the loop that trades.
-    from halstreet.agent.schedule import Scheduler
+    from halstreet.agent.brainstem.schedule import Scheduler
     s = Scheduler(client=None, interval_minutes=30, log=lambda _: None)
     s._note_session(_clock(True))  # must not raise

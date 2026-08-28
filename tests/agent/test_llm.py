@@ -14,8 +14,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from halstreet.agent.llm import LLMResult, ProposalWriter, response_schema
-from halstreet.agent.proposal import parse_proposal
+from halstreet.agent.cortex.llm import LLMResult, ProposalWriter, response_schema
+from halstreet.agent.cortex.proposal import parse_proposal
 from halstreet.gates.base import Limits
 from tests.support import StreamingOnly
 
@@ -167,7 +167,7 @@ def test_request_uses_opus_5_structured_output_and_a_cache_breakpoint():
 
 
 def test_system_prompt_states_the_gates_are_unreachable():
-    from halstreet.agent.llm import SYSTEM_PROMPT
+    from halstreet.agent.cortex.llm import SYSTEM_PROMPT
     assert "cannot affect" in SYSTEM_PROMPT
     assert "Defined risk only" in SYSTEM_PROMPT
     assert "untrusted" in SYSTEM_PROMPT
@@ -263,7 +263,7 @@ def test_a_good_first_answer_is_not_retried():
 
 
 def test_system_prompt_calls_the_leg_ceiling_absolute():
-    from halstreet.agent.llm import SYSTEM_PROMPT
+    from halstreet.agent.cortex.llm import SYSTEM_PROMPT
     assert "At most 4 legs. This is absolute." in SYSTEM_PROMPT
     assert "two condors is eight legs" in SYSTEM_PROMPT
 
@@ -278,7 +278,7 @@ def test_system_prompt_is_long_enough_to_actually_cache():
     at zero every cycle. A rough 3.5-chars-per-token floor keeps this honest without
     needing a network call in the test suite.
     """
-    from halstreet.agent.llm import SYSTEM_PROMPT
+    from halstreet.agent.cortex.llm import SYSTEM_PROMPT
     assert len(SYSTEM_PROMPT) / 3.5 > 1100, (
         f"system prompt is ~{len(SYSTEM_PROMPT)/3.5:.0f} tokens; under ~1024 it will "
         "not cache and the breakpoint is decorative"
@@ -291,7 +291,7 @@ def test_every_gate_in_the_chain_is_named_in_the_system_prompt():
     A gate added without documenting it here means the model gets rejected by a rule
     it was never told about.
     """
-    from halstreet.agent.llm import SYSTEM_PROMPT
+    from halstreet.agent.cortex.llm import SYSTEM_PROMPT
     from halstreet.gates import ALL_GATES
     for g in ALL_GATES:
         name = g.gate_name
@@ -299,7 +299,7 @@ def test_every_gate_in_the_chain_is_named_in_the_system_prompt():
 
 
 def test_the_catalogue_states_the_fail_closed_rule():
-    from halstreet.agent.llm import SYSTEM_PROMPT
+    from halstreet.agent.cortex.llm import SYSTEM_PROMPT
     assert "fails **closed**" in SYSTEM_PROMPT
 
 
@@ -374,7 +374,7 @@ def test_the_prompt_states_every_limit_the_gates_enforce_on_a_proposal():
     Not every limit belongs here: a daily-loss halt or an entry-rate throttle is not
     something a proposal can be written to avoid. These are the ones that are.
     """
-    from halstreet.agent.llm import _limits_view
+    from halstreet.agent.cortex.llm import _limits_view
     from halstreet.gates.base import Limits
 
     shown = set(_limits_view(Limits(), underlying="SPY", positions=[]))
@@ -393,8 +393,8 @@ def test_the_stated_max_qty_is_the_one_the_gate_actually_allows():
     agent proposes trades it cannot make — which reads as a broken model and is not
     — or leaves size on the table it was entitled to.
     """
-    from halstreet.agent.llm import max_qty_for
-    from halstreet.agent.proposal import parse_proposal
+    from halstreet.agent.cortex.llm import max_qty_for
+    from halstreet.agent.cortex.proposal import parse_proposal
     from halstreet.gates.base import GateContext, Limits
     from halstreet.gates.portfolio import underlying_concentration
 
@@ -421,7 +421,7 @@ def test_the_stated_max_qty_is_the_one_the_gate_actually_allows():
 def test_holding_contracts_lowers_the_size_the_model_is_offered():
     # The reason this is computed rather than described: the cap depends on the book,
     # so a static sentence in the prompt would be wrong as soon as anything is open.
-    from halstreet.agent.llm import max_qty_for
+    from halstreet.agent.cortex.llm import max_qty_for
     from halstreet.gates.base import Limits
 
     held = [{"symbol": "SPY261016C00765000", "qty": "-1"},
@@ -435,14 +435,14 @@ def test_a_disabled_concentration_cap_offers_no_size_rather_than_unlimited():
     # "unlimited" would be inventing permission out of an absent rule.
     from dataclasses import replace
 
-    from halstreet.agent.llm import max_qty_for
+    from halstreet.agent.cortex.llm import max_qty_for
     from halstreet.gates.base import Limits
 
     assert max_qty_for("SPY", [], replace(Limits(), max_positions_per_underlying=0)) == 0
 
 
 def test_the_size_note_reaches_the_turn_the_model_reads():
-    from halstreet.agent.llm import ProposalWriter
+    from halstreet.agent.cortex.llm import ProposalWriter
     turn = ProposalWriter.build_user_turn(
         object(), underlying="IWM", spot="298", candidates=[{"name": "x"}],
         account={"equity": "100000"}, positions=[], limits=__import__(
@@ -472,5 +472,5 @@ def test_the_prompt_names_the_cap_that_bites_a_discovered_universe():
     second, looser cap — so the paragraph the model reads to avoid a rejection
     described the half of the gate it now meets least.
     """
-    from halstreet.agent.llm import SYSTEM_PROMPT
+    from halstreet.agent.cortex.llm import SYSTEM_PROMPT
     assert "unclassified" in SYSTEM_PROMPT.lower()

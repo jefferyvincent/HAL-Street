@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from halstreet.agent.lock import AlreadyRunning, JournalLock
+from halstreet.agent.brainstem.lock import AlreadyRunning, JournalLock
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -105,7 +105,7 @@ def test_a_dead_holder_leaves_nothing_to_clean_up(tmp_path):
     path = tmp_path / "run.jsonl"
     code = (
         f"import sys; sys.path.insert(0, {str(ROOT / 'src')!r})\n"
-        "from halstreet.agent.lock import JournalLock\n"
+        "from halstreet.agent.brainstem.lock import JournalLock\n"
         f"JournalLock({str(path)!r}).acquire()\n"
         "import os; os._exit(9)\n"
     )

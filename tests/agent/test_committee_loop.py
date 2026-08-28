@@ -16,11 +16,11 @@ from decimal import Decimal
 
 import pytest
 
-from halstreet.agent import committee as C
-from halstreet.agent.breaker import CircuitState
-from halstreet.agent.ledger import Ledger
-from halstreet.agent.loop import Agent
-from halstreet.agent.manager import ExitPolicy
+from halstreet.agent.brainstem.breaker import CircuitState
+from halstreet.agent.cerebellum.loop import Agent
+from halstreet.agent.cerebellum.manager import ExitPolicy
+from halstreet.agent.cortex import committee as C
+from halstreet.agent.hippocampus.ledger import Ledger
 from halstreet.gates.base import Limits
 from halstreet.marketdata.news import Headline
 from halstreet.telemetry.journal import Journal
@@ -70,7 +70,7 @@ class _Recorder:
         self.order.append("judge")
         self.seen["judge_system"] = system
         self.seen["judge_brief"] = brief
-        from halstreet.agent.llm import LLMResult
+        from halstreet.agent.cortex.llm import LLMResult
         return (self._judge or LLMResult(None, error="scripted")), \
                {"in": 400, "out": 40, "cache_read": 7}
 
@@ -274,7 +274,7 @@ async def test_closed_trades_on_this_underlying_reach_the_judge(harness, tmp_pat
     ledger here rather than a stub, because the arithmetic that turns two net prices
     into a realized figure is the part worth getting in front of a judge correctly.
     """
-    from halstreet.agent.ledger import OpenStructure
+    from halstreet.agent.hippocampus.ledger import OpenStructure
 
     ledger = Ledger.load(tmp_path / "reflect.json")
     ledger.structures.extend([

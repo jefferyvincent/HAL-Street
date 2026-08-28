@@ -42,7 +42,7 @@ from decimal import Decimal, InvalidOperation
 from enum import Enum
 
 from halstreet import clock
-from halstreet.agent.ledger import Ledger, OpenStructure
+from halstreet.agent.hippocampus.ledger import Ledger, OpenStructure
 from halstreet.execution.structures import (
     Leg,
     PositionIntent,

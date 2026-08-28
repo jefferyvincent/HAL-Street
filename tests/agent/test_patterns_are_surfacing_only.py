@@ -23,7 +23,7 @@ SRC = Path(__file__).resolve().parents[2] / "src" / "halstreet"
 
 #: Everything that decides whether to trade, how much, or when to get out.
 DECIDERS = [
-    SRC / "agent" / "manager.py",        # the exit policy
+    SRC / "agent" / "cerebellum" / "manager.py",   # the exit policy
     SRC / "gates" / "base.py",
     SRC / "gates" / "contract.py",
     SRC / "gates" / "liquidity.py",
@@ -74,14 +74,15 @@ def test_the_exit_decision_reads_only_arithmetic():
     """
     import inspect
 
-    from halstreet.agent.manager import evaluate_exit
+    from halstreet.agent.cerebellum.manager import evaluate_exit
     params = set(inspect.signature(evaluate_exit).parameters)
     assert params == {"structure", "chain", "policy", "asof"}
 
 
 def test_patterns_reach_the_journal_and_the_panel_and_stop_there():
     # The two places that are allowed to know: the record, and the screen.
-    assert "patterns" in _imports(SRC / "agent" / "loop.py") or True  # loop computes them
+    # the loop computes them
+    assert "patterns" in _imports(SRC / "agent" / "cerebellum" / "loop.py") or True
     from halstreet.telemetry import server
     assert hasattr(server, "_pattern_read"), "the panel is where this is for"
 

@@ -12,8 +12,8 @@ from decimal import Decimal
 
 import pytest
 
-from halstreet.agent.ledger import OpenStructure
-from halstreet.agent.manager import ExitPolicy
+from halstreet.agent.cerebellum.manager import ExitPolicy
+from halstreet.agent.hippocampus.ledger import OpenStructure
 from halstreet.telemetry import structure_chart
 from halstreet.telemetry.server import _legs_view
 

@@ -15,14 +15,14 @@ from datetime import datetime
 
 from halstreet import clock as session_clock
 from halstreet import paths
-from halstreet.agent import committee as committee_mod
-from halstreet.agent.breaker import CircuitState
-from halstreet.agent.ledger import Ledger
-from halstreet.agent.llm import ProposalWriter
-from halstreet.agent.lock import AlreadyRunning, JournalLock
-from halstreet.agent.loop import Agent
-from halstreet.agent.manager import ExitPolicy
-from halstreet.agent.schedule import Scheduler, market_clock
+from halstreet.agent.brainstem.breaker import CircuitState
+from halstreet.agent.brainstem.lock import AlreadyRunning, JournalLock
+from halstreet.agent.brainstem.schedule import Scheduler, market_clock
+from halstreet.agent.cerebellum.loop import Agent
+from halstreet.agent.cerebellum.manager import ExitPolicy
+from halstreet.agent.cortex import committee as committee_mod
+from halstreet.agent.cortex.llm import ProposalWriter
+from halstreet.agent.hippocampus.ledger import Ledger
 from halstreet.config import ConfigError, load_env
 from halstreet.execution.mcp_client import AlpacaMCP
 from halstreet.execution.paper_assert import LiveEnvironmentError

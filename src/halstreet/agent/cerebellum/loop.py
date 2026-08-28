@@ -31,17 +31,17 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from halstreet import clock
-from halstreet.agent.breaker import CircuitState
-from halstreet.agent.committee import Committee, Session, brief, reflection
-from halstreet.agent.ledger import Ledger
-from halstreet.agent.llm import ProposalWriter
-from halstreet.agent.manager import (
+from halstreet.agent.brainstem.breaker import CircuitState
+from halstreet.agent.cerebellum.manager import (
     Action,
     ExitDecision,
     ExitPolicy,
     closing_order,
     review,
 )
+from halstreet.agent.cortex.committee import Committee, Session, brief, reflection
+from halstreet.agent.cortex.llm import ProposalWriter
+from halstreet.agent.hippocampus.ledger import Ledger
 from halstreet.execution.fills import leg_fills
 from halstreet.execution.mcp_client import AlpacaMCP, MCPError
 from halstreet.execution.paper_assert import LiveEnvironmentError

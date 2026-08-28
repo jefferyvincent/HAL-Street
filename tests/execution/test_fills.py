@@ -17,8 +17,8 @@ from decimal import Decimal
 
 import pytest
 
-from halstreet.agent.ledger import Ledger, OpenStructure
-from halstreet.agent.manager import mark_legs, mark_structure
+from halstreet.agent.cerebellum.manager import mark_legs, mark_structure
+from halstreet.agent.hippocampus.ledger import Ledger, OpenStructure
 from halstreet.execution.fills import leg_fills
 
 SHORT = "QQQ261016C00765000"

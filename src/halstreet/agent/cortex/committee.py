@@ -58,14 +58,14 @@ from typing import Any
 
 import anthropic
 
-from halstreet.agent.llm import (
+from halstreet.agent.cortex.llm import (
     DEFAULT_EFFORT,
     DEFAULT_MODEL,
     LLMResult,
     explain_the_pass,
     parse_proposal,
 )
-from halstreet.agent.llm import response_schema as proposal_schema
+from halstreet.agent.cortex.llm import response_schema as proposal_schema
 from halstreet.marketdata.news import Headline
 
 #: A short read, not an essay. These are inputs to a judge, not the output.

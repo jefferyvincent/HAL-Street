@@ -317,7 +317,7 @@ def test_the_headline_unrealized_matches_the_number_beside_the_position(tmp_path
     """
     from decimal import Decimal
 
-    from halstreet.agent.ledger import Ledger, OpenStructure
+    from halstreet.agent.hippocampus.ledger import Ledger, OpenStructure
 
     ledger = Ledger.load(tmp_path / "ledger.json")
     ledger.structures.append(OpenStructure(
@@ -362,7 +362,7 @@ def test_a_position_the_agent_has_not_priced_yet_reports_nothing(tmp_path):
     # panel says "not yet priced" for one of them.
     from decimal import Decimal
 
-    from halstreet.agent.ledger import Ledger, OpenStructure
+    from halstreet.agent.hippocampus.ledger import Ledger, OpenStructure
 
     ledger = Ledger.load(tmp_path / "ledger.json")
     ledger.structures.append(OpenStructure(
@@ -457,7 +457,7 @@ def test_a_broker_failure_leaves_the_panel_its_last_known_number(tmp_path, monke
     import asyncio
     from decimal import Decimal
 
-    from halstreet.agent.ledger import Ledger, OpenStructure
+    from halstreet.agent.hippocampus.ledger import Ledger, OpenStructure
 
     ledger = Ledger.load(tmp_path / "ledger.json")
     ledger.structures.append(OpenStructure(
@@ -486,7 +486,7 @@ def test_a_structure_that_cannot_be_fully_priced_reports_the_missing_legs(monkey
     import asyncio
     from decimal import Decimal
 
-    from halstreet.agent.ledger import Ledger, OpenStructure
+    from halstreet.agent.hippocampus.ledger import Ledger, OpenStructure
 
     ledger = Ledger.load(tmp_path / "ledger.json")
     ledger.structures.append(OpenStructure(

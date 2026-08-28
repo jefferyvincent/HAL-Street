@@ -124,26 +124,26 @@ fi
 
 case "$MODE" in
   verify)
-    run .venv/bin/python -m scripts.verify_multileg --env "$ENV_NAME" "${ARGS[@]}"
+    run .venv/bin/python -m halstreet.cli.verify --env "$ENV_NAME" "${ARGS[@]}"
     ;;
   preflight)
-    run .venv/bin/python -m scripts.preflight --env "$ENV_NAME" "${ARGS[@]}"
+    run .venv/bin/python -m halstreet.cli.preflight --env "$ENV_NAME" "${ARGS[@]}"
     ;;
   test)
     run .venv/bin/python -m pytest tests -v "${ARGS[@]}"
     ;;
   report)
-    run .venv/bin/python -m scripts.report --env "$ENV_NAME" "${ARGS[@]}"
+    run .venv/bin/python -m halstreet.cli.report --env "$ENV_NAME" "${ARGS[@]}"
     ;;
   soak)
     # A whole session, then a report of which lifecycle events the run actually
     # reached. The offline equivalent is tests/agent/test_soak.py.
-    run .venv/bin/python scripts/soak.py --env "$ENV_NAME" "${ARGS[@]}"
+    run .venv/bin/python -m halstreet.cli.soak --env "$ENV_NAME" "${ARGS[@]}"
     ;;
   panel)
     # Read-only telemetry view over the journal, ledger and circuit state. Safe to
     # start and stop mid-run; it holds no state and cannot reach the broker.
-    run .venv/bin/python scripts/panel.py "${ARGS[@]}"
+    run .venv/bin/python -m halstreet.cli.panel "${ARGS[@]}"
     ;;
   loop)
     run .venv/bin/python -m halstreet.agent.run --env "$ENV_NAME" "${ARGS[@]}"

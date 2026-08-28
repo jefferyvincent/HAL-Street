@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from halstreet.agent import committee as C
+from halstreet.agent.cortex import committee as C
 from halstreet.marketdata.news import Headline
 from tests.support import StreamingOnly
 
@@ -97,7 +97,8 @@ def test_the_news_is_read_on_the_committee_path_and_nowhere_else():
     the shared path this test fails, and that would be good news worth noticing rather
     than a regression.
     """
-    tree = ast.parse(Path(C.__file__).parent.joinpath("loop.py").read_text())
+    tree = ast.parse(
+        Path(C.__file__).parents[1].joinpath("cerebellum", "loop.py").read_text())
     callers = {
         fn.name
         for fn in ast.walk(tree)
@@ -549,7 +550,7 @@ def test_the_judge_runs_under_the_real_system_prompt_plus_a_suffix():
     A second copy of the rules is a second thing to update when a gate is added, and
     the sixteenth gate is exactly the kind of change that would update one of them.
     """
-    from halstreet.agent.llm import ProposalWriter
+    from halstreet.agent.cortex.llm import ProposalWriter
     client = _Scripted(_ok(json.dumps(_GOOD_PROPOSAL)))
     real = ProposalWriter.__init__.__globals__["SYSTEM_PROMPT"]
     C.Committee(client).judge(system=real, brief="evidence")
@@ -691,7 +692,7 @@ def test_the_desk_record_reaches_the_judge_as_outcomes(monkeypatch):
 
 
 def test_from_env_reads_the_model_and_effort_and_falls_back(monkeypatch):
-    from halstreet.agent.llm import DEFAULT_EFFORT, DEFAULT_MODEL
+    from halstreet.agent.cortex.llm import DEFAULT_EFFORT, DEFAULT_MODEL
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key-not-real")
     monkeypatch.delenv("LLM_API_KEY", raising=False)
 

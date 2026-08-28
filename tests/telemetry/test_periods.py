@@ -17,7 +17,7 @@ from decimal import Decimal
 
 import pytest
 
-from halstreet.agent.ledger import Ledger, OpenStructure
+from halstreet.agent.hippocampus.ledger import Ledger, OpenStructure
 from halstreet.telemetry import pnl
 
 TODAY = date(2026, 8, 27)          # a Thursday

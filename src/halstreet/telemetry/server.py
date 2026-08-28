@@ -35,14 +35,14 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from halstreet import clock, paths
-from halstreet.agent.breaker import CircuitState
-from halstreet.agent.ledger import Ledger
-from halstreet.agent.manager import (
+from halstreet.agent.brainstem.breaker import CircuitState
+from halstreet.agent.cerebellum.manager import (
     CONTRACT_MULTIPLIER,
     ExitPolicy,
     mark_legs,
     mark_structure,
 )
+from halstreet.agent.hippocampus.ledger import Ledger
 from halstreet.gates import ALL_GATES
 from halstreet.gates.base import FAMILIES, Limits, family_of
 from halstreet.marketdata.discovery import MAX_TAGS_PER_HEADLINE

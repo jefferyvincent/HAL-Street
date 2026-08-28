@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from decimal import Decimal
 
-from halstreet.agent.proposal import SCHEMA, parse_proposal
+from halstreet.agent.cortex.proposal import SCHEMA, parse_proposal
 
 GOOD = {
     "underlying": "SPY",

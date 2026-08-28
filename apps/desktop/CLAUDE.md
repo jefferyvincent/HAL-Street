@@ -105,3 +105,59 @@ each looked like an edge case and each turned out to be the common one.
 **`npm test` must be green before any piece of work is finished.** Not skipped, not
 commented out, not "failing for an unrelated reason" — green. If a test fails, the
 change is not done, and reporting it as done is worse than not having written it.
+
+## 5. The panel on :8787 is a build artifact
+
+`scripts/panel.py` serves `apps/desktop/dist`. Nothing under `src/` reaches that
+screen until:
+
+```
+cd apps/desktop && npm run build
+```
+
+There is no watcher underneath it. An edit that is obviously correct, typechecks, and
+does not appear is almost always this — a bundle built before the edit, still being
+served, with no error anywhere to say so. It has already cost a debugging session that
+went looking for a CSS fault that did not exist.
+
+For panel work, `npm run dev` puts Vite on `:1420` with hot reload and proxies `/api`
+and `/ws` back to the Python server, which you leave running. Use that. Build `dist`
+when you are done, or the thing you fixed is fixed only on your machine's `:1420`.
+
+## 6. Rendering a shape is not knowing a state
+
+A row that cannot be priced, a reading taken after the close, a list that is empty
+because nothing happened and a list that is empty because the fetch failed — these are
+four different things and the panel says which. `unpriced` is not `$0.00`; "priced 4m
+ago" is not "priced live"; "no proposal has been gated yet" must not appear on a day
+the agent is carrying a live spread.
+
+This is the panel's half of Constitution VII: **"I could not tell" never renders as
+"zero".** The hook decides which of those states it is in and returns it named; the
+component picks a shape per name. A component that infers the state from a falsy value
+has merged two of them.
+
+---
+
+## Working on a change
+
+The method is in the [root CLAUDE.md](../../CLAUDE.md): `/specify` → `/plan` →
+`/tasks` → `/story` → `/implement` → `/qa`, with the
+[constitution](../../.specify/memory/constitution.md) outranking all of it.
+
+What that means on this surface specifically:
+
+- **A spec describes the screen, not the code.** What appears, in which state, with
+  which string key. If a requirement cannot be written as "the reader sees X when Y",
+  it belongs in the Python spec instead.
+- **Every spec covers the empty, null and stale case**, because rule 6 says those are
+  distinct states and a spec that names only the happy one will get a component that
+  merges them.
+- **The plan's Constitution Check runs Article VIII** — new words mean three edits, in
+  order: `en.json`, `constants/strings.ts`, then the component. A plan that adds a
+  label without naming its key is not finished.
+- **A story is done when `npm test` is green and the strings resolve**, not when it
+  renders correctly in one locale.
+
+Skip the ceremony for a class-name tweak, a colour, a comment. Never skip the failing
+test — rule 4 is not softened by the method, it is the method's Article VI.
