@@ -1,12 +1,10 @@
 import { cn } from "@/lib/cn";
-import { ago, clock } from "@/lib/format";
 import { ICON } from "@/constants/icons";
 import { CLS, STROKE } from "@/constants/theme";
 import { Icon } from "@/components/Icon";
 import { Ticker } from "@/components/Ticker";
-import { useCommittee } from "@/hooks/useCommittee";
+import { useCommittee, useCommitteeStatus, type Side } from "@/hooks/useCommittee";
 import { useStrings } from "@/hooks/useStrings";
-import { useConnection } from "@/stores/connection";
 
 /**
  * How each proposal was reached: catalyst, then bull and bear in parallel, then a
@@ -22,10 +20,7 @@ import { useConnection } from "@/stores/connection";
 export function CommitteeView() {
   const t = useStrings();
   const cards = useCommittee();
-  // Whether a cycle is running right now. The committee is the slowest stage in the
-  // system — three model calls deep — so between "nothing here yet" and a finished
-  // card there was a minute of blank screen that read as a broken tab.
-  const busy = useConnection((s) => s.snapshot?.in_flight) ?? null;
+  const status = useCommitteeStatus();
 
   const header = (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border border-line bg-panel px-3 py-[9px]">
@@ -37,14 +32,14 @@ export function CommitteeView() {
         {t.committee.meta(cards.length)}
       </span>
       <span className="flex-1" />
-      {busy ? (
+      {status.busy ? (
         <span className="flex items-center gap-[6px] font-mono text-[10px] font-bold leading-none tracking-[.08em] text-amber">
           <span className={cn(CLS.dot, "animate-pulse bg-amber")} />
-          {busy.underlying ? t.committee.working(busy.underlying) : t.committee.workingAny}
+          {status.label}
         </span>
       ) : (
         <span className="font-mono text-[10px] leading-none text-ink/25">
-          {t.committee.waiting}
+          {status.label}
         </span>
       )}
     </div>
@@ -65,59 +60,62 @@ export function CommitteeView() {
     <div className="mb-3 flex flex-col gap-3">
       {header}
 
-      {cards.map(({ key, session, verdict, gated, missing }, index) => (
+      {cards.map((card, index) => (
         // Newest first, so index 0 is the one that just happened. Ringed rather than
         // merely labelled: the cards are otherwise identical at a glance, and "which
         // of these is new" was the question being asked.
-        <article key={key}
+        <article key={card.key}
                  className={cn("border bg-panel",
                    index === 0 ? "border-amber/60" : "border-edge")}>
           <header className="flex flex-wrap items-center gap-x-[9px] gap-y-1 border-b border-edge px-3 py-[9px]">
-            <Ticker symbol={session.underlying} size="md" />
+            <Ticker symbol={card.underlying} size="md" />
             {index === 0 && (
               <span className="font-mono text-[9px] font-bold leading-none tracking-[.12em] text-amber">
                 {t.committee.latest}
               </span>
             )}
             <span className="font-mono text-[10px] leading-none text-ink/40">
-              {t.committee.headlines(session.headlines)}
+              {card.headlines}
             </span>
             <span className="flex-1" />
             {/* The loud one. A deliberation that ended in an order is a different
                 kind of event from one that ended in a decline, and it was reading
                 as one more grey word at the bottom of the card. */}
-            {gated?.ok && (
+            {card.gated?.ok && (
               <span className="border border-pass/50 px-[6px] py-[3px] font-mono text-[9px] font-bold leading-none tracking-[.1em] text-pass">
                 {t.committee.ordered}
               </span>
             )}
             <span className="font-mono text-[10px] font-bold leading-none tracking-[.1em]"
-                  style={{ color: verdict.tone }}>
-              {verdict.label}
+                  style={{ color: card.verdict.tone }}>
+              {card.verdict.label}
             </span>
             {/* Both, because they answer different questions: "when" and "how long
                 ago". A wall clock alone makes a card from two hours back look as
                 current as one from two minutes back. */}
             <span className="font-mono text-[10px] leading-none text-ink/30 tabular-nums">
-              {clock(session.ts)}
+              {card.time}
             </span>
             <span className="font-mono text-[10px] leading-none text-ink/25">
-              {ago(session.ts)}
+              {card.ago}
             </span>
           </header>
 
           {/* 1. The catalyst: the one genuinely new input. */}
           <Stage label={t.committee.catalyst} tone={STROKE.agent}>
-            {missing.catalyst ? (
-              <Absent text={missing.catalyst} />
+            {card.catalyst.absent ? (
+              <Absent text={card.catalyst.absent} />
             ) : (
               <>
-                <Lean lean={session.catalyst.lean} />
-                <span className="text-ink/35">
-                  {t.committee.confidence(session.catalyst.confidence?.toFixed(2) ?? "—")}
-                </span>
+                {card.catalyst.lean && (
+                  <span className={cn("font-mono text-[11px] font-bold leading-none tracking-[.06em]",
+                    card.catalyst.lean.tone)}>
+                    {card.catalyst.lean.label}
+                  </span>
+                )}
+                <span className="text-ink/35">{card.catalyst.confidence}</span>
                 <p className="mt-[6px] w-full font-sans text-[12px] leading-[1.55] text-ink/65">
-                  {session.catalyst.note}
+                  {card.catalyst.note}
                 </p>
               </>
             )}
@@ -126,21 +124,19 @@ export function CommitteeView() {
           {/* 2. Side by side and at the same depth: they ran concurrently and
                  neither saw the other's case. */}
           <div className="grid gap-px border-b border-edge bg-edge sm:grid-cols-2">
-            <Argument label={t.committee.bull} tone={STROKE.pass}
-                      text={session.bull} absent={missing.bull} />
-            <Argument label={t.committee.bear} tone={STROKE.fail}
-                      text={session.bear} absent={missing.bear} />
+            <Argument label={t.committee.bull} tone={STROKE.pass} side={card.bull} />
+            <Argument label={t.committee.bear} tone={STROKE.fail} side={card.bear} />
           </div>
 
           {/* 3. Outcomes, not opinions — straight from the ledger. */}
           <Stage label={t.committee.reflection} tone={STROKE.muted}>
-            {session.reflection.length === 0 ? (
+            {card.reflection.length === 0 ? (
               <span className="text-ink/35">{t.committee.reflectionEmpty}</span>
             ) : (
               <ul className="w-full">
-                {session.reflection.map((r) => (
-                  <li key={r.structure} className="font-mono text-[11px] leading-[1.5] text-ink/55">
-                    {r.structure} — {r.realized_usd ?? "?"} ({r.outcome})
+                {card.reflection.map((r) => (
+                  <li key={r.key} className="font-mono text-[11px] leading-[1.5] text-ink/55">
+                    {r.text}
                   </li>
                 ))}
               </ul>
@@ -150,25 +146,25 @@ export function CommitteeView() {
           {/* 4. The judge, and then the only thing that can actually stop it. */}
           <Stage label={t.committee.judge} tone={STROKE.amber}>
             <div className="w-full">
-              {session.outcome.error ? (
-                <Absent text={session.outcome.error} />
+              {card.judge.error ? (
+                <Absent text={card.judge.error} />
               ) : (
                 <p className="font-sans text-[12px] leading-[1.55] text-ink/65">
-                  {session.outcome.structure && (
+                  {card.judge.structure && (
                     <span className="mr-2 font-mono text-[11px] font-semibold text-ink">
-                      {session.outcome.structure}
+                      {card.judge.structure}
                     </span>
                   )}
-                  {session.outcome.rationale}
+                  {card.judge.rationale}
                 </p>
               )}
               <div className="mt-[8px] flex flex-wrap items-center gap-2">
                 <span className={cn("font-mono text-[10px] font-bold leading-none tracking-[.08em]",
-                  gated === null ? "text-ink/30" : gated.ok ? "text-pass" : "text-fail")}>
-                  {gated?.label ?? t.committee.ungated}
+                  card.gated === null ? "text-ink/30" : card.gated.ok ? "text-pass" : "text-fail")}>
+                  {card.judge.outcome}
                 </span>
                 <span className="font-mono text-[10px] leading-none text-ink/25">
-                  {t.committee.tokens(session.tokens.out ?? 0)}
+                  {card.judge.tokens}
                 </span>
               </div>
             </div>
@@ -181,12 +177,12 @@ export function CommitteeView() {
           <Stage label={t.committee.cost} tone={STROKE.muted} last>
             <div className="w-full">
               <div className="flex flex-wrap gap-x-4 gap-y-1">
-                {Object.entries(session.stages ?? {}).map(([stage, spend]) => (
-                  <span key={stage} className="font-mono text-[10px] leading-none text-ink/45 tabular-nums">
-                    <span className="text-ink/70">{stage}</span>{" "}
-                    {spend.in.toLocaleString()}/{spend.out.toLocaleString()}
-                    {spend.model && (
-                      <span className="text-ink/25"> · {spend.model}</span>
+                {card.stages.map((s) => (
+                  <span key={s.key} className="font-mono text-[10px] leading-none text-ink/45 tabular-nums">
+                    <span className="text-ink/70">{s.stage}</span>{" "}
+                    {s.spend}
+                    {s.model && (
+                      <span className="text-ink/25"> {t.committee.stageModel(s.model)}</span>
                     )}
                   </span>
                 ))}
@@ -222,31 +218,17 @@ function Stage({ label, tone, children, last = false }: {
   );
 }
 
-function Argument({ label, tone, text, absent }: {
-  label: string; tone: string; text: string; absent: string | null;
-}) {
+function Argument({ label, tone, side }: { label: string; tone: string; side: Side }) {
   return (
     <div className="min-w-0 bg-panel px-3 py-[10px]">
       <div className="mb-[6px] font-mono text-[9px] font-bold leading-none tracking-[.12em]"
            style={{ color: tone }}>
         {label}
       </div>
-      {absent ? <Absent text={absent} /> : (
-        <p className="font-sans text-[12px] leading-[1.55] text-ink/65">{text}</p>
+      {side.absent ? <Absent text={side.absent} /> : (
+        <p className="font-sans text-[12px] leading-[1.55] text-ink/65">{side.text}</p>
       )}
     </div>
-  );
-}
-
-/** The catalyst's direction, coloured the way the rest of the panel colours a side. */
-function Lean({ lean }: { lean: string }) {
-  const tone = lean === "bullish" ? "text-pass"
-    : lean === "bearish" ? "text-fail"
-    : "text-ink/45";
-  return (
-    <span className={cn("font-mono text-[11px] font-bold leading-none tracking-[.06em]", tone)}>
-      {lean.toUpperCase()}
-    </span>
   );
 }
 

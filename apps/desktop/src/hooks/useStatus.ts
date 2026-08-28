@@ -21,8 +21,9 @@ export function useStatus(families: FamilyGroup[]): Status {
   const meter = useMemo(
     () =>
       families
-        .map((f) => `${(t.families[f.family] ?? f.family).toUpperCase()} ${f.gates.length}`)
-        .join(" · ") || "—",
+        .map((f) => t.status.meterEntry(
+          (t.families[f.family] ?? f.family).toUpperCase(), f.gates.length))
+        .join(t.common.sep) || t.common.dash,
     [families, t],
   );
 

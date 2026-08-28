@@ -23,6 +23,30 @@ export type Translate = (key: string, vars?: Record<string, unknown>) => string;
 
 export function makeStrings(t: Translate) {
   return {
+    // Glyphs and separators the panel joins things with. A locale that punctuates a
+    // list differently changes it here, not in nine components.
+    common: {
+      dash: t("common.dash"),
+      unknown: t("common.unknown"),
+      listSep: t("common.listSep"),
+      gateSep: t("common.gateSep"),
+      sep: t("common.sep"),
+      keySep: t("common.keySep"),
+    },
+
+    // The words the number formatters put around a figure. `amount` arrives already
+    // formatted, so a translation reorders the sentence rather than being stuck
+    // after it. See `lib/format.ts`, which takes this and holds no English of its own.
+    format: {
+      dash: t("common.dash"),
+      credit: (amount: string) => t("format.credit", { amount }),
+      debit: (amount: string) => t("format.debit", { amount }),
+      toClose: (amount: string) => t("format.toClose", { amount }),
+      justNow: t("format.justNow"),
+      minutesAgo: (n: number) => t("format.minutesAgo", { n }),
+      hoursAgo: (n: number) => t("format.hoursAgo", { n }),
+    },
+
     app: {
       waiting: t("app.waiting"),
     },
@@ -47,6 +71,28 @@ export function makeStrings(t: Translate) {
       marketOpen: t("chrome.marketOpen"),
       marketClosed: t("chrome.marketClosed"),
       marketUnknown: t("chrome.marketUnknown"),
+      marketTitleOpen: (at: string) => t("chrome.marketTitleOpen", { at }),
+      marketTitleClosed: (at: string) => t("chrome.marketTitleClosed", { at }),
+      marketTitleUnknown: t("chrome.marketTitleUnknown"),
+      marketTitleBoundary: (crossed: string) => t("chrome.marketTitleBoundary", { crossed }),
+      marketTitleLastSeen: (at: string) => t("chrome.marketTitleLastSeen", { at }),
+    },
+
+    periods: {
+      title: t("periods.title"),
+      realized: t("periods.realized"),
+      marked: t("periods.marked"),
+      label: {
+        day: t("periods.label.day"),
+        week: t("periods.label.week"),
+        month: t("periods.label.month"),
+        year: t("periods.label.year"),
+        all: t("periods.label.all"),
+      },
+      closed: (count: number) => t("periods.closed", { count }),
+      noneClosed: t("periods.noneClosed"),
+      note: t("periods.note"),
+      shortNote: (since: string) => t("periods.shortNote", { since }),
     },
 
     spend: {
@@ -112,6 +158,8 @@ export function makeStrings(t: Translate) {
         t("scoreboard.gatedValue", { approved, rejected }),
       orders: t("scoreboard.orders"),
       unrealizedNote: t("scoreboard.unrealizedNote"),
+      drawdownValue: (usd: string, pct: string) =>
+        t("scoreboard.drawdownValue", { usd, pct }),
     },
 
     console: {
@@ -134,6 +182,14 @@ export function makeStrings(t: Translate) {
       noOverride: t("console.noOverride"),
       confidence: (value: string) => t("console.confidence", { value }),
       confidenceNote: t("console.confidenceNote"),
+      // The three figures above the ledger, labelled by the key `lib/decisions.ts`
+      // gives them rather than by the key itself.
+      qty: (qty: number) => t("console.qty", { qty }),
+      facts: {
+        net: t("console.factNet"),
+        qty: t("console.factQty"),
+        legs: t("console.factLegs"),
+      } as Record<string, string>,
     },
 
     ledger: {
@@ -155,6 +211,8 @@ export function makeStrings(t: Translate) {
       approved: t("journal.approved"),
       rejected: t("journal.rejected"),
       note: t("journal.note"),
+      gateCount: (passed: number, total: number) =>
+        t("journal.gateCount", { passed, total }),
     },
 
     gates: {
@@ -165,6 +223,8 @@ export function makeStrings(t: Translate) {
       readAt: (structure: string, when: string) => t("gates.readAt", { structure, when }),
       readOnly: t("gates.readOnly"),
       note: (seen: number) => t("gates.note", { seen }),
+      familyHeading: (family: string, count: number) =>
+        t("gates.familyHeading", { family, count }),
     },
 
     committee: {
@@ -196,6 +256,17 @@ export function makeStrings(t: Translate) {
       ordered: t("committee.ordered"),
       cost: t("committee.cost"),
       costNote: t("committee.costNote"),
+      // The catalyst's own word, translated where we know it and shown as it came
+      // where we do not — it is model output, not a fixed set.
+      lean: {
+        bullish: t("committee.lean.bullish"),
+        bearish: t("committee.lean.bearish"),
+        neutral: t("committee.lean.neutral"),
+      } as Record<string, string>,
+      reflectionRow: (structure: string, realized: string, outcome: string) =>
+        t("committee.reflectionRow", { structure, realized, outcome }),
+      stageSpend: (tin: string, out: string) => t("committee.stageSpend", { in: tin, out }),
+      stageModel: (model: string) => t("committee.stageModel", { model }),
     },
 
     book: {
@@ -231,6 +302,7 @@ export function makeStrings(t: Translate) {
         count === 1 ? t("book.confirming") : t("book.confirmingMany", { count }),
       patternsNone: t("book.patternsNone"),
       patternsTitle: (underlying: string) => t("book.patternsTitle", { underlying }),
+      patternLine: (name: string, note: string) => t("book.patternLine", { name, note }),
     },
 
     chart: {
@@ -245,6 +317,9 @@ export function makeStrings(t: Translate) {
       last: t("chart.last"),
       pnl: t("chart.pnl"),
       liveTag: t("chart.liveTag"),
+      // The label on the chart's own price axis, drawn by lightweight-charts
+      // rather than by any markup here — which is exactly why it needs saying.
+      livePriceLine: t("chart.livePriceLine"),
       barTag: t("chart.barTag"),
       seriesNote: t("chart.seriesNote"),
       forming: t("chart.forming"),
@@ -272,6 +347,12 @@ export function makeStrings(t: Translate) {
       legsPending: t("chart.legsPending"),
       legShort: t("chart.legShort"),
       legLong: t("chart.legLong"),
+      openedAt: (day: string, time: string) => t("chart.openedAt", { day, time }),
+      closedAt: (day: string, time: string) => t("chart.closedAt", { day, time }),
+      dteTag: (days: number) => t("chart.dteTag", { days }),
+      realizedTag: t("chart.realizedTag"),
+      stopUnreachable: t("chart.stopUnreachable"),
+      unreachableNote: t("chart.unreachableNote"),
     },
 
   rail: {
@@ -312,6 +393,8 @@ export function makeStrings(t: Translate) {
       // be able to append the reason with a dash.
       disconnected: (why: string | null) =>
         why ? t("status.disconnectedWhy", { why }) : t("status.disconnected"),
+      meterEntry: (family: string, count: number) =>
+        t("status.meterEntry", { family, count }),
     },
   };
 }

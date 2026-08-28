@@ -1,5 +1,5 @@
 import { cn } from "@/lib/cn";
-import { money } from "@/lib/format";
+import { useFormat } from "@/hooks/useFormat";
 import { ICON } from "@/constants/icons";
 import { CLS, STROKE } from "@/constants/theme";
 import { useStrings } from "@/hooks/useStrings";
@@ -10,6 +10,7 @@ import { SessionBell } from "./SessionBell";
 import { SoundToggle } from "./SoundToggle";
 
 export function ChromeBar() {
+  const f = useFormat();
   const t = useStrings();
   const { tabs, go } = useTabs();
   const busy = useConnection((s) => s.snapshot?.in_flight) ?? null;
@@ -87,7 +88,7 @@ export function ChromeBar() {
         <SessionBell />
 
         <div className="flex shrink-0 items-center gap-[7px] border-l border-line px-3 font-mono text-[11px] font-semibold leading-none tabular-nums text-ink">
-          {t.chrome.equity} {snap ? money(snap.pnl.equity_last) : "—"}
+          {t.chrome.equity} {snap ? f.money(snap.pnl.equity_last) : t.common.dash}
         </div>
 
         <SoundToggle />

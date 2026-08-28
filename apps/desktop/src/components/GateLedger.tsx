@@ -1,7 +1,7 @@
 import { cn } from "@/lib/cn";
-import { short } from "@/lib/format";
 import { ICON } from "@/constants/icons";
 import { CLS, STROKE } from "@/constants/theme";
+import { useFormat } from "@/hooks/useFormat";
 import { useStrings } from "@/hooks/useStrings";
 import type { FamilyGroup } from "@/hooks/useGateFamilies";
 import { Cross, Icon, Tick } from "./Icon";
@@ -19,6 +19,7 @@ export function GateLedger({ families, total, failed }: {
   failed: number;
 }) {
   const t = useStrings();
+  const fmt = useFormat();
 
   return (
     <div className="min-w-0 p-3">
@@ -56,7 +57,7 @@ export function GateLedger({ families, total, failed }: {
                   g.passed ? "font-normal text-ink/40" : "font-semibold text-fail")}
                 title={g.reason}
               >
-                {short(g.reason)}
+                {fmt.short(g.reason)}
               </span>
             </div>
           ))}

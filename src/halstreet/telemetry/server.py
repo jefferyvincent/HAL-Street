@@ -34,7 +34,7 @@ from fastapi import FastAPI, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from halstreet import paths
+from halstreet import clock, paths
 from halstreet.agent.breaker import CircuitState
 from halstreet.agent.ledger import Ledger
 from halstreet.agent.manager import (
@@ -871,6 +871,10 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
         "gate_readings": _gate_readings(events),
         # What the thinking has cost. Tokens always, money where a price is known.
         "spend": _spend(events),
+        # Realized and mark-to-market over the windows a trader asks for. The two are
+        # different numbers and the payload keeps them apart — see `pnl.by_period`.
+        "periods": pnl.by_period(ledger, pnl.equity_series(journal),
+                                 today=clock.today()),
         # What the catalyst has been reading. Untrusted publisher text: the panel
         # renders it as text, never as markup.
         "headlines": _headlines(events),

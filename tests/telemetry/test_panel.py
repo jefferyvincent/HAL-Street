@@ -93,8 +93,14 @@ def views() -> set[str]:
 
 
 def tabs() -> set[str]:
-    block = re.search(r"const VIEW_KEYS[^;]+;", (SRC / "hooks" / "useShortcuts.ts").read_text())
-    assert block, "useShortcuts no longer declares VIEW_KEYS — this test has drifted"
+    """The digit-to-view map, from the one file that declares it.
+
+    It moved out of `useShortcuts` when the footer started reading it too: the legend
+    and the binding were two hand-kept lists, so a key could be advertised after it
+    stopped working. One constant, both callers.
+    """
+    block = re.search(r"const VIEW_KEYS[^;]+;", (SRC / "constants" / "keys.ts").read_text())
+    assert block, "constants/keys.ts no longer declares VIEW_KEYS — this test has drifted"
     return set(re.findall(r'"(\w+)"(?=\s*[,}])', block.group(0)))
 
 
@@ -114,18 +120,29 @@ def test_every_view_is_reachable_and_every_route_has_a_view():
 def test_the_tab_ids_are_the_view_ids():
     """The chrome bar builds its tabs from the same names App routes on."""
     source = (SRC / "hooks" / "useTabs.ts").read_text()
-    ids = set(re.findall(r'\["(\w+)", "[A-Z]+", ICON\.\w+\]', source))
+    ids = set(re.findall(r'\["(\w+)", ICON\.\w+\]', source))
+    assert ids, "useTabs no longer lists its tabs this way — this test has drifted"
     assert ids == tabs(), f"chrome bar tabs and routes disagree: {ids ^ tabs()}"
 
 
 def test_the_footer_advertises_only_shortcuts_that_are_bound():
-    """The same rule as the tabs, for the keyboard: no key drawn that does nothing."""
-    footer = (SRC / "components" / "StatusBar.tsx").read_text()
-    advertised = set(re.findall(r'text-amber">([A-Z0-9])</b>', footer))
+    """The same rule as the tabs, for the keyboard: no key drawn that does nothing.
+
+    Enforced by construction now rather than by comparing two lists: the legend and
+    the handler both read `constants/keys.ts`, so neither can spell a key of its own.
+    Checking that they still do is what keeps the guarantee — a footer that goes back
+    to printing "J" in its markup is a footer that can outlive its binding.
+    """
+    legend = (SRC / "hooks" / "useShortcutLegend.ts").read_text()
     handler = (SRC / "hooks" / "useShortcuts.ts").read_text()
-    bound = {k.upper() for k in re.findall(r'e\.key === "(\w)"', handler)}
-    bound |= set(re.findall(r'"(\d)":', handler))
-    assert advertised <= bound, f"footer advertises unbound key(s): {advertised - bound}"
+    footer = (SRC / "components" / "StatusBar.tsx").read_text()
+
+    for name, body in (("the legend", legend), ("the handler", handler)):
+        assert "KEY." in body and "VIEW_KEYS" in body, f"{name} no longer reads constants/keys.ts"
+        assert not re.search(r'"[A-Za-z0-9]"', body), f"{name} spells a key of its own"
+
+    assert not re.search(r"<b[^>]*>[A-Z0-9]</b>", footer), "the footer draws a key of its own"
+    assert "useShortcutLegend" in footer, "the footer no longer reads the bound keys"
 
 
 # --- the shape the project asked for ------------------------------------------
@@ -147,6 +164,31 @@ def test_business_logic_stays_out_of_the_markup():
         body = f.read_text()
         for smell in (".reverse()", ".reduce(", ".sort("):
             assert smell not in body, f"{rel(f)}: {smell} belongs in a hook or lib/, not in JSX"
+
+
+def test_no_word_reaches_the_screen_outside_the_string_table():
+    """Rule 3 of `apps/desktop/CLAUDE.md`, enforced where the eye cannot see it.
+
+    A literal in JSX is easy to spot in review. A literal handed to a *library* is
+    not: `createPriceLine({title: "LIVE"})` draws a word on the chart axis from
+    inside a hook, where nothing that reads like markup appears. That one survived a
+    full pass over every component precisely because it did not look like a string
+    being rendered.
+
+    Narrow on purpose — `title:` is the property that reaches a user in both places
+    it is used here (the chart's price-line labels and the DOM's tooltip). A word
+    spelled at either is a word no `locales/*.json` can translate.
+    """
+    offenders = []
+    for f in sorted((SRC / "hooks").glob("*.ts")) + \
+             sorted((SRC / "components").glob("*.tsx")) + \
+             sorted((SRC / "views").glob("*.tsx")):
+        for m in re.finditer(r'title:\s*"([^"]+)"', f.read_text()):
+            offenders.append(f'{rel(f)}: title: "{m.group(1)}"')
+    assert not offenders, (
+        "user-facing words outside the string table — they must come from "
+        f"useStrings(): {offenders}"
+    )
 
 
 def test_hooks_are_hooks_and_stores_are_stores():
@@ -236,12 +278,28 @@ def test_selecting_a_record_also_shows_it():
     # The *call site*, not the presence of the name — a mutation that changed the
     # handler back to a bare `select` left the import untouched and walked straight
     # through an earlier version of this check.
-    for view in ("components/Tape.tsx", "views/JournalView.tsx"):
-        source = (SRC / view).read_text()
-        handler = re.search(r"const (\w+) = useUI\(\(s\) => s\.showDecision\)", source)
-        assert handler, f"{view} does not bind showDecision"
-        assert re.search(rf"onClick=\{{\(\) => {handler.group(1)}\(", source), \
-            f"{view} binds showDecision and does not call it on click"
+    #
+    # Searched across the panel rather than in two named files. Both places that bind
+    # this have since moved once — the tape's row handler into a hook — and naming the
+    # file made the test fail on a refactor that changed nothing about the behaviour.
+    # What must hold is that every binding of `showDecision` is also called.
+    bound = 0
+    for path in SRC.rglob("*.ts*"):
+        source = path.read_text()
+        for handler in re.finditer(r"const (\w+) = useUI\(\(s\) => s\.showDecision\)",
+                                   source):
+            bound += 1
+            name = handler.group(1)
+            after = source[handler.end():]
+            # Called here, or handed out by a hook for its consumer to call. Both are
+            # a binding that goes somewhere; only a binding that goes nowhere is the
+            # dead control this test exists for.
+            used = re.search(rf"\b{name}\(", after) or re.search(
+                rf"return \{{[^}}]*\b{name}\b", after)
+            assert used, f"{path.name} binds showDecision and neither calls nor returns it"
+    assert bound >= 2, (
+        f"only {bound} place(s) select a record; the tape and the journal both should"
+    )
 
 
 def test_no_view_calls_a_selector_the_store_no_longer_has():
@@ -260,10 +318,17 @@ def test_no_view_calls_a_selector_the_store_no_longer_has():
 
 
 def test_a_row_can_reach_the_trade_it_became():
-    # The run journal shows the verdict; the position is two views away otherwise,
-    # and nothing said the two were the same trade.
-    tape = (SRC / "components" / "Tape.tsx").read_text()
-    assert "structure_id" in tape and "chart(" in tape
+    """The run journal shows the verdict; the position is two views away otherwise,
+    and nothing said the two were the same trade.
+
+    Scanned across the tape and whatever hook feeds it, because the row-building moved
+    into one and naming the component made this fail on a refactor that changed
+    nothing a reader would see.
+    """
+    tape = "\n".join(p.read_text() for p in SRC.rglob("*.ts*")
+                     if "Tape" in p.name or "useDecisions" in p.name)
+    assert "structure_id" in tape, "a row carries no handle to its position"
+    assert "chart(" in tape, "and nothing takes the reader to it"
 
 
 def test_the_price_scale_is_a_control_rather_than_a_decision():
@@ -373,12 +438,39 @@ def test_switching_the_bar_size_builds_a_new_canvas():
     assert 'key={`${charting}:${timeframe ?? "auto"}`}' in book
 
 
+def _without_comments(source: str) -> str:
+    """TypeScript with its comments removed, for checks that mean "in the code".
+
+    Crude — it does not know a `//` inside a string literal from one that starts a
+    comment — and that is the safe direction here: it removes more than it should,
+    so a check built on it can produce a false pass and never a false failure on
+    prose.
+    """
+    source = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+    return re.sub(r"//.*", "", source)
+
+
 def test_the_bar_sizes_offered_come_from_the_server():
-    # A copy in the panel is a second list to keep in step, and the one that drifts
-    # is always the one nobody is testing.
-    chart = (SRC / "components" / "StructureChart.tsx").read_text()
-    assert "chart.timeframes" in chart, "the panel hardcodes its own list"
-    assert "t.chart.auto" in chart, "no way back to letting the window decide"
+    """A copy in the panel is a second list to keep in step, and the one that drifts
+    is always the one nobody is testing.
+
+    Scanned across the whole panel rather than in the file this happened to live in
+    when it was written. The property belongs to the panel, not to `StructureChart` —
+    and the first refactor to move the picker into a hook broke this test while
+    breaking nothing a reader would care about, which is a test asserting the wrong
+    thing.
+    """
+    panel = "\n".join(p.read_text() for p in SRC.rglob("*.ts*"))
+    assert "chart.timeframes" in panel, "the panel hardcodes its own list"
+    assert "chart.auto" in panel, "no way back to letting the window decide"
+
+    # And no bar size is named in code. Comments are stripped first: the first version
+    # of this check matched the sentence "a switch from 1Hour to 15Min" in a docstring
+    # explaining why the panel must not name them, which is a test failing on its own
+    # documentation.
+    code = _without_comments(panel)
+    hardcoded = [tf for tf in ("1Min", "5Min", "15Min", "1Hour", "1Day") if tf in code]
+    assert not hardcoded, f"the panel names its own bar sizes: {hardcoded}"
 
 
 def test_the_forming_candle_has_room_to_the_right():
@@ -392,6 +484,20 @@ def test_the_forming_candle_has_room_to_the_right():
         "the offset must survive fitContent, which resets it"
 
 
+def _pending_source() -> str:
+    """The loading view, wherever its parts live.
+
+    It began as one component and a refactor moved its tile logic into a hook. These
+    checks are about what the view *shows*, not about which file shows it, and the
+    first version named the file — so the refactor failed them while breaking nothing
+    a reader would notice. That is a test asserting the wrong thing.
+    """
+    return "\n".join(
+        p.read_text() for p in SRC.rglob("*.ts*")
+        if "ChartPending" in p.name or "useChartPending" in p.name
+    )
+
+
 def test_the_loading_view_shows_what_is_already_known():
     """The chart route takes about seven hundred milliseconds — it spawns an MCP
     subprocess and waits on Alpaca — and runs again on every change of bar size. The
@@ -403,7 +509,7 @@ def test_the_loading_view_shows_what_is_already_known():
     answered. Only the price history and the two policy levels derived from it are
     genuinely unknown.
     """
-    pending = (SRC / "components" / "ChartPending.tsx").read_text()
+    pending = _pending_source()
 
     # The real leg table, not a placeholder for one.
     assert "<LegTable chart={null}" in pending
@@ -420,10 +526,12 @@ def test_the_loading_view_does_not_compute_the_policy_levels_itself():
     one way this picture could come to disagree with what the agent will actually do,
     which is worse than any loading state.
     """
-    pending = (SRC / "components" / "ChartPending.tsx").read_text()
+    pending = _pending_source()
     assert "take_profit" not in pending and "stop_loss" not in pending
-    assert "t.chart.target} value={null}" in pending
-    assert "t.chart.stop} value={null}" in pending
+    for level in ("t.chart.target", "t.chart.stop"):
+        # Whatever the surrounding shape, the value beside these two is nothing.
+        line = next(ln for ln in pending.splitlines() if level in ln)
+        assert "null" in line, f"{level} is being computed rather than left blank"
 
 
 def test_the_loading_view_reserves_the_height_the_chart_will_take():

@@ -1,8 +1,8 @@
-import { clock } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { ICON } from "@/constants/icons";
 import { STROKE } from "@/constants/theme";
 import { Icon } from "@/components/Icon";
+import { useFormat } from "@/hooks/useFormat";
 import { useStrings } from "@/hooks/useStrings";
 import { useConnection } from "@/stores/connection";
 
@@ -19,6 +19,7 @@ import { useConnection } from "@/stores/connection";
  */
 export function ActivityFeed() {
   const t = useStrings();
+  const f = useFormat();
   const rows = useConnection((s) => s.snapshot?.activity) ?? [];
   if (rows.length === 0) return null;
 
@@ -35,7 +36,7 @@ export function ActivityFeed() {
           <li key={`${r.ts}-${i}`}
               className="flex items-baseline gap-2 border-b border-line-soft px-3 py-[5px] last:border-b-0">
             <span className="shrink-0 font-mono text-[10px] leading-[1.4] text-ink/25 tabular-nums">
-              {clock(r.ts)}
+              {f.clock(r.ts)}
             </span>
             <span className="w-[34px] shrink-0 font-mono text-[10px] font-semibold leading-[1.4] text-ink/45">
               {r.underlying}

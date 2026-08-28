@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useFormat } from "@/hooks/useFormat";
 import { useStrings } from "@/hooks/useStrings";
 import { useConnection } from "@/stores/connection";
 
@@ -26,6 +27,7 @@ export interface Stat {
  */
 export function useScoreboard(): Stat[] {
   const t = useStrings();
+  const f = useFormat();
   const pnl = useConnection((s) => s.snapshot?.pnl);
 
   return useMemo(() => {
@@ -40,15 +42,15 @@ export function useScoreboard(): Stat[] {
     return [
       {
         key: "total", label: t.scoreboard.total,
-        value: money(pnl.total), sign: sign(num(pnl.total)), note: null,
+        value: f.money(pnl.total), sign: sign(num(pnl.total)), note: null,
       },
       {
         key: "realized", label: t.scoreboard.realized,
-        value: money(pnl.realized), sign: sign(num(pnl.realized)), note: null,
+        value: f.money(pnl.realized), sign: sign(num(pnl.realized)), note: null,
       },
       {
         key: "unrealized", label: t.scoreboard.unrealized,
-        value: money(pnl.unrealized), sign: sign(num(pnl.unrealized)),
+        value: f.money(pnl.unrealized), sign: sign(num(pnl.unrealized)),
         note: pnl.open > 0 ? t.scoreboard.unrealizedNote : null,
       },
       {
@@ -60,7 +62,8 @@ export function useScoreboard(): Stat[] {
       },
       {
         key: "drawdown", label: t.scoreboard.drawdown,
-        value: `${money(pnl.max_drawdown_usd)} (${pnl.max_drawdown_pct}%)`,
+        value: t.scoreboard.drawdownValue(f.money(pnl.max_drawdown_usd),
+                                          pnl.max_drawdown_pct),
         sign: null, note: t.scoreboard.drawdownNote(pnl.equity_samples),
       },
       {
@@ -78,15 +81,5 @@ export function useScoreboard(): Stat[] {
         value: String(pnl.orders_submitted), sign: null, note: null,
       },
     ];
-  }, [pnl, t]);
-}
-
-/** Dollars, signed, never rounded away from what the ledger holds. */
-function money(value: string): string {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return "—";
-  const body = Math.abs(n).toLocaleString(undefined, {
-    minimumFractionDigits: 2, maximumFractionDigits: 2,
-  });
-  return `${n < 0 ? "-" : ""}$${body}`;
+  }, [pnl, t, f]);
 }

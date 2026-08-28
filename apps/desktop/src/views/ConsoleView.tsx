@@ -1,5 +1,4 @@
 import { cn } from "@/lib/cn";
-import { clock } from "@/lib/format";
 import { ICON } from "@/constants/icons";
 import { CLS, GRID, STROKE } from "@/constants/theme";
 import { ActivityFeed } from "@/components/ActivityFeed";
@@ -12,8 +11,10 @@ import { Cross, Icon, Note, Tick } from "@/components/Icon";
 import { Ticker } from "@/components/Ticker";
 import { useDecisionFacts } from "@/hooks/useDecisionFacts";
 import { useDecisions } from "@/hooks/useDecisions";
+import { useFormat } from "@/hooks/useFormat";
 import { useGateFamilies } from "@/hooks/useGateFamilies";
 import { useStrings } from "@/hooks/useStrings";
+import { useVerdict } from "@/hooks/useVerdict";
 import { useConnection } from "@/stores/connection";
 import { useUI } from "@/stores/ui";
 
@@ -26,6 +27,7 @@ import { useUI } from "@/stores/ui";
  */
 export function ConsoleView() {
   const t = useStrings();
+  const f = useFormat();
   const { current } = useDecisions();
   const snap = useConnection((s) => s.snapshot);
   const chart = useUI((s) => s.chart);
@@ -33,18 +35,24 @@ export function ConsoleView() {
   const toggleDecision = useUI((s) => s.toggleDecision);
   const families = useGateFamilies(current);
   const facts = useDecisionFacts(current);
+  const verdict = useVerdict(current);
 
-  if (!current) {
-    // Not a dead end. Nothing has been gated because nothing has been proposed,
-    // which is the ordinary outcome — so show what the agent is actually doing
-    // rather than a sentence that reads as "broken".
+  // Not a dead end when there is nothing. Nothing has been gated because nothing has
+  // been proposed, which is the ordinary outcome — so the run's own numbers stay on
+  // screen rather than a sentence that reads as "broken".
+  const run = (
+    <>
+      <Scoreboard />
+      {snap && <EquityChart curve={snap.equity_curve} pnl={snap.pnl} />}
+      <Holding />
+      <Spend />
+    </>
+  );
+
+  if (!current || !verdict) {
     return (
       <div className="mb-3 flex flex-col gap-3">
-        {/* How the run is going, then what is at risk, then what was decided. */}
-        <Scoreboard />
-        {snap && <EquityChart curve={snap.equity_curve} pnl={snap.pnl} />}
-        <Holding />
-        <Spend />
+        {run}
         <div className="border border-edge bg-panel">
           <div className={CLS.empty}>{t.console.none}</div>
         </div>
@@ -53,24 +61,17 @@ export function ConsoleView() {
     );
   }
 
-  const gates = current.gates ?? [];
-  const failed = gates.filter((g) => !g.passed);
-  const ok = current.approved;
-
   return (
     <div className="mb-3 flex flex-col gap-3">
-      <Scoreboard />
-      {snap && <EquityChart curve={snap.equity_curve} pnl={snap.pnl} />}
-      <Holding />
-      <Spend />
-    <div className={cn("border bg-panel", ok ? "border-edge" : "border-fail")}>
+      {run}
+    <div className={cn("border bg-panel", verdict.ok ? "border-edge" : "border-fail")}>
       <div className={cn("flex flex-wrap items-center gap-[9px] border-b px-3 py-[9px]",
-        ok ? "border-b-pass/40 bg-pass/12" : "border-b-fail/45 bg-fail/14")}>
-        {ok ? <Tick /> : <Cross />}
-        <Ticker symbol={current.underlying ?? "?"} />
+        verdict.ok ? "border-b-pass/40 bg-pass/12" : "border-b-fail/45 bg-fail/14")}>
+        {verdict.ok ? <Tick /> : <Cross />}
+        <Ticker symbol={current.underlying ?? t.common.unknown} />
         <span className={cn("font-mono text-[11px] font-bold leading-none tracking-[.1em]",
-          ok ? "text-pass" : "text-fail")}>
-          {ok ? t.console.approved(gates.length) : t.console.rejected(failed.length, gates.length)}
+          verdict.ok ? "text-pass" : "text-fail")}>
+          {verdict.label}
         </span>
         <span className="flex-1" />
         {/* Through to the position, when the decision became one. The only way
@@ -85,7 +86,7 @@ export function ConsoleView() {
           </button>
         )}
         <span className="font-mono text-[10.5px] font-medium leading-none text-ink/40">
-          {clock(current.ts)}
+          {f.clock(current.ts)}
         </span>
         {/* The record is a rationale and sixteen verdicts. The verdict itself is in
             this header, so the rest opens on request rather than pushing the run's
@@ -120,25 +121,25 @@ export function ConsoleView() {
           )}
 
           <div className="mt-[10px] grid grid-cols-3 gap-px bg-line">
-            {facts.map((f) => (
-              <div key={f.key} className="bg-void px-[10px] py-[9px]">
+            {facts.map((fact) => (
+              <div key={fact.key} className="bg-void px-[10px] py-[9px]">
                 <div className="font-mono text-[8.5px] font-bold leading-none tracking-[.08em] text-ink/40">
-                  {f.key}
+                  {fact.label}
                 </div>
                 <div className={cn("mt-[5px] font-mono text-[13px] font-semibold leading-none tabular-nums",
-                  f.good ? "text-pass" : "text-ink")}>
-                  {f.value}
+                  fact.good ? "text-pass" : "text-ink")}>
+                  {fact.value}
                 </div>
               </div>
             ))}
           </div>
 
-          {failed.length > 0 && (
+          {verdict.failed.length > 0 && (
             <div className="mt-3 border border-fail/40">
               <div className="bg-fail/14 px-[11px] py-[7px] font-mono text-[9.5px] font-bold leading-none tracking-[.1em] text-fail">
                 {t.console.rejectReasons}
               </div>
-              {failed.map((g) => (
+              {verdict.failed.map((g) => (
                 <div key={g.gate} className="flex gap-[9px] border-b border-line-soft bg-void px-[11px] py-[10px] last:border-b-0">
                   <Cross />
                   <div>
@@ -153,7 +154,7 @@ export function ConsoleView() {
           <Note>{t.console.noOverride}</Note>
         </div>
 
-        <GateLedger families={families} total={gates.length} failed={failed.length} />
+        <GateLedger families={families} total={verdict.total} failed={verdict.failed.length} />
       </div>
 
       {current.confidence != null && (

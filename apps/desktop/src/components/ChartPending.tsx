@@ -3,8 +3,7 @@ import { CLS } from "@/constants/theme";
 import { LegTable } from "@/components/LegTable";
 import { Ticker } from "@/components/Ticker";
 import { Trend } from "@/components/Trend";
-import { money, toClose } from "@/lib/format";
-import { useMarks } from "@/hooks/useMarks";
+import { useChartPending, type PendingTile } from "@/hooks/useChartPending";
 import { useStrings } from "@/hooks/useStrings";
 import type { BookRow } from "@/hooks/useBook";
 
@@ -17,50 +16,25 @@ import type { BookRow } from "@/hooks/useBook";
  * the canvas all replaced by "fetching price history…". A layout that empties itself
  * reads as broken rather than as busy, and the reader loses their place.
  *
- * Almost none of that waiting was necessary. The name, the ticker, the size, the
- * legs, their fills, their live prices and the position's P&L are already on the
- * panel before anyone clicks — they arrive on the snapshot and the marks route, and
- * both have long since answered. Spinning over information in hand is the thing to
- * avoid; the only genuinely unknown parts are the price history and the two policy
- * levels derived from it.
- *
  * So this is the real view with two holes in it, not a placeholder for the view.
- * Same geometry throughout, so nothing moves when the data lands.
+ * Same geometry throughout, so nothing moves when the data lands. Which parts are
+ * holes is decided in `useChartPending`.
  */
 export function ChartPending({ row }: { row: BookRow }) {
   const t = useStrings();
-  const live = useMarks()?.marks[row.structureId];
-  const mark = live?.mark ?? null;
-  const pnl = live?.unrealized_usd ?? row.unrealized ?? null;
+  const { name, underlying, tiles, live } = useChartPending(row);
 
   return (
     <>
       <div className="mb-2 flex items-baseline gap-[9px]">
-        <Ticker symbol={row.underlying} size="md" />
+        <Ticker symbol={underlying} size="md" />
         <span className="min-w-0 font-mono text-[12px] font-semibold leading-[1.3] text-ink">
-          {row.name.startsWith(`${row.underlying} `)
-            ? row.name.slice(row.underlying.length + 1)
-            : row.name}
+          {name}
         </span>
       </div>
 
       <div className="mb-3 grid grid-cols-2 gap-px bg-line min-[701px]:grid-cols-3 min-[961px]:grid-cols-5">
-        {/* Known from the ledger the moment the panel loaded. */}
-        <Tile label={t.chart.entry}
-              value={row.entry ? toClose(row.entry) : null} tone="text-ink" />
-        {/* Not known: both are derived from the exit policy by the same function the
-            agent acts on, and asking the panel to compute them would be the one way
-            this picture could come to disagree with what the agent will do. */}
-        <Tile label={t.chart.target} value={null} tone="text-pass" />
-        <Tile label={t.chart.stop} value={null} tone="text-fail" />
-        {/* Known from the marks route, which answered before the click. */}
-        <Tile label={t.chart.last}
-              value={mark === null ? null : toClose(mark)}
-              tone={pnl === null ? "text-ink" : Number(pnl) >= 0 ? "text-pass" : "text-fail"} />
-        <Tile label={t.chart.pnl}
-              value={pnl === null ? null : money(pnl)}
-              tone={pnl === null ? "text-ink/40" : Number(pnl) >= 0 ? "text-pass" : "text-fail"}
-              lead={pnl === null ? null : <Trend value={Number(pnl)} size={10} />} />
+        {tiles.map((tile) => <Tile key={tile.label} tile={tile} />)}
       </div>
 
       {/* The one real hole, at the height the chart will occupy — so the page does
@@ -86,18 +60,16 @@ export function ChartPending({ row }: { row: BookRow }) {
   );
 }
 
-function Tile({ label, value, tone, lead = null }: {
-  label: string; value: string | null; tone: string; lead?: React.ReactNode;
-}) {
+function Tile({ tile }: { tile: PendingTile }) {
   return (
     <div className="border border-line bg-void px-[10px] py-[9px]">
       <div className="font-mono text-[8.5px] font-bold leading-none tracking-[.08em] text-ink/40">
-        {label}
+        {tile.label}
       </div>
-      <div className={cn("mt-[5px] flex h-[13px] items-center gap-[5px] font-mono text-[13px] font-semibold leading-none tabular-nums", tone)}>
-        {value === null
+      <div className={cn("mt-[5px] flex h-[13px] items-center gap-[5px] font-mono text-[13px] font-semibold leading-none tabular-nums", tile.tone)}>
+        {tile.value === null
           ? <span className="shimmer h-[9px] w-[62px] bg-line" />
-          : <>{lead}{value}</>}
+          : <>{tile.trend !== null && <Trend value={tile.trend} size={10} />}{tile.value}</>}
       </div>
     </div>
   );

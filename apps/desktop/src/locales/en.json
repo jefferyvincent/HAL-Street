@@ -66,7 +66,11 @@
     "live": "live",
     "partial": "cannot price {{count}} leg(s)",
     "expand": "SHOW THE RECORD",
-    "collapse": "HIDE"
+    "collapse": "HIDE",
+    "factNet": "net",
+    "factQty": "qty",
+    "factLegs": "legs",
+    "qty": "×{{qty}}"
   },
   "ledger": {
     "allRan": "ALL {{n}} GATES RAN"
@@ -86,7 +90,8 @@
     "approved": "APPROVED",
     "rejected": "REJECTED",
     "note": "Every proposal the model made is here, approved or not. Rejections are records, not errors — a gate that never fires is a gate that was never load-bearing.",
-    "traded": "traded"
+    "traded": "traded",
+    "gateCount": "{{passed}}/{{total}}"
   },
   "gates": {
     "title": "GATE CHAIN",
@@ -96,7 +101,8 @@
     "note": "Every gate runs on every proposal — none of them short-circuits, so the counts above are out of all {{seen}}. The order is the order they are evaluated in, and it comes from the server rather than from this page: adding a gate changes this list on the next push.",
     "readAt": "readings from {{structure}}, {{when}}",
     "readOnly": "Nothing here is a control, by design. Limits live in .env, so changing one is a diff someone can review — a field in a dashboard that moves a risk limit leaves no such trace. The socket this panel listens on is never read from at all.",
-    "dryRunRow": "DRY RUN"
+    "dryRunRow": "DRY RUN",
+    "familyHeading": "{{family}} · {{count}}"
   },
   "rail": {
     "families": "GATE FAMILIES",
@@ -129,7 +135,8 @@
     "live": "{{gates}} GATES · LIVE · READ-ONLY",
     "polling": "{{gates}} GATES · POLLING · READ-ONLY",
     "disconnected": "DISCONNECTED",
-    "disconnectedWhy": "DISCONNECTED — {{why}}"
+    "disconnectedWhy": "DISCONNECTED — {{why}}",
+    "meterEntry": "{{family}} {{count}}"
   },
   "book": {
     "title": "THE BOOK",
@@ -160,7 +167,8 @@
     "unrealizedTag": "open",
     "unpriced": "—",
     "againstMany": "{{count}} chart patterns point the other way",
-    "confirmingMany": "{{count}} chart patterns agree"
+    "confirmingMany": "{{count}} chart patterns agree",
+    "patternLine": "{{name}} — {{note}}"
   },
   "chart": {
     "back": "BOOK",
@@ -202,7 +210,12 @@
     "legsNote": "Fill prices come from the opening order's own legs, so they belong to this structure — the broker nets a shared contract across every structure holding it. The P&L column adds up to the position's, exactly.",
     "legsPending": "This position was opened before per-leg fills were recorded. The agent asks the broker for them once, on its next cycle.",
     "exitAt": "CLOSED AT",
-    "loadingNote": "Everything above except the target and the stop is already known — the chart route is the one that reaches the broker."
+    "loadingNote": "Everything above except the target and the stop is already known — the chart route is the one that reaches the broker.",
+    "openedAt": "opened {{day}} {{time}}",
+    "closedAt": "closed {{day}} {{time}}",
+    "dteTag": "{{days}} DTE",
+    "realizedTag": "realized",
+    "livePriceLine": "LIVE"
   },
   "committee": {
     "title": "COMMITTEE",
@@ -233,7 +246,15 @@
     "ordered": "ORDER SENT",
     "ago": "{{when}}",
     "cost": "COST",
-    "costNote": "Only the judge picks a structure; the other three feed it, and run a tier below."
+    "costNote": "Only the judge picks a structure; the other three feed it, and run a tier below.",
+    "reflectionRow": "{{structure}} — {{realized}} ({{outcome}})",
+    "stageSpend": "{{in}}/{{out}}",
+    "stageModel": "· {{model}}",
+    "lean": {
+      "bullish": "BULLISH",
+      "bearish": "BEARISH",
+      "neutral": "NEUTRAL"
+    }
   },
   "scoreboard": {
     "title": "THE RUN",
@@ -253,7 +274,8 @@
     "gated": "GATED",
     "gatedValue": "{{approved}} approved · {{rejected}} rejected",
     "orders": "ORDERS",
-    "unrealizedNote": "Priced at the agent's last mark, not live."
+    "unrealizedNote": "Priced at the agent's last mark, not live.",
+    "drawdownValue": "{{usd}} ({{pct}}%)"
   },
   "news": {
     "label": "TAPE",
@@ -274,5 +296,37 @@
     "noPriceNote": "No price configured for {{model}}, so its tokens are counted and its cost is not. Set LLM_PRICES to include it — the total above is a floor until you do.",
     "unattributed": "before per-stage accounting",
     "unattributedNote": "Spent by cycles that ran before the per-stage record existed, so the model that spent them was never written down. Counted in the totals, absent from the split."
+  },
+  "common": {
+    "dash": "—",
+    "unknown": "?",
+    "listSep": ", ",
+    "gateSep": "; ",
+    "sep": " · ",
+    "keySep": "·"
+  },
+  "format": {
+    "credit": "{{amount}} credit",
+    "debit": "{{amount}} debit",
+    "toClose": "{{amount}} to close",
+    "justNow": "just now",
+    "minutesAgo": "{{n}}m ago",
+    "hoursAgo": "{{n}}h ago"
+  },
+  "periods": {
+    "title": "P&L",
+    "realized": "REALIZED",
+    "marked": "MARK-TO-MKT",
+    "label": {
+      "day": "TODAY",
+      "week": "WEEK",
+      "month": "MONTH",
+      "year": "YEAR",
+      "all": "ALL"
+    },
+    "closed": "{{count}} closed",
+    "noneClosed": "nothing closed",
+    "note": "Realized is what closed trades made. Mark-to-market is the account's equity change and moves with open positions — they are different numbers and a held position shows in one and not the other. Windows are calendar, so WEEK means since Monday.",
+    "shortNote": "Mark-to-market needs equity readings back to the start of the window, and this journal begins {{since}}. The windows it cannot reach show a dash rather than a figure measured from the wrong place."
   }
 }

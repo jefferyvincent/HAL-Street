@@ -1,4 +1,6 @@
 import { cn } from "@/lib/cn";
+import { chipColors, hueOf } from "@/lib/hue";
+import { useStrings } from "@/hooks/useStrings";
 
 /**
  * A ticker as a chip, so a symbol is found by shape before it is read.
@@ -12,11 +14,11 @@ import { cn } from "@/lib/cn";
  * The hue comes from the symbol itself, so it is stable across sessions and across
  * machines without a lookup table anyone has to maintain. Fixed saturation and
  * lightness keep every chip at the same weight — a colour that varies in contrast
- * as well as hue would make some symbols shout.
+ * as well as hue would make some symbols shout. Both are `lib/hue.ts`.
  */
 export function Ticker({ symbol, size = "sm" }: { symbol: string; size?: "sm" | "md" }) {
-  const root = (symbol || "?").toUpperCase();
-  const hue = hueOf(root);
+  const t = useStrings();
+  const root = (symbol || t.common.unknown).toUpperCase();
 
   return (
     <span
@@ -26,27 +28,9 @@ export function Ticker({ symbol, size = "sm" }: { symbol: string; size?: "sm" | 
         size === "md" ? "min-w-[42px] px-[6px] py-[4px] text-[11px]"
                       : "min-w-[34px] px-[5px] py-[3px] text-[9.5px]",
       )}
-      style={{
-        color: `hsl(${hue} 70% 68%)`,
-        borderColor: `hsl(${hue} 55% 40% / 0.55)`,
-        backgroundColor: `hsl(${hue} 60% 30% / 0.22)`,
-      }}
+      style={chipColors(hueOf(root))}
     >
       {root}
     </span>
   );
-}
-
-/**
- * A stable hue per symbol.
- *
- * Deliberately not random and not sequential: the same ticker must get the same
- * colour on every machine and in every session, or the chip stops being a
- * recognisable shape and becomes decoration.
- */
-function hueOf(symbol: string): number {
-  let hash = 0;
-  for (const char of symbol) hash = (hash * 31 + char.charCodeAt(0)) % 360;
-  // Nudged off the amber the chrome already uses, so a chip never reads as chrome.
-  return (hash + 25) % 360;
 }

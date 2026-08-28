@@ -1,10 +1,7 @@
 import { useEffect } from "react";
-import { useUI, type View } from "@/stores/ui";
+import { KEY, VIEW_KEYS } from "@/constants/keys";
+import { useUI } from "@/stores/ui";
 import type { Decisions } from "./useDecisions";
-
-const VIEW_KEYS: Record<string, View> = {
-  "1": "console", "2": "journal", "3": "gates", "4": "committee", "5": "book",
-};
 
 /**
  * The keys the footer advertises, and only those.
@@ -27,11 +24,11 @@ export function useShortcuts(decisions: Decisions): void {
 
       const view = VIEW_KEYS[e.key];
       if (view) return setView(view);
-      if (e.key === "j" && prev) return select(prev);
-      if (e.key === "k" && next) return select(next);
+      if (e.key === KEY.prev && prev) return select(prev);
+      if (e.key === KEY.next && next) return select(next);
       // null, not the newest ts: "latest" should keep following new pushes rather
       // than pin to whatever happened to be newest when the key was pressed.
-      if (e.key === "l") return select(null);
+      if (e.key === KEY.latest) return select(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

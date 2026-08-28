@@ -41,3 +41,4 @@ models/
 *.pt
 
 .DS_Store
+graphify-out/

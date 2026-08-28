@@ -1,8 +1,7 @@
-import { useMemo } from "react";
 import { cn } from "@/lib/cn";
 import { Ticker } from "@/components/Ticker";
+import { useNewsTape } from "@/hooks/useNewsTape";
 import { useStrings } from "@/hooks/useStrings";
-import { useConnection } from "@/stores/connection";
 
 /**
  * What the agent has been reading, scrolling under the chrome.
@@ -22,14 +21,8 @@ import { useConnection } from "@/stores/connection";
  */
 export function NewsTicker() {
   const t = useStrings();
-  const headlines = useConnection((s) => s.snapshot?.headlines) ?? [];
-
-  // Duplicated end to end so the scroll wraps without a seam: the track translates by
-  // exactly half its width, at which point the copy sits where the original started.
-  // A single pass would leave the strip empty for as long as it took to come round.
-  const track = useMemo(() => [...headlines, ...headlines], [headlines]);
-
-  if (headlines.length === 0) return null;
+  const track = useNewsTape();
+  if (track.length === 0) return null;
 
   return (
     <div className="group relative flex items-center overflow-hidden border-b border-line bg-sunk"
@@ -43,8 +36,8 @@ export function NewsTicker() {
 
       <div className="relative min-w-0 flex-1 overflow-hidden py-[6px]">
         <div className="ticker-track flex w-max items-center gap-[26px] group-hover:[animation-play-state:paused]">
-          {track.map((h, i) => (
-            <Item key={`${h.headline}-${i}`} url={h.url} title={t.news.read(h.source)}>
+          {track.map((h) => (
+            <Item key={h.key} url={h.url} title={h.title}>
               {/* Which of the three reads picked it up. A macro story tagged with all
                   of them is a different kind of story from one about a single name,
                   and that is visible here before the words are. */}
@@ -53,9 +46,9 @@ export function NewsTicker() {
                 {h.headline}
               </span>
               <span className="font-mono text-[9.5px] text-ink/30">{h.source}</span>
-              {h.age_hours !== null && (
+              {h.age && (
                 <span className="font-mono text-[9.5px] tabular-nums text-ink/25">
-                  {t.news.age(Math.round(h.age_hours))}
+                  {h.age}
                 </span>
               )}
             </Item>

@@ -1,5 +1,5 @@
 import { cn } from "@/lib/cn";
-import { ago } from "@/lib/format";
+import { useFormat } from "@/hooks/useFormat";
 import { FAMILY_ICON } from "@/constants/icons";
 import { CLS, STROKE } from "@/constants/theme";
 import { Icon, Note } from "@/components/Icon";
@@ -24,6 +24,7 @@ import { useStrings } from "@/hooks/useStrings";
  * from here is the point.
  */
 export function GatesView() {
+  const f = useFormat();
   const t = useStrings();
   const { groups, total, seen, readAt, readOf } = useGateChain();
 
@@ -37,14 +38,14 @@ export function GatesView() {
 
       {readAt && (
         <div className={`${CLS.caption} text-ink/35`}>
-          {t.gates.readAt(readOf, ago(readAt))}
+          {t.gates.readAt(readOf, f.ago(readAt))}
         </div>
       )}
 
       {groups.map((group) => (
         <div key={group.family}>
           <div className={`${CLS.caption} text-ink/40`}>
-            {(t.families[group.family] ?? group.family).toUpperCase()} · {group.gates.length}
+            {t.gates.familyHeading((t.families[group.family] ?? group.family).toUpperCase(), group.gates.length)}
           </div>
           <div className="border border-line bg-panel">
             {group.gates.map((g) => (

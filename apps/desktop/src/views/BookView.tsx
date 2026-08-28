@@ -1,5 +1,4 @@
 import { cn } from "@/lib/cn";
-import { day, money, premium } from "@/lib/format";
 import { ICON } from "@/constants/icons";
 import { CLS } from "@/constants/theme";
 import { Icon, Note } from "@/components/Icon";
@@ -8,8 +7,7 @@ import { StructureChart } from "@/components/StructureChart";
 import { PatternBadge } from "@/components/PatternBadge";
 import { Ticker } from "@/components/Ticker";
 import { Trend } from "@/components/Trend";
-import { useBook, type BookRow } from "@/hooks/useBook";
-import { useMarks } from "@/hooks/useMarks";
+import { useBookTable, type BookPnl } from "@/hooks/useBookTable";
 import { useStructureChart } from "@/hooks/useStructureChart";
 import { useStrings } from "@/hooks/useStrings";
 import { useUI } from "@/stores/ui";
@@ -23,17 +21,14 @@ import { useUI } from "@/stores/ui";
  */
 export function BookView() {
   const t = useStrings();
-  const { rows, open, closed } = useBook();
-  // The same source the console's holding card reads, so the two cannot disagree
-  // about what a position is worth.
-  const live = useMarks();
+  const { lines, open, closed } = useBookTable();
   const charting = useUI((s) => s.charting);
   const chartFor = useUI((s) => s.chart);
   const timeframe = useUI((s) => s.chartTimeframe);
   const { chart, loading, error } = useStructureChart(charting, timeframe);
   const col = t.book.columns;
 
-  const showing = rows.find((r) => r.structureId === charting);
+  const showing = lines.find((r) => r.structureId === charting);
 
   return (
     <>
@@ -73,7 +68,7 @@ export function BookView() {
         ) : (
           <div className={cn(CLS.empty, "border border-line bg-panel")}>{error}</div>
         )
-      ) : rows.length === 0 ? (
+      ) : lines.length === 0 ? (
         <div className={CLS.empty}>{t.book.empty}</div>
       ) : (
         <>
@@ -88,14 +83,14 @@ export function BookView() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((r) => (
+                {lines.map((r) => (
                   <tr key={r.structureId}
                       onClick={() => chartFor(r.structureId)}
                       className="cursor-pointer hover:bg-panel">
                     <td className={CLS.td}>
                       <span className={cn("whitespace-nowrap font-mono text-[10px] font-bold leading-none tracking-[.08em]",
                         r.open ? "text-amber" : "text-ink/45")}>
-                        {r.open ? t.book.open : t.book.closed}
+                        {r.status}
                       </span>
                     </td>
                     <td className={cn(CLS.td, "text-ink")}>
@@ -103,7 +98,7 @@ export function BookView() {
                       {/* Moved here off the P&L column, which it had no business
                           occupying — see below. */}
                       <div className="mt-[3px] font-mono text-[9.5px] leading-none text-ink/30">
-                        {day(r.openedAt)}
+                        {r.openedOn}
                       </div>
                       {/* Only for what is still on. A chart read beside a closed
                           position describes a risk nobody is carrying. */}
@@ -116,10 +111,10 @@ export function BookView() {
                     <td className={CLS.td}><Ticker symbol={r.underlying} /></td>
                     <td className={cn(CLS.td, "tabular-nums")}>{r.qty}</td>
                     <td className={cn(CLS.td, "whitespace-nowrap tabular-nums")}>
-                      {r.entry ? premium(r.entry) : "—"}
+                      {r.entryText}
                     </td>
                     <td className={cn(CLS.td, "whitespace-nowrap tabular-nums")}>
-                      {r.exit ? premium(r.exit) : "—"}
+                      {r.exitText}
                     </td>
                     {/* Realized on a closed row, marked-to-market on an open one.
                         This column was REALIZED, which an open position does not
@@ -127,7 +122,7 @@ export function BookView() {
                         open-date here, and the column that says P&L was the one place
                         the book would not tell you the P&L. */}
                     <td className={cn(CLS.td, "whitespace-nowrap tabular-nums")}>
-                      <Pnl row={r} live={live?.marks[r.structureId]?.unrealized_usd} />
+                      <Pnl pnl={r.pnl} />
                     </td>
                   </tr>
                 ))}
@@ -141,32 +136,16 @@ export function BookView() {
   );
 }
 
-/**
- * One row's P&L: realized once closed, marked-to-market while open.
- *
- * Both are money made or lost on the same position and belong in one column. What
- * they are not is interchangeable, so the open one is tagged — a number that can
- * still move is a different claim from one that cannot.
- *
- * Live where the broker answered, the agent's own last read otherwise, and nothing
- * at all when neither can price it. A structure with a missing quote is unpriceable,
- * not flat, and printing $0.00 there would be the worst of the three.
- */
-function Pnl({ row, live }: { row: BookRow; live?: string | null }) {
+/** One row's P&L, tagged when it is a number that can still move. */
+function Pnl({ pnl }: { pnl: BookPnl | null }) {
   const t = useStrings();
-  const value = row.open ? live ?? row.unrealized : row.realized;
-  if (value === null || value === undefined) {
-    return <span className="text-ink/32">{t.book.unpriced}</span>;
-  }
-  const n = Number(value);
-  if (!Number.isFinite(n)) {
-    return <span className="text-ink/32">{t.book.unpriced}</span>;
-  }
+  if (!pnl) return <span className="text-ink/32">{t.book.unpriced}</span>;
+
   return (
     <span className="flex items-center gap-[5px]">
-      <Trend value={n} size={10} />
-      <span className={n < 0 ? "text-fail" : "text-pass"}>{money(value)}</span>
-      {row.open && (
+      <Trend value={pnl.amount} size={10} />
+      <span className={pnl.amount < 0 ? "text-fail" : "text-pass"}>{pnl.value}</span>
+      {pnl.open && (
         <span className="font-mono text-[9px] leading-none text-ink/30">
           {t.book.unrealizedTag}
         </span>

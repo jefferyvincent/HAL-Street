@@ -39,7 +39,7 @@ export function usePatternRead(position: Position): PatternRead {
 
     const line = (tone: string) => (p: { name: string; note: string }) => ({
       key: p.name,
-      text: `${p.name} — ${p.note}`,
+      text: t.book.patternLine(p.name, p.note),
       tone,
     });
 

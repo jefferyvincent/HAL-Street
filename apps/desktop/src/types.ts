@@ -398,6 +398,25 @@ export interface Spend {
   prices: Record<string, { in: string; out: string }>;
 }
 
+/** P&L over one calendar window. Realized and mark-to-market are different numbers. */
+export interface Period {
+  period: "day" | "week" | "month" | "year" | "all";
+  /** First session in the window; null for "all". */
+  start: string | null;
+  /** What closed trades made in it. Exact, off the ledger. */
+  realized_usd: string;
+  closed: number;
+  /**
+   * Equity change across the window, or null when the journal does not reach back to
+   * its start. Null rather than a figure that would silently mean "since this file
+   * was created".
+   */
+  equity_change_usd: string | null;
+  covered: boolean;
+  /** The first session the journal has any equity for. */
+  since: string | null;
+}
+
 export interface Snapshot {
   chain: ChainEntry[];
   families: string[];
@@ -412,6 +431,7 @@ export interface Snapshot {
   in_flight: InFlight | null;
   gate_readings: Record<string, GateReading>;
   spend: Spend;
+  periods: Period[];
   headlines: NewsItem[];
   pnl: Pnl;
   positions: Position[];

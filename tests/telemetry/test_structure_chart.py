@@ -267,17 +267,39 @@ def test_history_alone_has_no_forming_candle():
     assert not any(c["forming"] for c in net_candles(points, bucket=13))
 
 
-def test_forming_is_decided_at_the_bucket_the_candle_is_grouped_by():
-    # Grouped by date, today's candle is forming all day; grouped by hour, only this
-    # hour's is. The flag has to follow whatever the bucket actually is.
-    from datetime import UTC, datetime, timedelta
+def test_forming_is_decided_at_the_bucket_the_candle_is_grouped_by(monkeypatch):
+    """Grouped by date, today's candle is forming all day; grouped by hour, only this
+    hour's is. The flag has to follow whatever the bucket actually is.
 
+    The clock is pinned rather than read. This test used to take `now() - 4h` and
+    assert that stamp was still "today", which is true for twenty hours out of every
+    twenty-four and false for the four after UTC midnight — a test that passed all
+    afternoon and failed at 00:01Z. A test of "the bucket the clock is in" has to own
+    the clock, or the only thing it measures is what time the suite happened to run.
+    """
+    from datetime import UTC, datetime
+
+    from halstreet.telemetry import structure_chart
     from halstreet.telemetry.structure_chart import Point, net_candles
 
-    earlier = datetime.now(UTC) - timedelta(hours=4)
-    points = [Point(t=earlier.strftime("%Y-%m-%dT%H:%M:%SZ"), value=Decimal("-1.0"))]
+    pinned = datetime(2026, 3, 5, 18, 30, tzinfo=UTC)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return pinned
+
+    monkeypatch.setattr(structure_chart, "datetime", Clock)
+
+    # Four hours earlier: a different hour, the same session.
+    points = [Point(t="2026-03-05T14:30:00Z", value=Decimal("-1.0"))]
     assert net_candles(points, bucket=13)[0]["forming"] is False, "a closed hour"
     assert net_candles(points, bucket=10)[0]["forming"] is True, "but today's session"
+
+    # And the hour the clock is actually in is forming under either bucket.
+    current = [Point(t="2026-03-05T18:00:00Z", value=Decimal("-1.0"))]
+    assert net_candles(current, bucket=13)[0]["forming"] is True
+    assert net_candles(current, bucket=10)[0]["forming"] is True
 
 
 def test_the_forming_flag_survives_serialisation_as_a_boolean():

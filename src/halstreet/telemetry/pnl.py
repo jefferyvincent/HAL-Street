@@ -26,6 +26,7 @@ import csv
 import io
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -139,6 +140,119 @@ def equity_series(journal: Journal) -> list[tuple[str, Decimal]]:
         ts = record.get("ts")
         if value is not None and value > 0 and ts:
             out.append((str(ts), value))
+    return out
+
+
+#: The windows a trader asks for, and where each one starts.
+#:
+#: Calendar boundaries, not trailing ones. "This month" means since the first, not the
+#: last thirty days, and a figure labelled MTD that quietly means the latter is the
+#: kind of wrong nobody catches until it matters.
+PERIODS = ("day", "week", "month", "year", "all")
+
+
+def period_start(period: str, today: date) -> date | None:
+    """The first session a window includes. `None` for "all", which has no start."""
+    if period == "day":
+        return today
+    if period == "week":
+        return today - timedelta(days=today.weekday())   # Monday
+    if period == "month":
+        return today.replace(day=1)
+    if period == "year":
+        return today.replace(month=1, day=1)
+    return None
+
+
+def _on(ts: Any) -> date | None:
+    """The session date a timestamp belongs to.
+
+    The UTC date, and that is exact rather than approximate here: the exchange opens
+    at 09:30 and closes at 16:00 local, which is 13:30-20:00 UTC in summer and
+    14:30-21:00 in winter. Every fill this agent can produce lands inside one UTC day,
+    so the two dates agree. It would stop being true for a venue trading through
+    midnight UTC, which is why it is written down rather than assumed.
+    """
+    try:
+        return datetime.fromisoformat(str(ts)).date()
+    except (TypeError, ValueError):
+        return None
+
+
+def by_period(ledger: Ledger, equity: list[tuple[str, Decimal]], *,
+              today: date) -> list[dict]:
+    """Realized P&L and equity change over each window a trader asks for.
+
+    **Two numbers, and they are not the same number.** Realized is what closed trades
+    actually made — exact, straight off the ledger, and it is zero on a day the desk
+    held rather than a day it lost. Equity change is mark-to-market: it moves with open
+    positions, which is what most people mean by "today's P&L", and it is the one that
+    can be quietly wrong.
+
+    So the equity figure is reported only when the samples actually reach back to the
+    start of the window. A journal that begins on the 27th cannot say what the month
+    did, and computing it anyway would produce a number labelled MTD that means "since
+    this file was created" — plausible, precise, and false. `covered` is how the panel
+    knows which it has.
+
+    Realized needs no such guard: a closed structure carries its own date, and a window
+    with none in it made nothing, which is a fact rather than a gap.
+    """
+    first = _on(equity[0][0]) if equity else None
+    last_value = equity[-1][1] if equity else None
+
+    out: list[dict] = []
+    for period in PERIODS:
+        start = period_start(period, today)
+
+        realized = Decimal(0)
+        closed = 0
+        for structure in ledger.structures:
+            if structure.is_open:
+                continue
+            when = _on(structure.closed_at)
+            if when is None or (start is not None and when < start):
+                continue
+            value = structure.realized()
+            if value is not None:
+                realized += value
+            closed += 1
+
+        # The last sample at or before the window opened is where it started from.
+        # Not the first sample *inside* it: on a day with one scan, the open and the
+        # close would be the same reading and the day would always show zero.
+        opening = None
+        if equity and start is None:
+            # "All" opens at the first sample there is. It has no start to sit before,
+            # and the `start is None` short-circuit below would otherwise put every
+            # sample in *both* lists — making the opening the closing and reporting a
+            # flat zero over the whole journal, which is what it did.
+            opening = equity[0][1]
+        elif equity:
+            before = [v for ts, v in equity
+                      if (d := _on(ts)) is not None and d < start]
+            inside = [v for ts, v in equity
+                      if (d := _on(ts)) is not None and d >= start]
+            opening = before[-1] if before else (inside[0] if inside else None)
+
+        covered = bool(equity) and (
+            start is None or (first is not None and first <= start)
+        )
+        change = (last_value - opening
+                  if covered and opening is not None and last_value is not None
+                  else None)
+
+        out.append({
+            "period": period,
+            "start": start.isoformat() if start else None,
+            "realized_usd": realized,
+            "closed": closed,
+            # None when the samples do not reach the start of the window. The panel
+            # says so rather than printing a number that means something else.
+            "equity_change_usd": change,
+            "covered": covered,
+            "since": first.isoformat() if first else None,
+        })
     return out
 
 

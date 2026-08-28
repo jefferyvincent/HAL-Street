@@ -1,4 +1,3 @@
-import { useTranslation } from "react-i18next";
 import { useStrings } from "@/hooks/useStrings";
 import { useConnection } from "@/stores/connection";
 
@@ -17,7 +16,6 @@ import { useConnection } from "@/stores/connection";
  */
 export function useSession() {
   const t = useStrings();
-  const { t: raw } = useTranslation();
   const market = useConnection((s) => s.snapshot?.market ?? null);
 
   if (!market) {
@@ -26,7 +24,7 @@ export function useSession() {
       certain: false,
       open: false,
       label: t.chrome.marketUnknown,
-      title: raw("chrome.marketTitleUnknown"),
+      title: t.chrome.marketTitleUnknown,
     };
   }
 
@@ -43,7 +41,7 @@ export function useSession() {
       // OPEN is exactly the assertion being withdrawn.
       open: false,
       label,
-      title: raw("chrome.marketTitleLastSeen", { at: market.at }),
+      title: t.chrome.marketTitleLastSeen(market.at),
     };
   }
 
@@ -51,12 +49,11 @@ export function useSession() {
     known: true,
     certain: true,
     open,
-    title: raw(
-      market.source === "boundary"
-        ? "chrome.marketTitleBoundary"
-        : open ? "chrome.marketTitleOpen" : "chrome.marketTitleClosed",
-      { at: market.at, crossed: market.crossed_at ?? "" },
-    ),
+    title: market.source === "boundary"
+      ? t.chrome.marketTitleBoundary(market.crossed_at ?? "")
+      : open
+        ? t.chrome.marketTitleOpen(market.at)
+        : t.chrome.marketTitleClosed(market.at),
     label,
   };
 }

@@ -1,6 +1,7 @@
 import { ICON } from "@/constants/icons";
 import { STROKE } from "@/constants/theme";
 import { Icon } from "@/components/Icon";
+import { useTrend } from "@/hooks/useTrend";
 
 /**
  * Up or down beside a figure whose sign is the whole point.
@@ -10,13 +11,13 @@ import { Icon } from "@/components/Icon";
  * panel uses exactly that pair for won and lost. A shape says the same thing
  * without depending on hue, and costs ten pixels.
  *
- * Nothing for zero. A scratch is neither, and an arrow pointing somewhere would be
- * asserting a direction the number does not have.
+ * Nothing for zero, which `useTrend` decides: a scratch is neither.
  */
 export function Trend({ value, size = 9 }: { value: number | string | null; size?: number }) {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n === 0) return null;
-  const up = n > 0;
+  const direction = useTrend(value);
+  if (!direction) return null;
+
+  const up = direction === "up";
   return (
     <Icon
       d={up ? ICON.up : ICON.down}

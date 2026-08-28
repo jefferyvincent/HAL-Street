@@ -1,4 +1,4 @@
-import { money, plain } from "@/lib/format";
+import { useFormat } from "@/hooks/useFormat";
 import { cn } from "@/lib/cn";
 import { CLS } from "@/constants/theme";
 import { useEquityChart } from "@/hooks/useEquityChart";
@@ -15,6 +15,7 @@ import type { EquityPoint, Pnl } from "@/types";
  * quiet stretches that say the agent was running and finding nothing worth taking.
  */
 export function EquityChart({ curve, pnl }: { curve: EquityPoint[]; pnl: Pnl }) {
+  const f = useFormat();
   const t = useStrings();
   const { host, drawable, count, move } = useEquityChart(curve, pnl);
 
@@ -28,11 +29,11 @@ export function EquityChart({ curve, pnl }: { curve: EquityPoint[]; pnl: Pnl }) 
         {move !== null && (
           <span className={cn("font-mono text-[10px] font-semibold leading-none tabular-nums",
             move < 0 ? "text-fail" : "text-pass")}>
-            {move >= 0 ? "+" : ""}{plain(move)}
+            {f.signed(move)}
           </span>
         )}
         <span className="font-mono text-[10px] leading-none tabular-nums text-ink/40">
-          {money(pnl.equity_last)}
+          {f.money(pnl.equity_last)}
         </span>
       </div>
 
@@ -44,7 +45,7 @@ export function EquityChart({ curve, pnl }: { curve: EquityPoint[]; pnl: Pnl }) 
 
       <div className="flex items-center gap-3 border-t border-line-soft px-3 py-[6px] font-mono text-[9.5px] leading-none tabular-nums text-ink/40">
         <span>{t.equity.scans(count)}</span>
-        <span>{t.equity.drawdown(money(pnl.max_drawdown_usd), plain(pnl.max_drawdown_pct))}</span>
+        <span>{t.equity.drawdown(f.money(pnl.max_drawdown_usd), f.plain(pnl.max_drawdown_pct))}</span>
       </div>
     </div>
   );

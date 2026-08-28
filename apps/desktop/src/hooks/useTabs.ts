@@ -24,15 +24,17 @@ export function useTabs(): { tabs: Tab[]; go: (v: View) => void } {
     book: snap ? snap.positions.length + snap.closed.length : null,
   };
 
+  // Order and icon only. The words come from the string table, which is why there
+  // is no label here to fall out of step with it.
   const tabs: Tab[] = (
     [
-      ["console", "CONSOLE", ICON.grid],
-      ["journal", "JOURNAL", ICON.list],
-      ["gates", "GATES", ICON.chain],
-      ["committee", "COMMITTEE", ICON.committee],
-      ["book", "BOOK", ICON.candles],
-    ] as [View, string, string][]
-  ).map(([id, , icon]) => ({ id, icon, count: counts[id], active: id === view }));
+      ["console", ICON.grid],
+      ["journal", ICON.list],
+      ["gates", ICON.chain],
+      ["committee", ICON.committee],
+      ["book", ICON.candles],
+    ] as [View, string][]
+  ).map(([id, icon]) => ({ id, icon, count: counts[id], active: id === view }));
 
   return { tabs, go };
 }

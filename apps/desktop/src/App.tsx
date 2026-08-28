@@ -7,13 +7,13 @@ import { Tape } from "@/components/Tape";
 import { GRID } from "@/constants/theme";
 import { useAudioCues, useAudioUnlock } from "@/hooks/useAudioCues";
 import { useConnect } from "@/hooks/useConnect";
+import { useLayout } from "@/hooks/useLayout";
 import { usePollMarks } from "@/hooks/useMarks";
 import { useDecisions } from "@/hooks/useDecisions";
 import { useGateFamilies } from "@/hooks/useGateFamilies";
 import { useShortcuts } from "@/hooks/useShortcuts";
 import { useStrings } from "@/hooks/useStrings";
 import { useConnection } from "@/stores/connection";
-import { useUI } from "@/stores/ui";
 import { BookView, CommitteeView, ConsoleView, GatesView, JournalView } from "@/views";
 
 const VIEWS = {
@@ -27,7 +27,7 @@ const VIEWS = {
 export default function App() {
   const t = useStrings();
   const snap = useConnection((s) => s.snapshot);
-  const view = useUI((s) => s.view);
+  const { view, rails } = useLayout();
   const decisions = useDecisions();
   const families = useGateFamilies(decisions.current);
 
@@ -43,10 +43,6 @@ export default function App() {
   useAudioUnlock();
 
   const View = VIEWS[view];
-  // The rails describe the selected decision, so they belong to the console. The
-  // other two views take the full width rather than compete with a narrower copy of
-  // themselves down the right-hand side.
-  const wide = view !== "console";
 
   return (
     <div className="flex h-full flex-col bg-void">
@@ -54,12 +50,12 @@ export default function App() {
       <NewsTicker />
       <HaltBanner />
       {snap ? (
-        <div className={wide ? GRID.wide : GRID.console}>
-          {!wide && <Rail families={families} />}
+        <div className={rails ? GRID.console : GRID.wide}>
+          {rails && <Rail families={families} />}
           <main className="min-w-0 bg-void p-3">
             <View />
           </main>
-          {!wide && <Tape rows={decisions.rows} selected={decisions.selected} />}
+          {rails && <Tape />}
         </div>
       ) : (
         <div className="flex flex-1 items-center justify-center font-mono text-[12px] text-ink/40">

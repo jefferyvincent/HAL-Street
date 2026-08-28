@@ -1,6 +1,6 @@
 import { useMemo, useRef } from "react";
-import { useTranslation } from "react-i18next";
 import { STROKE } from "@/constants/theme";
+import { useStrings } from "@/hooks/useStrings";
 import type { StructureChart } from "@/types";
 
 export interface Line {
@@ -88,7 +88,7 @@ function useFormingCandle(live: number | null, bucketMs: number) {
 }
 
 export function useStructureLevels(chart: StructureChart | null, live: number | null = null) {
-  const { t } = useTranslation();
+  const t = useStrings();
   // The bucket the server grouped by, inferred from what it sent: hourly stamps
   // carry a time, daily ones do not. Reading it off the data avoids a second place
   // that has to agree with `resolution()`.
@@ -118,15 +118,15 @@ export function useStructureLevels(chart: StructureChart | null, live: number | 
     if (chart.levels) {
       const { entry, target, stop, stop_reachable } = chart.levels;
       lines.push(
-        { key: "entry", value: Number(entry), color: STROKE.ink, label: t("chart.entry") },
-        { key: "target", value: Number(target), color: STROKE.pass, label: t("chart.target") },
+        { key: "entry", value: Number(entry), color: STROKE.ink, label: t.chart.entry },
+        { key: "target", value: Number(target), color: STROKE.pass, label: t.chart.target },
         {
           key: "stop",
           value: Number(stop),
           color: STROKE.fail,
           // A stop that cannot print is still the level the policy names; saying so
           // beats drawing it as though the market could get there.
-          label: stop_reachable === false ? t("chart.stopUnreachable") : t("chart.stop"),
+          label: stop_reachable === false ? t.chart.stopUnreachable : t.chart.stop,
           unreachable: stop_reachable === false,
         },
       );

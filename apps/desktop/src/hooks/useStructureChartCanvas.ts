@@ -8,6 +8,7 @@ import {
 } from "lightweight-charts";
 import { CHART_COLOR } from "@/constants/theme";
 import { chartShape } from "@/lib/chartShape";
+import { useStrings } from "@/hooks/useStrings";
 import type { Candle, Line, Series } from "./useStructureLevels";
 
 /**
@@ -34,6 +35,7 @@ export function useStructureChartCanvas(
   series: Series[], candles: Candle[], lines: Line[], live: number | null,
   fit: "working" | "levels" = "working",
 ) {
+  const t = useStrings();
   const host = useRef<HTMLDivElement>(null);
   const chart = useRef<IChartApi | null>(null);
   const line = useRef<ISeriesApi<"Line"> | null>(null);
@@ -133,7 +135,7 @@ export function useStructureChartCanvas(
       lineWidth: 1,
       lineStyle: LineStyle.LargeDashed,
       axisLabelVisible: true,
-      title: "LIVE",
+      title: t.chart.livePriceLine,
     });
 
     const drawn = lines.map((l) =>
@@ -210,7 +212,7 @@ export function useStructureChartCanvas(
       drawn.forEach((l) => api.removePriceLine(l));
       if (marker) api.removePriceLine(marker);
     };
-  }, [series, candles, lines, live, fit]);
+  }, [series, candles, lines, live, fit, t]);
 
   return host;
 }

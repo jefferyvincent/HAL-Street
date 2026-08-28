@@ -51,6 +51,7 @@ export function neighbours(decisions: Decision[], current: Decision | null) {
 
 /** The three facts about a structure the console shows above the gate ledger. */
 export interface Fact {
+  /** Which fact this is. The words for it are looked up by the caller. */
   key: string;
   value: string;
   good?: boolean;
@@ -58,13 +59,17 @@ export interface Fact {
 
 type Money = (v: string | number | null | undefined) => string;
 
-export function facts(d: Decision, money: Money): Fact[] {
+/**
+ * `money` and `dash` are passed in rather than imported: this file is pure, and the
+ * dash a locale prints for "no figure" is one of its words.
+ */
+export function facts(d: Decision, money: Money, dash: string): Fact[] {
   const s = d.structure_detail ?? {};
   return [
     // A negative net is a credit — money received to open — so it reads as good.
-    { key: "net", value: s.limit_price != null ? money(s.limit_price) : "—",
+    { key: "net", value: s.limit_price != null ? money(s.limit_price) : dash,
       good: Number(s.limit_price) < 0 },
-    { key: "qty", value: String(s.qty ?? "—") },
-    { key: "legs", value: String(s.legs?.length || "—") },
+    { key: "qty", value: String(s.qty ?? dash) },
+    { key: "legs", value: String(s.legs?.length || dash) },
   ];
 }

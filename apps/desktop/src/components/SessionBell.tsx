@@ -2,6 +2,7 @@ import { ICON } from "@/constants/icons";
 import { CLS } from "@/constants/theme";
 import { cn } from "@/lib/cn";
 import { useSession } from "@/hooks/useSession";
+import { useStrings } from "@/hooks/useStrings";
 import { Icon } from "./Icon";
 
 /**
@@ -14,6 +15,7 @@ import { Icon } from "./Icon";
  * the one where nothing is writing and no boundary has passed to reason from.
  */
 export function SessionBell() {
+  const t = useStrings();
   const { label, open, known, certain, title } = useSession();
   return (
     <div
@@ -28,7 +30,7 @@ export function SessionBell() {
       {label}
       {/* Said once, quietly, rather than folded into the label. "CLOSED" is the
           answer; whether anyone was there to see it happen is a footnote. */}
-      {known && !certain && <span className="text-mute/60">?</span>}
+      {known && !certain && <span className="text-mute/60">{t.common.unknown}</span>}
     </div>
   );
 }
