@@ -65,10 +65,35 @@ CORRELATED_GROUPS: dict[str, frozenset[str]] = {
 }
 
 
+#: The bucket every root that is in no group above falls into.
+#:
+#: Not a correlated group and deliberately not in `CORRELATED_GROUPS` — its members
+#: are defined by absence rather than by a claim that they move together, and putting
+#: it in that map would make `groups_for` report a correlation nobody has verified.
+UNCLASSIFIED = "unclassified"
+
+
 def groups_for(root: str) -> list[str]:
-    """Every correlated group this underlying belongs to."""
+    """Every correlated group this underlying belongs to.
+
+    Never empty. A root in none of the maps above comes back as `[UNCLASSIFIED]`,
+    which is the honest answer — "nobody has classified this name" — rather than the
+    old one, which was silence and read downstream as "unconstrained".
+    """
     upper = root.upper()
-    return sorted(name for name, members in CORRELATED_GROUPS.items() if upper in members)
+    known = sorted(name for name, members in CORRELATED_GROUPS.items() if upper in members)
+    return known or [UNCLASSIFIED]
+
+
+def _unclassified(roots) -> set[str]:
+    """The held roots that are in no correlated group.
+
+    Computed from what is actually held rather than from a member list, because the
+    bucket has no member list — it is the complement of every group, over an unbounded
+    universe of names the news might surface.
+    """
+    mapped = frozenset().union(*CORRELATED_GROUPS.values()) if CORRELATED_GROUPS else frozenset()
+    return {r for r in roots if r not in mapped}
 
 
 def _num(value: object) -> Decimal | None:
@@ -106,17 +131,24 @@ def correlated_exposure(proposal: Proposal, ctx: GateContext) -> GateResult:
     different underlyings whose deltas are not commensurable without beta-weighting
     every leg to a common index.
 
-    An underlying in no group is allowed through by this gate. It is not unexamined —
-    `underlying_concentration` still bounds it on its own.
+    An underlying in no group is not waved through. It joins the `UNCLASSIFIED`
+    bucket and is bounded by `max_unclassified_positions` — a separate, looser cap
+    that says how much of the book may sit in names whose correlation nobody has
+    checked. That used to be a wave-through, which was defensible while a human chose
+    every name and every name was in the map; news discovery made "in no group" the
+    common case rather than a deliberate one.
     """
-    cap_positions = ctx.limits.max_correlated_positions
-    if cap_positions <= 0:
-        return allow(CORRELATED, "disabled")
-
     root = proposal.underlying.upper()
     groups = groups_for(root)
-    if not groups:
-        return allow(CORRELATED, f"{root} is in no correlated group")
+    # Two caps, because there are two claims. A named group is a verified statement
+    # that these names move together; the unclassified bucket is a statement about the
+    # map's coverage. Sharing one number would mean loosening the checked claim to
+    # make room for the unchecked one.
+    unmapped = groups == [UNCLASSIFIED]
+    cap_positions = (ctx.limits.max_unclassified_positions if unmapped
+                     else ctx.limits.max_correlated_positions)
+    if cap_positions <= 0:
+        return allow(CORRELATED, "disabled" if not unmapped else "unclassified cap disabled")
 
     held = _gross_by_root(ctx.positions)
     adding = sum(leg.ratio_qty for leg in proposal.structure.legs) * proposal.structure.qty
@@ -131,8 +163,11 @@ def correlated_exposure(proposal: Proposal, ctx: GateContext) -> GateResult:
     cap_contracts = cap_positions * len(proposal.structure.legs)
 
     for group in groups:
-        members = CORRELATED_GROUPS[group]
-        in_group = {r: q for r, q in held.items() if r in members and q}
+        # The unclassified bucket is the complement of every group rather than a
+        # member list, so its membership is decided against what is held.
+        in_bucket = (_unclassified(held) if group == UNCLASSIFIED
+                     else CORRELATED_GROUPS[group])
+        in_group = {r: q for r, q in held.items() if r in in_bucket and q}
         total = sum(in_group.values()) + adding
         if total > cap_contracts:
             names = ", ".join(f"{r} {q:.0f}" for r, q in sorted(in_group.items()))
@@ -140,13 +175,18 @@ def correlated_exposure(proposal: Proposal, ctx: GateContext) -> GateResult:
                 CORRELATED,
                 f"'{group}' would hold {total:.0f} contracts ({names or 'nothing'} open "
                 f"+ {adding} new on {root}), over the {cap_contracts} implied by max "
-                f"{cap_positions} correlated position(s). These names move together — "
-                "holding several is one bet at several times the size, not a "
-                "diversified book.",
+                f"{cap_positions} position(s). "
+                + ("No correlation map covers these names, so the book cannot show "
+                   "they are independent. An unverified claim is bounded, not trusted."
+                   if group == UNCLASSIFIED else
+                   "These names move together — holding several is one bet at several "
+                   "times the size, not a diversified book."),
             )
 
     reported = groups[0]
-    total = sum(q for r, q in held.items() if r in CORRELATED_GROUPS[reported]) + adding
+    members = (_unclassified(held) if reported == UNCLASSIFIED
+               else CORRELATED_GROUPS[reported])
+    total = sum(q for r, q in held.items() if r in members) + adding
     return allow(CORRELATED, f"'{reported}' {total:.0f}/{cap_contracts} contracts")
 
 

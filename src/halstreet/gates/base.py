@@ -118,6 +118,19 @@ class Limits:
     # IWM are one bet in three tickers; without this the per-underlying cap counts
     # them as three separate names and waves the whole thing through.
     max_correlated_positions: int = 2
+    # Positions' worth of contracts allowed across every name NOT in any group above.
+    #
+    # A separate number from the one over it, because it answers a separate question.
+    # "SPY and QQQ move together" is a claim about those two names that someone
+    # checked. "KO, PEP and MCD are in no group" is a claim about the *map* — nobody
+    # has classified them — and bounding it is humility rather than correlation.
+    #
+    # It exists because the universe stopped being three tickers in `.env`. While a
+    # human picked the names, everything the agent could propose was mapped by
+    # construction and "in no group" was a deliberate choice; with news discovery it
+    # is the common case, and the correlation cap answered the common case by waving
+    # it through. Set to 0 to disable, which restores exactly that behaviour.
+    max_unclassified_positions: int = 3
     # Equity drawdown from the day's open that latches trading off. 0 disables.
     daily_loss_limit_pct: Decimal = Decimal(5)
     # Runaway guard, not a risk limit — the loop should never approach it.
@@ -175,6 +188,8 @@ class Limits:
             max_net_vega=dec("MAX_NET_VEGA", cls.max_net_vega),
             max_correlated_positions=integer("MAX_CORRELATED_POSITIONS",
                                              cls.max_correlated_positions),
+            max_unclassified_positions=integer("MAX_UNCLASSIFIED_POSITIONS",
+                                               cls.max_unclassified_positions),
             daily_loss_limit_pct=dec("DAILY_LOSS_LIMIT_PCT", cls.daily_loss_limit_pct),
             max_entries_per_hour=integer("MAX_ENTRIES_PER_HOUR", cls.max_entries_per_hour),
             max_open_positions=integer("MAX_OPEN_POSITIONS", cls.max_open_positions),

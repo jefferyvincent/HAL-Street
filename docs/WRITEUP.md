@@ -20,9 +20,20 @@ whether the gates run.
 
 ## AI logic
 
-**Universe and cadence.** SPY, QQQ, IWM. One scan every 30 minutes, and only while the *broker's*
-`get_clock` says the market is open — a local `datetime` knows nothing about holidays or early
-closes, and a test asserts `weekday`/`hour` appear nowhere in the scheduler.
+**Universe and cadence.** Discovered, not configured. Every pass reads the market-wide news feed,
+counts the symbols the *publisher* tagged on each article, and scans the names the tape is talking
+about most — screened first for whether an option chain exists at all, because the raw top of a
+real count included a halted warrant and a crypto pair. `UNIVERSE=SPY,QQQ,IWM` still pins an
+explicit list when a run needs to be reproducible; `auto` is the default. One scan every 30
+minutes, and only while the *broker's* `get_clock` says the market is open — a local `datetime`
+knows nothing about holidays or early closes, and a test asserts `weekday`/`hour` appear nowhere
+in the scheduler.
+
+Counting runs on the publisher's structured `symbols` field, never on the headline text. That is
+the same line `marketdata/news` already drew — "a headline never becomes a symbol" — and it is why
+Alpaca was chosen over RSS in the first place: the mapping from article to ticker is Benzinga's,
+not a regex of ours. Discovery *nominates*; the tradability screen, the liquidity floors and the
+sixteen gates all still stand between a mention and an order.
 
 **What the strategy engine produces, deterministically.** `strategy/` builds put and call credit
 spreads and iron condors from the live chain — arithmetic only, no model, no randomness, so the
@@ -167,6 +178,15 @@ every other gate waved it through — `underlying-concentration` matches roots e
 roots look like three separate names to it. Diversification across tickers that move together is
 not diversification; it is leverage with better paperwork.
 
+The same gate grew a second cap when the universe stopped being three tickers. `CORRELATED_GROUPS`
+is a hand-written map of about sixty names, and while a person chose the universe, everything the
+agent could propose was in it by construction — so "this name is in no group" meant a deliberate
+choice and the gate allowed it through. Under discovery that is the *common* case, and a
+correlation cap that waves through the common case is not a cap. Unmapped roots now land in an
+`unclassified` bucket with its own limit: not a claim that they move together, but a bound on how
+much of the book may sit in names whose correlation nobody has checked. Two claims, two numbers —
+sharing one knob would mean loosening the verified claim to make room for the unverified one.
+
 **`options-buying-power` is the one that reads a different number than everything
 else.** Every other sizing gate measures against equity. The broker does not: options
 collateral comes out of `options_buying_power`, which is cash — $89,817 on this
@@ -193,7 +213,7 @@ outright.
 **Gates are deterministic Python.** No model call, no network, no clock beyond an injected date,
 and nothing the agent can rewrite at runtime. Every gate has a test proving it **rejects**, which
 is the only kind of test that shows a safety layer is load-bearing rather than decorative.
-1088 tests, and the per-gate rejection count for the window is in Results below — generated from
+1177 tests, and the per-gate rejection count for the window is in Results below — generated from
 the journal rather than asserted here, because a safety layer's own write-up is the last place a
 number should be taken on trust. Coverage is not the standard used: a test is accepted when the
 defect it names, planted back into the source, actually makes it fail.

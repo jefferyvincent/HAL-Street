@@ -106,9 +106,20 @@ def harness(tmp_path):
     return build
 
 
-async def _run(agent, base_turn="THE MENU"):
+def _menu():
+    """One candidate of each family, so the burn table has something to rank."""
+    from halstreet.strategy import profiles as P
+    from halstreet.strategy.candidates import Candidate
+    return [Candidate(name=f"a {kind}", kind=kind, legs=[], net=Decimal("-1.00"),
+                      max_loss_usd=Decimal(400), max_gain_usd=Decimal(100), dte=45,
+                      score=Decimal("0.5"))
+            for kind in P.VERTICALS_AND_CONDORS]
+
+
+async def _run(agent, base_turn="THE MENU", candidates=None):
     return await agent._committee_proposal(
         underlying="SPY", base_turn=base_turn,
+        candidates=_menu() if candidates is None else candidates,
         state={"bias": _Bias(), "regime": _Regime()})
 
 
@@ -307,3 +318,63 @@ async def test_the_committee_never_reaches_the_broker_beyond_reading_news(harnes
     agent, broker, _, _ = harness()
     await _run(agent)
     assert broker.news_calls == ["SPY"]
+
+
+# --- the burn table ------------------------------------------------------------------
+#
+# Added with news discovery. The judge used to be handed a ranked menu and a
+# paragraph, and had to work out both what the news implied about direction and which
+# structure expresses it. The second half is arithmetic — `strategy/burn` does it — and
+# these tests pin that its answer actually reaches the people arguing.
+
+@pytest.mark.asyncio
+async def test_the_researchers_argue_against_the_burn_table(harness):
+    agent, _, com, _ = harness()
+    await _run(agent)
+    assert "BURN TEST" in com.seen["debate_brief"]
+
+
+@pytest.mark.asyncio
+async def test_the_judge_sees_the_burn_table_too(harness):
+    agent, _, com, _ = harness()
+    await _run(agent)
+    assert "BURN TEST" in com.seen["judge_brief"]
+
+
+@pytest.mark.asyncio
+async def test_the_table_is_built_after_the_catalyst_so_it_can_use_the_news_read(harness):
+    """Order, not content. The catalyst's lean is an input to the table.
+
+    Built one stage earlier it would be a restatement of the price trend, which the
+    ranking already has — the whole reason it sits between the catalyst and the debate
+    is that it is the first point where both reads exist.
+    """
+    agent, _, com, _ = harness()
+    await _run(agent)
+    # `_Recorder.catalyst` returns bearish 0.8; `_Bias` is bullish. That is a conflict,
+    # and a conflict can only be detected by something that has seen both.
+    assert "conflicted" in com.seen["debate_brief"]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_catalyst_leaves_a_table_built_on_the_chart_alone(harness):
+    """Degradation, like every other stage. No news is not no table."""
+    agent, _, com, _ = harness(committee=_Recorder(catalyst_error="503"))
+    await _run(agent)
+    assert "BURN TEST" in com.seen["debate_brief"]
+    assert "no-news" in com.seen["debate_brief"]
+
+
+@pytest.mark.asyncio
+async def test_the_burn_table_is_journalled_with_the_rest_of_the_session(harness):
+    """It is deterministic, so it is reconstructable — but only if the menu is kept.
+
+    The menu is not: candidates are journalled per cycle and the table is the reading
+    of them. Recording the verdict costs a few hundred bytes and makes "why did the
+    judge favour the condor" answerable from one event.
+    """
+    agent, _, _, journal = harness()
+    await _run(agent)
+    burn = _committee_event(journal)["burn"]
+    assert burn["agreement"] == "conflicted"
+    assert {r["kind"] for r in burn["structures"]}

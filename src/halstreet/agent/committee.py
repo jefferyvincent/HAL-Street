@@ -223,6 +223,11 @@ class Session:
     #: spent them, and "the committee is expensive" is not a finding you can act on
     #: without knowing which quarter of it to look at.
     stages: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: The deterministic read of the menu against the news — see `strategy/burn`.
+    #: Every structure family, whether the combined read points its way, and where the
+    #: catalyst and the price trend disagree. Journalled because the menu it was built
+    #: from is not kept in this event, so the verdict cannot be reconstructed later.
+    burn: dict[str, Any] = field(default_factory=dict)
     errors: list[str] = field(default_factory=list)
 
     def spend(self, counts: dict[str, Any], stage: str = "") -> None:
@@ -255,6 +260,7 @@ class Session:
             "reflection": self.reflection,
             "tokens": self.tokens,
             "stages": self.stages,
+            "burn": self.burn,
             "errors": self.errors,
         }
 
@@ -530,6 +536,15 @@ def brief(*, base_turn: str, session: Session, debate: bool = False) -> str:
     """The evidence pack. `debate=True` frames it for a researcher, not a decider."""
     parts = [_DEBATE_FRAME if debate else "", base_turn, "\n--- COMMITTEE ---\n"]
     parts.append(f"Catalyst read: {json.dumps(session.catalyst.to_prompt(), ensure_ascii=False)}")
+    if session.burn:
+        # Placed after the catalyst because it is partly derived from it, and before
+        # the arguments because it is evidence rather than a case. It annotates the
+        # menu; it does not replace it, and it chooses nothing.
+        parts.append(
+            "\n--- BURN TEST (deterministic; every structure family tried against "
+            "the news read and the price trend) ---\n"
+            + json.dumps(session.burn, indent=2, default=str)
+        )
     if session.bull:
         parts.append(f"\nBULL CASE:\n{session.bull}")
     if session.bear:

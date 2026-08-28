@@ -82,12 +82,20 @@ def test_one_correlated_name_alongside_another_is_allowed(ctx):
     assert correlated_exposure(spread_on("QQQ"), ctx).passed
 
 
-def test_an_uncorrelated_name_is_not_constrained_by_the_group(ctx):
+def test_an_uncorrelated_name_is_not_constrained_by_a_group_it_is_not_in(ctx):
+    """A full `us-broad-market` book has no opinion about KO.
+
+    This test used to also assert the *reason* was "KO is in no correlated group",
+    which was the old wave-through. KO is now bounded by the unclassified cap
+    instead — a looser limit, but a limit. What survives unchanged, and is the part
+    that always mattered, is that one group's exposure never constrains a name
+    outside it.
+    """
     ctx = _with(ctx, positions=[held("SPY", -1), held("SPY", 1),
                                 held("QQQ", -1), held("QQQ", 1)])
     result = correlated_exposure(spread_on("KO"), ctx)
     assert result.passed
-    assert "no correlated group" in result.reason
+    assert "us-broad-market" not in result.reason
 
 
 def test_more_legs_raise_the_ceiling_but_more_contracts_do_not(ctx):
@@ -262,3 +270,79 @@ def test_the_circuit_gates_are_in_the_chain():
 def _with(ctx: GateContext, **overrides) -> GateContext:
     import dataclasses
     return dataclasses.replace(ctx, **overrides)
+
+
+# --- names the correlation map has never heard of ---------------------------------
+#
+# Added when the universe stopped being three tickers in `.env` and started being
+# whatever the news feed is talking about. Until then every name the agent could
+# propose was in `CORRELATED_GROUPS` by construction, so "in no group" meant "a name
+# a human deliberately added and deliberately left unmapped". With discovery it means
+# "a name nobody has ever classified", which is most of them — and the old answer to
+# that was to wave it through.
+
+def test_a_name_the_map_has_never_heard_of_is_not_simply_waved_through(ctx):
+    """The gap discovery opens, stated as a test.
+
+    `CORRELATED_GROUPS` is a hand-written map of about sixty tickers. A discovered
+    universe is unbounded, so the common case is now a name that is in no group — and
+    a correlation cap that answers "allowed, no group" to the common case is not a
+    cap. The book can hold ten single names that all fall over together and this gate
+    never counts past one of them.
+    """
+    ctx = _with(ctx, positions=[held("KO", -1), held("KO", 1),
+                                held("PEP", -1), held("PEP", 1),
+                                held("MO", -1), held("MO", 1)])
+    assert not correlated_exposure(spread_on("MCD"), ctx).passed
+
+
+def test_the_unmapped_cap_is_its_own_limit_not_the_correlation_one(ctx):
+    """Two different claims, so two different numbers.
+
+    "SPY and QQQ move together" is a fact about those two names. "I have not
+    classified KO, PEP and MCD" is a fact about the *map*, and bounding it is a
+    humility limit rather than a correlation one. Sharing one knob would mean
+    loosening the verified claim to make room for the unverified one.
+    """
+    ctx = _with(ctx, limits=Limits(max_correlated_positions=2,
+                                   max_unclassified_positions=4),
+                positions=[held("KO", -1), held("KO", 1),
+                           held("PEP", -1), held("PEP", 1),
+                           held("MO", -1), held("MO", 1)])
+    assert correlated_exposure(spread_on("MCD"), ctx).passed
+
+
+def test_the_unmapped_cap_says_which_names_it_counted(ctx):
+    ctx = _with(ctx, positions=[held("KO", -1), held("KO", 1),
+                                held("PEP", -1), held("PEP", 1),
+                                held("MO", -1), held("MO", 1)])
+    reason = correlated_exposure(spread_on("MCD"), ctx).reason
+    assert "KO" in reason and "PEP" in reason
+    assert "unclassified" in reason
+
+
+def test_a_mapped_name_is_never_counted_against_the_unmapped_cap(ctx):
+    """Otherwise the two caps double-count the same position.
+
+    A book of SPY and QQQ is bounded by `us-broad-market`. If those two also landed
+    in the unmapped bucket they would consume an allowance meant for the names nobody
+    has classified, and a fully-classified book would trip a limit about
+    classification.
+    """
+    ctx = _with(ctx, positions=[held("SPY", -1), held("SPY", 1),
+                                held("QQQ", -1), held("QQQ", 1)])
+    assert correlated_exposure(spread_on("KO"), ctx).passed
+
+
+def test_the_unmapped_cap_can_be_disabled_on_its_own(ctx):
+    ctx = _with(ctx, limits=Limits(max_unclassified_positions=0),
+                positions=[held("KO", -9), held("PEP", -9)])
+    assert correlated_exposure(spread_on("MCD"), ctx).passed
+
+
+def test_disabling_the_unmapped_cap_leaves_the_correlation_cap_alone(ctx):
+    """The two must not be one knob wearing two names."""
+    ctx = _with(ctx, limits=Limits(max_unclassified_positions=0),
+                positions=[held("SPY", -1), held("SPY", 1),
+                           held("QQQ", -1), held("QQQ", 1)])
+    assert not correlated_exposure(spread_on("IWM"), ctx).passed

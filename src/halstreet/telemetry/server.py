@@ -887,6 +887,7 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
             "MAX_LOSS_PER_POSITION_USD": limits.max_loss_per_position_usd,
             "MAX_PORTFOLIO_RISK_PCT": limits.max_portfolio_risk_pct,
             "MAX_CORRELATED_POSITIONS": limits.max_correlated_positions,
+            "MAX_UNCLASSIFIED_POSITIONS": limits.max_unclassified_positions,
             "MIN_DTE": limits.min_dte,
             "MIN_OPEN_INTEREST": limits.min_open_interest,
             "MAX_NET_DELTA": limits.max_net_delta,

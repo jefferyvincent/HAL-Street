@@ -40,7 +40,7 @@ from halstreet.execution.paper_assert import (
     mcp_env,
 )
 from halstreet.execution.structures import Structure
-from halstreet.marketdata import news
+from halstreet.marketdata import discovery, news
 
 
 def _describe(exc: BaseException, depth: int = 0) -> str:
@@ -125,6 +125,8 @@ TOOL_ACTIVITIES = "get_account_activities"
 # Daily bars on the underlying, for the strategy layer's trend and volatility read.
 TOOL_STOCK_BARS = "get_stock_bars"
 TOOL_NEWS = "get_news"
+# Discovery: the market-wide census, and the capability check on what it names.
+TOOL_ASSET = "get_asset"
 TOOL_OPTION_BARS = "get_option_bars"
 # Exits, for the position manager. close_position takes a held symbol directly, which
 # is the non-mleg path out of a leg; close_all_positions is the panic button.
@@ -140,6 +142,10 @@ DEFAULT_OPTION_FEED = "indicative"
 
 # Snapshots/contracts requested per page. Alpaca defaults to 100.
 PAGE_LIMIT = 1000
+
+# Headlines per news request. A hard API ceiling, not a preference: over this the
+# endpoint answers 400 rather than clamping.
+NEWS_PAGE_LIMIT = 50
 
 
 class MCPError(RuntimeError):
@@ -318,6 +324,69 @@ class AlpacaMCP:
         except MCPError:
             return []
         return news.parse(payload, limit=limit)
+
+    async def get_market_news(self, *, limit: int = discovery.DEFAULT_SCAN,
+                              hours: int = discovery.DEFAULT_LOOKBACK_HOURS,
+                              ) -> list[news.Headline]:
+        """Recent headlines across the whole tape, for symbol discovery.
+
+        The same tool as `get_news` with the `symbols` filter left off — which is the
+        entire difference and the entire point. With a symbol it answers "what is
+        being said about this name", which can only ever return names already in the
+        universe; without one it answers "what is the tape talking about", which is
+        the question a universe is the answer to.
+
+        Empty on failure, for the reason `get_news` is: discovery is an enrichment of
+        the scan, not a precondition for it. A census that cannot be taken costs the
+        agent its new names and leaves the ones it already had.
+        """
+        start, token = news.window(hours), None
+        headlines: list[news.Headline] = []
+        while len(headlines) < limit:
+            args: dict[str, Any] = {
+                # Alpaca refuses a larger page outright — HTTP 400, "invalid limit:
+                # larger than the allowed maximum of 50". Found by running it: the
+                # scan default was 100, so every census 400'd, and because discovery
+                # degrades rather than raises the only symptom was an empty universe
+                # on every pass.
+                "limit": min(limit - len(headlines), NEWS_PAGE_LIMIT),
+                "start": start,
+                "sort": "desc",
+            }
+            if token:
+                args["page_token"] = token
+            try:
+                payload = await self.call(TOOL_NEWS, args)
+            except MCPError:
+                # Half a census beats none: the count is a ranking input, not a total,
+                # and the pages that did arrive still rank the names they named.
+                break
+            page = news.parse(payload, limit=NEWS_PAGE_LIMIT)
+            if not page:
+                break
+            headlines.extend(page)
+            token = (payload.get("next_page_token")
+                     if isinstance(payload, dict) else None)
+            if not token:
+                break
+        return headlines[:limit]
+
+    async def get_asset(self, symbol: str) -> dict:
+        """One asset record — class, status, tradability and attributes.
+
+        Read for exactly one thing: whether an option chain exists on this name. The
+        news feed tags warrants, crypto pairs and delisted shells alongside real
+        equities, and none of those can carry a structure.
+
+        `{}` on failure rather than an exception. Alpaca 404s a symbol it does not
+        carry and the feed supplies plenty of those; an empty record screens out on
+        its own, which is the same answer without making one bad ticker fatal.
+        """
+        try:
+            record = await self.call(TOOL_ASSET, {"symbol_or_asset_id": symbol.upper()})
+        except MCPError:
+            return {}
+        return record if isinstance(record, dict) else {}
 
     async def get_option_bars(self, symbols: list[str], *, timeframe: str = "1Day",
                               start: str | None = None, limit: int = 500) -> dict[str, list[dict]]:

@@ -27,6 +27,7 @@ from halstreet.config import ConfigError, load_env
 from halstreet.execution.mcp_client import AlpacaMCP
 from halstreet.execution.paper_assert import LiveEnvironmentError
 from halstreet.gates.base import ConfigurationError, Limits
+from halstreet.marketdata import discovery
 from halstreet.strategy import profiles as P
 from halstreet.telemetry.journal import Journal
 
@@ -35,9 +36,33 @@ def log(message: str = "") -> None:
     print(message, flush=True)
 
 
-def universe_from_env(default: str = "SPY") -> list[str]:
-    raw = (os.environ.get("UNIVERSE") or default).strip()
-    return [s.strip().upper() for s in raw.split(",") if s.strip()]
+#: What an operator types to hand the choice of names to the agent.
+AUTO = "auto"
+
+
+def universe_from_env(source: dict[str, str] | None = None) -> list[str]:
+    """The names to scan, or `[]` meaning "discover them".
+
+    `UNIVERSE=SPY,QQQ,IWM` still pins exactly those three, and that matters more now
+    than it did — a judged run, a reproduction, or a bug in one name all need the
+    universe nailed down, and a discovery mode that could not be switched off would
+    make every run unrepeatable.
+
+    Unset or `auto` means discovery. Empty deliberately does *not* fall back to a
+    built-in list: a shipped default is how three tickers nobody remembers choosing
+    became the universe in the first place.
+    """
+    src = os.environ if source is None else source
+    raw = (src.get("UNIVERSE") or AUTO).strip()
+    names = [s.strip().upper() for s in raw.split(",") if s.strip()]
+    if not names or names == [AUTO.upper()]:
+        return []
+    if AUTO.upper() in names:
+        raise ValueError(
+            f"UNIVERSE={raw!r} mixes {AUTO!r} with explicit symbols. It is one or the "
+            "other — either name the symbols, or say auto and let the agent choose."
+        )
+    return names
 
 
 def resolve_paths(args: argparse.Namespace) -> argparse.Namespace:
@@ -99,7 +124,13 @@ async def main_async(args: argparse.Namespace) -> int:
         log(f"clearing halt: {breaker.halt_reason}")
         breaker.clear()
     writer = ProposalWriter.from_env()
-    universe = args.universe.split(",") if args.universe else universe_from_env()
+    # `[]` means auto: the universe is discovered at the top of every pass rather
+    # than fixed here. Fixed here it would be the overnight tape's answer to a
+    # question the afternoon has moved on from.
+    universe = (universe_from_env({"UNIVERSE": args.universe}) if args.universe
+                else universe_from_env())
+    discovery_limit = args.discovery_limit or int(
+        os.environ.get("DISCOVERY_LIMIT") or discovery.DEFAULT_SHORTLIST)
 
     # Tri-state on purpose: the flag is None unless the caller said something, so an
     # explicit --committee/--no-committee beats $COMMITTEE and silence defers to it.
@@ -112,7 +143,8 @@ async def main_async(args: argparse.Namespace) -> int:
                   committee=committee_mod.Committee.from_env() if use_committee else None)
 
     log(f"env={args.env}  mode={'DRY RUN' if dry_run else 'LIVE (paper)'}  "
-        f"model={writer.model}  universe={','.join(universe)}")
+        f"model={writer.model}  "
+        f"universe={','.join(universe) if universe else 'auto (discovered from the news)'}")
     log("proposal path: " + ("committee (catalyst -> bull/bear -> judge)"
                              if use_committee else "single call"))
     log(f"feed={client.option_feed}  journal={args.journal}  ledger={args.ledger}")
@@ -138,7 +170,19 @@ async def main_async(args: argparse.Namespace) -> int:
     totals = {"cycles": 0, "approved": 0, "submitted": 0}
 
     async def one_pass() -> None:
-        results = await agent.run_once(universe)
+        # Re-resolved per pass when auto. A universe decided once at startup is a
+        # hardcoded list with extra steps by the afternoon.
+        names = universe or await agent.discover(limit=discovery_limit)
+        if not universe:
+            log(f"\n  discovered: {', '.join(names) if names else 'nothing'}")
+        if not names:
+            # Never a fallback to something else. Substituting a default here would
+            # trade a universe nobody chose on exactly the cycles where the evidence
+            # for choosing it is missing.
+            log("\n  no symbols to scan "
+                + ("(discovery found none this pass)" if not universe else ""))
+            return
+        results = await agent.run_once(names)
         # Wall-clock, for a human watching a terminal — not a market fact, so the
         # host's zone is the right one and DTZ's warning does not apply.
         stamp = datetime.now().astimezone().strftime("%H:%M:%S")
@@ -204,7 +248,12 @@ def build_parser() -> argparse.ArgumentParser:
                         "calls per underlying instead of one, and the only path that "
                         "reads the news. On unless COMMITTEE=false; --no-committee "
                         "forces the single call for one run")
-    p.add_argument("--universe", default="", help="comma-separated; defaults to $UNIVERSE")
+    p.add_argument("--universe", default="",
+                   help=f"comma-separated, or {AUTO!r} to discover from the news; "
+                        "defaults to $UNIVERSE")
+    p.add_argument("--discovery-limit", type=int, default=0,
+                   help="names to scan per pass when the universe is auto; "
+                        "defaults to $DISCOVERY_LIMIT")
     p.add_argument("--dte", type=int, default=45, help="target days to expiry")
     p.add_argument("--profile", default="", choices=["", *sorted(P.PROFILES)],
                    help="risk profile; defaults to $RISK_PROFILE, then moderate")

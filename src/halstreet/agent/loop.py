@@ -49,13 +49,14 @@ from halstreet.execution.structures import StructureError
 from halstreet.gates import ALL_GATES, evaluate
 from halstreet.gates.base import Decision, GateContext, Limits
 from halstreet.gates.contract import leg_signature
+from halstreet.marketdata import discovery
 from halstreet.marketdata import events as events_mod
 from halstreet.marketdata import patterns as patterns_mod
 from halstreet.marketdata.chain import enrich
 from halstreet.strategy import bias as bias_mod
+from halstreet.strategy import burn, scoring
 from halstreet.strategy import profiles as P
 from halstreet.strategy import regime as regime_mod
-from halstreet.strategy import scoring
 from halstreet.strategy.candidates import generate
 from halstreet.telemetry.journal import Journal
 
@@ -494,7 +495,8 @@ class Agent:
         )
         if self.committee is not None:
             llm, tokens = await self._committee_proposal(
-                underlying=underlying, base_turn=base_turn, state=state)
+                underlying=underlying, base_turn=base_turn,
+                candidates=candidates, state=state)
         else:
             llm = self.writer.propose_with_retry(base_turn)
             tokens = {"in": llm.input_tokens, "out": llm.output_tokens,
@@ -550,7 +552,8 @@ class Agent:
         return result
 
     async def _committee_proposal(self, *, underlying: str, base_turn: str,
-                                  state: dict) -> tuple[Any, dict[str, int]]:
+                                  candidates: list, state: dict,
+                                  ) -> tuple[Any, dict[str, int]]:
         """Catalyst, then bull and bear, then the judge.
 
         Every stage is allowed to fail. News is an enrichment and the debate is a
@@ -584,6 +587,19 @@ class Agent:
 
         # Closed trades on this name, from the ledger. Outcomes, not recollections.
         session.reflection = reflection(self.ledger, underlying)
+
+        # The mechanical half of the decision, done before anyone argues about it.
+        # Here rather than a stage earlier because this is the first point where both
+        # reads exist — the catalyst's lean and the chart's — and the one thing the
+        # table says that neither says alone is when they disagree.
+        session.burn = burn.to_prompt(burn.table(
+            candidates,
+            signal=burn.signal(
+                news=None if session.catalyst.error else session.catalyst.lean,
+                confidence=0.0 if session.catalyst.error else session.catalyst.confidence,
+                chart=state["bias"].direction,
+            ),
+        ))
 
         # The debate sees the catalyst read; the judge sees everything.
         debate_brief = brief(base_turn=base_turn, session=session, debate=True)
@@ -650,6 +666,62 @@ class Agent:
         self.ledger.save()
 
     # --- the universe -------------------------------------------------------------
+
+    async def discover(self, *, limit: int = discovery.DEFAULT_SHORTLIST) -> list[str]:
+        """Choose what to scan, from what the tape is actually talking about.
+
+        Census, tally, screen, shortlist — all four deterministic, and the model is
+        not consulted about any of them. Which symbols an article is about is the
+        publisher's structured claim, and counting claims is arithmetic; putting a
+        model here would move the choice of *what to look at* onto the probabilistic
+        side of the boundary, which is the one thing this design does not do.
+
+        **It fails small, on purpose.** This runs first in a cycle, so anything it
+        raises would cost the agent every name including the ones it already holds.
+        A dead feed yields no new names and the caller carries on with whatever
+        universe it had; one unreadable ticker costs that ticker.
+
+        **The screen stops at the shortlist.** A census routinely names eighty-odd
+        distinct symbols — measured at 86 on 2026-08-27 — and an asset lookup each is
+        eighty round trips to discard seventy-four of them. Candidates are screened in
+        rank order and the walk stops when the list is full.
+        """
+        try:
+            headlines = await self.client.get_market_news()
+        except Exception as exc:
+            self.journal.error("discovery", f"{type(exc).__name__}: {exc}")
+            return []
+
+        ranked = discovery.tally(headlines)
+        picked: list[discovery.Mention] = []
+        refused: list[dict[str, str]] = []
+        for mention in ranked:
+            if len(picked) >= limit:
+                break
+            try:
+                asset = await self.client.get_asset(mention.symbol)
+            except Exception as exc:
+                refused.append({"symbol": mention.symbol,
+                                "reason": f"lookup failed: {type(exc).__name__}"})
+                continue
+            ok, why = discovery.screen(asset)
+            if ok:
+                picked.append(mention)
+            else:
+                refused.append({"symbol": mention.symbol, "reason": why})
+
+        # The whole census, not just the winners. "Why did the agent trade this name"
+        # is answered by the mention count and the headline behind it; "why did it
+        # stop trading that one" is answered by the refusals, and a screen whose
+        # rejections are invisible cannot be told from a feed that went quiet.
+        self.journal.write(
+            "discovery",
+            headlines=len(headlines), symbols=len(ranked),
+            picked=[{"symbol": m.symbol, "mentions": m.mentions,
+                     "headline": m.headline} for m in picked],
+            refused=refused,
+        )
+        return [m.symbol for m in picked]
 
     async def run_once(self, universe: list[str]) -> list[CycleResult]:
         """One full pass: manage what is open, then look for what to open next.
