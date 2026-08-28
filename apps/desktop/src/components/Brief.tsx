@@ -43,6 +43,22 @@ export function Brief({ underlying, live }: { underlying: string; live: boolean 
       {/* The one sentence that is about the *pair* of reads rather than either of
           them. When they disagree it is the whole reason a directional structure is
           not on the table, and it was only ever visible inside the judge's prose. */}
+      {/* What the daily chain makes of direction here, and — the half that matters —
+          whether that read reaches as far as the structures below it. On every name
+          measured so far it does not, and saying so is the contribution: a chain
+          informative for two days is not an argument about a 49-day hold. */}
+      {brief.persistence && (
+        <div className="flex flex-wrap items-baseline gap-x-[9px] gap-y-1 border-b border-edge px-3 py-[7px]">
+          <span className="font-mono text-[9.5px] leading-none text-ink/45">
+            {brief.persistence.text}
+          </span>
+          <span className={cn("font-mono text-[9px] leading-none",
+            brief.persistence.inReach ? "text-ink/35" : "text-ink/25 italic")}>
+            {brief.persistence.reach}
+          </span>
+        </div>
+      )}
+
       {brief.note && (
         <p className="border-b border-edge px-3 py-[8px] font-sans text-[11px] leading-[1.5] text-ink/45">
           {brief.note}

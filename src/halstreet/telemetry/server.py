@@ -729,6 +729,11 @@ def _pass_row(segment: list[dict], *, last: bool) -> dict:
     """One name's journey through the cycle, from its own records only."""
     head = segment[0]
     name = head.get("underlying")
+    # This name's records, plus the ones that carry no name at all. The unnamed ones
+    # are not a leak: `order` is written without an underlying, and a scan-level
+    # `error` inside this segment happened between this name's cycle_start and the
+    # next one, so it is this name's. A record belonging to another symbol is
+    # excluded by having that symbol on it.
     mine = [e for e in segment if e.get("underlying") in (name, None)]
 
     def latest(kind: str) -> dict | None:

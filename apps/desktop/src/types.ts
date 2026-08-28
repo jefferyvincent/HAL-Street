@@ -234,6 +234,28 @@ export interface MarketView {
   bias?: string;
   bias_reasons?: string[];
   regime?: string;
+  /** Whether direction on this name is sticky. Null where it could not be measured. */
+  persistence?: Persistence | null;
+}
+
+/**
+ * A first-order chain over daily direction.
+ *
+ * `informative_for_days` is the half that matters: past it the chain has forgotten
+ * where it started and says nothing the base rate does not. A structure held longer
+ * than that cannot be argued on this read, and the panel must not quote it as if it
+ * could.
+ */
+export interface Persistence {
+  current_state: string;
+  repeats_pct: number;
+  base_rate_pct: number;
+  edge: number;
+  label: string;
+  informative_for_days: number;
+  mixed_within_window: boolean;
+  samples: number;
+  note: string;
 }
 
 export interface Menu {

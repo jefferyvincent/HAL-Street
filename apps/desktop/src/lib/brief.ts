@@ -44,12 +44,26 @@ export interface BriefRow {
   score: string;
   /** Sampled outcomes, or null where volatility was not measured. */
   scenario: Scenario | null;
+  /** Days to expiry — the hold a read has to reach before it can be quoted at it. */
+  dte: number | null;
 }
 
-/** This structure's sampled outcomes, from the menu, matched by name. */
+/**
+ * The menu's own record of a structure the burn table also names.
+ *
+ * Matched by name rather than by position: the two lists are built by different code
+ * paths, and a positional join would pair the wrong structure with the wrong
+ * distribution while looking perfectly ordered.
+ */
+function fromMenu(menu: Menu | null, name: string):
+    { scenario?: Scenario; dte?: number } | undefined {
+  const built = (menu?.candidates ?? []) as
+    { name?: string; scenario?: Scenario; dte?: number }[];
+  return built.find((c) => c.name === name);
+}
+
 function scenarioFor(menu: Menu | null, name: string): Scenario | null {
-  const built = (menu?.candidates ?? []) as { name?: string; scenario?: Scenario }[];
-  return built.find((c) => c.name === name)?.scenario ?? null;
+  return fromMenu(menu, name)?.scenario ?? null;
 }
 
 
@@ -73,13 +87,14 @@ export function briefRows({ burn, menu }: BriefSource): BriefRow[] {
       // different code paths and a positional join would silently pair the wrong
       // structure with the wrong distribution.
       scenario: scenarioFor(menu, s.name),
+      dte: fromMenu(menu, s.name)?.dte ?? null,
     }));
   }
   // `candidates` is optional on the record: older events counted without listing, and
   // a cycle that built nothing writes a count and no list at all.
   const built = (menu?.candidates ?? []) as Partial<BriefRow & {
     net_price: string; max_loss_usd: string; max_gain_usd: string;
-    prob_of_profit: number; scenario: Scenario;
+    prob_of_profit: number; scenario: Scenario; dte: number;
   }>[];
   return built.map((c, i) => ({
     key: `${c.name ?? i}-${i}`,
@@ -93,5 +108,6 @@ export function briefRows({ burn, menu }: BriefSource): BriefRow[] {
     pop: Number(c.prob_of_profit ?? 0),
     score: String(c.score ?? ""),
     scenario: c.scenario ?? null,
+    dte: typeof c.dte === "number" ? c.dte : null,
   }));
 }

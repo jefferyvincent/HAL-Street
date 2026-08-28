@@ -312,7 +312,10 @@
       "evNote": "after {{cost}} round trip",
       "tail": "loses it all {{pct}} of the time",
       "unsimulated": "not simulated — volatility was not measured",
-      "scenarioNote": "Sampled {{paths}} paths per structure at expiry, seeded from the structure so the figures reproduce. {{note}}."
+      "scenarioNote": "Sampled {{paths}} paths per structure at expiry, seeded from the structure so the figures reproduce. {{note}}.",
+      "persistence": "direction {{label}} · {{state}} days repeat {{repeats}}% vs {{base}}%",
+      "reach": "informative for {{days}} day(s)",
+      "outOfReach": "shorter than this hold — not an argument for it"
     }
   },
   "scoreboard": {
@@ -457,7 +460,10 @@
       "desk": "DESK",
       "gates": "GATES",
       "order": "ORDER"
-    }
+    },
+    "read": "{{bias}} · {{regime}} vol · direction {{persistence}}",
+    "reach": "chain informative {{days}}d",
+    "noRead": "no chain — not enough history"
   },
   "hero": {
     "equity": "EQUITY",

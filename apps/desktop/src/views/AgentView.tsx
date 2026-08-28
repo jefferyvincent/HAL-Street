@@ -84,6 +84,15 @@ function Row({ row }: { row: PassLine }) {
         {row.steps.map((step) => <Step key={step.key} step={step} />)}
       </ol>
 
+      {row.read && (
+        <span className="shrink-0 font-mono text-[9.5px] leading-none text-ink/35">
+          {row.read.text}
+          {row.read.reach && (
+            <span className="ml-[7px] text-ink/20">{row.read.reach}</span>
+          )}
+        </span>
+      )}
+
       {row.detail && (
         <span className="min-w-0 flex-1 truncate font-sans text-[10.5px] leading-[1.4] text-ink/40">
           {row.detail}

@@ -27,6 +27,11 @@ export interface Brief {
   meta: string;
   /** The read the menu was scored against, or null before there is one. */
   signal: string | null;
+  /**
+   * What the daily chain makes of direction on this name, and whether that read
+   * reaches as far as the structures below it. Null where nothing measured it.
+   */
+  persistence: { text: string; reach: string; inReach: boolean } | null;
   note: string | null;
   rows: BriefLine[];
   empty: string | null;
@@ -45,6 +50,7 @@ export function useBrief(underlying: string, live: boolean): Brief | null {
   const f = useFormat();
   const cards = useCommittee();
   const menus = useConnection((s) => s.snapshot?.menus) ?? [];
+  const views = useConnection((s) => s.snapshot?.views) ?? [];
   const sessions = useConnection((s) => s.snapshot?.committees) ?? [];
 
   return useMemo(() => {
@@ -55,6 +61,11 @@ export function useBrief(underlying: string, live: boolean): Brief | null {
     const menu = menus.find((m) => m.underlying === underlying) ?? null;
     const rows = briefRows({ burn: session?.burn ?? null, menu });
     const burn = session?.burn ?? null;
+    const read = views.find((v) => v.underlying === underlying)?.persistence ?? null;
+    // The longest hold on this menu. A chain informative for two days says nothing
+    // about a 49-day structure, and quoting it beside one would be the panel lending
+    // a measurement to a question it does not reach.
+    const hold = Math.max(0, ...rows.map((r) => r.dte ?? 0));
 
     return {
       underlying,
@@ -64,6 +75,15 @@ export function useBrief(underlying: string, live: boolean): Brief | null {
             burn.news_lean ?? t.committee.brief.noNews, burn.price_trend, burn.agreement)
         : null,
       note: burn?.note ?? null,
+      persistence: read && {
+        text: t.committee.brief.persistence(read.label, read.current_state,
+                                            f.plain(read.repeats_pct, 0),
+                                            f.plain(read.base_rate_pct, 0)),
+        reach: read.informative_for_days >= hold
+          ? t.committee.brief.reach(read.informative_for_days)
+          : t.committee.brief.outOfReach,
+        inReach: read.informative_for_days >= hold,
+      },
       rows: rows.map((r) => line(r)),
       empty: rows.length === 0 ? t.committee.brief.empty : null,
     };
@@ -94,5 +114,5 @@ export function useBrief(underlying: string, live: boolean): Brief | null {
           : t.committee.brief.unsimulated,
       };
     }
-  }, [underlying, live, cards, menus, sessions, t, f]);
+  }, [underlying, live, cards, menus, sessions, views, t, f]);
 }

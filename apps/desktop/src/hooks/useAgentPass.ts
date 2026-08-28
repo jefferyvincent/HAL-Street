@@ -21,6 +21,12 @@ export interface PassLine {
   steps: PassStep[];
   /** What came of it in a few words, or null where the row has nothing to add. */
   detail: string | null;
+  /**
+   * What the desk believed about this name before it ranked anything: the direction,
+   * the volatility regime, and whether direction here tends to continue. Null until a
+   * cycle has recorded a view for it.
+   */
+  read: { text: string; reach: string | null } | null;
 }
 
 export interface AgentPass {
@@ -43,6 +49,7 @@ export function useAgentPass(): AgentPass {
   const t = useStrings();
   const f = useFormat();
   const pass = useConnection((s) => s.snapshot?.pass ?? null);
+  const views = useConnection((s) => s.snapshot?.views) ?? [];
 
   return useMemo(() => {
     const rows = pass?.rows ?? [];
@@ -66,6 +73,7 @@ export function useAgentPass(): AgentPass {
         steps: pipeline(row).map((s) => ({
           key: s.key, label: t.agent.step[s.key] ?? s.key, state: s.state,
         })),
+        read: readFor(row.underlying),
         detail: row.error
           ?? (row.rejected_by.length
                 ? t.agent.rejectedBy(row.rejected_by.join(t.common.listSep))
@@ -74,7 +82,21 @@ export function useAgentPass(): AgentPass {
                 : null),
       })),
     };
-  }, [pass, t, f]);
+
+    /** The three reads the cycle took on this name, in one line. */
+    function readFor(underlying: string): { text: string; reach: string | null } | null {
+      const view = views.find((v) => v.underlying === underlying);
+      if (!view?.bias) return null;
+      const chain = view.persistence;
+      return {
+        text: t.agent.read(view.bias, view.regime ?? "", chain?.label ?? t.agent.noRead),
+        // How far the chain reaches, said separately from what it found. A read
+        // informative for two days is not an argument about a 49-day structure, and
+        // printing the label without the horizon would let it be used as one.
+        reach: chain ? t.agent.reach(chain.informative_for_days) : null,
+      };
+    }
+  }, [pass, views, t, f]);
 }
 
 /** Green for money placed, red for refused or broken, amber for live, grey for quiet. */

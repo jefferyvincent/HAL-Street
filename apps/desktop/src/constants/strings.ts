@@ -332,6 +332,10 @@ export function makeStrings(t: Translate) {
         all[key] = t(`agent.outcome.${key}`);
         return all;
       }, {}),
+      read: (bias: string, regime: string, persistence: string) =>
+        t("agent.read", { bias, regime, persistence }),
+      reach: (days: number) => t("agent.reach", { days }),
+      noRead: t("agent.noRead"),
       pulse: t("agent.pulse"),
       pulseNote: t("agent.pulseNote"),
     },
@@ -368,6 +372,10 @@ export function makeStrings(t: Translate) {
         unsimulated: t("committee.brief.unsimulated"),
         scenarioNote: (paths: string, note: string) =>
           t("committee.brief.scenarioNote", { paths, note }),
+        persistence: (label: string, state: string, repeats: string, base: string) =>
+          t("committee.brief.persistence", { label, state, repeats, base }),
+        reach: (days: number) => t("committee.brief.reach", { days }),
+        outOfReach: t("committee.brief.outOfReach"),
         note: t("committee.brief.note"),
       },
       desk: {
