@@ -346,3 +346,30 @@ def test_disabling_the_unmapped_cap_leaves_the_correlation_cap_alone(ctx):
                 positions=[held("SPY", -1), held("SPY", 1),
                            held("QQQ", -1), held("QQQ", 1)])
     assert not correlated_exposure(spread_on("IWM"), ctx).passed
+
+
+# --- what the startup banner claims -------------------------------------------------
+
+def test_describe_does_not_count_entries_that_have_aged_out():
+    """The banner said "1 entr(ies) in the last hour" about an entry 26 hours old.
+
+    `describe()` read the raw list, and the list is only pruned by the two methods
+    that happen to prune on their way past — neither of which a fresh process has
+    called yet. So the first thing the agent printed at startup was a false statement
+    about its own throttle, on every run after any day that placed an order.
+    """
+    state = CircuitState(path=None, baseline_equity=Decimal(100000),
+                         baseline_day=date(2026, 8, 27))
+    state.record_entry(now=1_000_000.0)
+    old = state.describe(now=1_000_000.0 + 26 * 3600)
+    assert "1 entr" not in old, old
+    assert "0 entr" in old
+
+
+def test_describe_does_not_quietly_edit_the_state_it_is_describing():
+    """It is a diagnostic. A diagnostic that mutates is a second writer of the file."""
+    state = CircuitState(path=None)
+    state.record_entry(now=1_000_000.0)
+    state.describe(now=1_000_000.0 + 26 * 3600)
+    assert state.entries_in_window(now=1_000_000.0 + 60.0) == 1, \
+        "describe threw away an entry the throttle still needed"

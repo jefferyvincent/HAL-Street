@@ -140,9 +140,17 @@ class CircuitState:
 
     # --- the rate window -------------------------------------------------------
 
-    def prune(self, now: float) -> None:
+    def _within(self, now: float) -> list[float]:
+        """The stamps still inside the window, without touching the ones that are not.
+
+        Split out from `prune` because two callers want the count and only one of them
+        has any business editing the list — see `describe`.
+        """
         cutoff = now - THROTTLE_WINDOW_S
-        self.entry_times = [t for t in self.entry_times if t >= cutoff]
+        return [t for t in self.entry_times if t >= cutoff]
+
+    def prune(self, now: float) -> None:
+        self.entry_times = self._within(now)
 
     def entries_in_window(self, now: float | None = None) -> int:
         self.prune(now if now is not None else datetime.now(UTC).timestamp())
@@ -168,10 +176,21 @@ class CircuitState:
         self.halt_reason = ""
         self.save()
 
-    def describe(self) -> str:
+    def describe(self, now: float | None = None) -> str:
+        """One line for the startup banner. Reads; never writes.
+
+        It counted `entry_times` raw, and that list is only ever shortened by the two
+        methods that prune on their way past — neither of which a freshly loaded state
+        has called. So the first thing the agent said about itself, on every run after
+        a day that placed an order, was that an entry from yesterday had happened in
+        the last hour. Counting the window instead is the fix; counting it *without*
+        pruning is the other half, because a diagnostic that edits the throttle's
+        state is a second writer of it.
+        """
         if self.halted:
             return f"HALTED — {self.halt_reason}"
         if self.baseline_equity is None:
             return "no equity baseline yet"
+        recent = self._within(now if now is not None else datetime.now(UTC).timestamp())
         return (f"baseline ${self.baseline_equity:,.0f} on {self.baseline_day}, "
-                f"{len(self.entry_times)} entr(ies) in the last hour")
+                f"{len(recent)} entr(ies) in the last hour")
