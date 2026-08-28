@@ -336,6 +336,12 @@ export function makeStrings(t: Translate) {
         t("agent.read", { bias, regime, persistence }),
       reach: (days: number) => t("agent.reach", { days }),
       noRead: t("agent.noRead"),
+      macro: t("agent.macro"),
+      macroMeta: (venue: string, count: number, ago: string) =>
+        t("agent.macroMeta", { venue, count, ago }),
+      macroNone: t("agent.macroNone"),
+      macroNote: t("agent.macroNote"),
+      depth: (value: string) => t("agent.depth", { value }),
       pulse: t("agent.pulse"),
       pulseNote: t("agent.pulseNote"),
     },

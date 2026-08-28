@@ -161,3 +161,18 @@ def test_the_catalyst_is_told_which_kind_of_nothing_it_is_looking_at():
     from halstreet.agent.cerebellum import loop
     source = inspect.getsource(loop.Agent._committee_proposal)
     assert "None if self.macro is None" in source
+
+
+def test_the_catalyst_is_told_a_price_outranks_a_claim_about_the_same_question():
+    """Plumbed in and never named is the failure mode this project keeps finding.
+
+    Measured: the catalyst was handed the Fed-hike market at 50.5 cents and a wire
+    saying "September hike odds pushed to ~60%", and reported ~60%. It had both. What
+    it did not have was any instruction about which kind of evidence a price is, so it
+    took the sentence — which is the reasonable default when nobody has said otherwise.
+    """
+    from halstreet.agent.cortex.committee import _CATALYST_SYS
+
+    text = _CATALYST_SYS.lower()
+    assert "prediction_markets" in text
+    assert "price" in text and "headline" in text

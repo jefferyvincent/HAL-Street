@@ -463,7 +463,12 @@
     },
     "read": "{{bias}} · {{regime}} vol · direction {{persistence}}",
     "reach": "chain informative {{days}}d",
-    "noRead": "no chain — not enough history"
+    "noRead": "no chain — not enough history",
+    "macro": "MACRO ODDS",
+    "macroMeta": "{{venue}} · {{count}} market(s) · read {{ago}}",
+    "macroNone": "No venue read this pass. That is not a quiet backdrop — it is a question nobody asked.",
+    "macroNote": "Prices, not forecasts. Read-only and not tradeable by this agent, which trades US equity options and nothing else.",
+    "depth": "{{value}} behind it"
   },
   "hero": {
     "equity": "EQUITY",

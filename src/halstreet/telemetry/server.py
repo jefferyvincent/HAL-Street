@@ -796,6 +796,19 @@ def _gap(a: Any, b: Any) -> float | None:
         return None
 
 
+def _macro(events: list[dict]) -> dict | None:
+    """The most recent macro-odds read, or None if no pass has managed one.
+
+    Only the latest. A prediction market's price six hours ago is not evidence about
+    now, and a list of them stacked up would read as a history nobody is keeping.
+    """
+    for event in reversed(events):
+        if event.get("event") == "macro":
+            return {"venue": event.get("venue"), "at": event.get("ts"),
+                    "odds": event.get("odds") or []}
+    return None
+
+
 def _boundary_passed(market: dict | None, since: datetime) -> bool:
     """A published session boundary has come and gone since we last said anything.
 
@@ -1279,6 +1292,11 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
         # What it is doing, as opposed to what it decided. See `_activity`.
         "activity": _activity(events),
         "pass": _pass(events),
+        # What a venue was charging for the macro questions the headlines argue about,
+        # from the last pass that could read it. Absent rather than empty when none has
+        # — "could not ask" and "nothing deep enough" are different, and the panel says
+        # which.
+        "macro": _macro(events),
         # When the next scan is due, so the console can count down to it rather
         # than leaving a reader to work out whether a quiet panel is waiting or
         # stopped. The cadence is the scheduler's own, from one reader.

@@ -560,6 +560,12 @@ export interface Snapshot {
   discovery: Discovery;
   /** Null until a scan has started. See `PassRow`. */
   pass: Pass | null;
+  /**
+   * What a venue was charging for the macro questions the headlines argue about.
+   * Null when no pass has managed to read one — which is not the same as a quiet
+   * backdrop, and the panel says which.
+   */
+  macro: Macro | null;
   /** The scheduler's cadence, so the console can say when a scan is due. */
   cadence: { interval_s: number } | null;
   pnl: Pnl;
@@ -643,4 +649,21 @@ export interface PassRow {
 export interface Pass {
   at: string;
   rows: PassRow[];
+}
+
+
+/** One prediction market's price, and enough context to discount it. */
+export interface Odds {
+  question: string;
+  yes_pct: number;
+  volume_usd: number;
+  ends: string | null;
+  venue: string;
+  note: string;
+}
+
+export interface Macro {
+  venue: string;
+  at: string;
+  odds: Odds[];
 }

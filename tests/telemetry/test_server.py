@@ -119,7 +119,7 @@ def test_the_payload_carries_only_what_the_panel_renders(tmp_path):
                           "activity", "committees", "in_flight", "armed",
                           "gate_readings", "headlines", "spend", "periods",
                           "chain", "families", "limits", "discovery", "pass",
-                          "cadence"}
+                          "cadence", "macro"}
 
 
 def test_no_floats_reach_the_wire(tmp_path):

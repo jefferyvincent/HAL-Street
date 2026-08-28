@@ -6,6 +6,7 @@ import { Icon, Note } from "@/components/Icon";
 import { Ticker } from "@/components/Ticker";
 import { useAgentPass, type PassLine, type PassStep } from "@/hooks/useAgentPass";
 import { useCommitteeDesk } from "@/hooks/useCommitteeDesk";
+import { useMacro } from "@/hooks/useMacro";
 import { useStrings } from "@/hooks/useStrings";
 
 /**
@@ -26,6 +27,7 @@ export function AgentView() {
   const t = useStrings();
   const pass = useAgentPass();
   const desk = useCommitteeDesk();
+  const macro = useMacro();
 
   return (
     <div className="mb-3 flex flex-col gap-3">
@@ -60,6 +62,42 @@ export function AgentView() {
           {pass.rows.map((row) => <Row key={row.key} row={row} />)}
         </div>
       )}
+
+      {/* Prices for the questions the headlines are arguing about. Per pass rather
+          than per name — a claim about the macro backdrop is not per-symbol work. */}
+      <div className="border border-line bg-panel">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border-b border-line px-3 py-[9px]">
+          <Icon d={ICON.chain} stroke={STROKE.muted} width={2.2} />
+          <span className="font-mono text-[10px] font-bold leading-none tracking-[.12em] text-ink/60">
+            {macro.title}
+          </span>
+          <span className="font-sans text-[10.5px] leading-none text-ink/35">{macro.meta}</span>
+        </div>
+        {macro.empty ? (
+          <div className={CLS.empty}>{macro.empty}</div>
+        ) : (
+          <ul>
+            {macro.rows.map((row) => (
+              <li key={row.key}
+                  className="flex flex-wrap items-baseline gap-x-[10px] gap-y-1 border-b border-line-soft px-3 py-[7px] last:border-b-0">
+                <span className={cn("w-[52px] shrink-0 text-right font-mono text-[12px] font-bold leading-none tabular-nums",
+                  row.settled ? "text-ink/25" : "text-amber")}>
+                  {row.pct}%
+                </span>
+                <span className="min-w-0 flex-1 truncate font-sans text-[11.5px] leading-[1.4] text-ink/65">
+                  {row.question}
+                </span>
+                <span className="shrink-0 font-mono text-[9.5px] leading-none tabular-nums text-ink/25">
+                  {row.depth}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="border-t border-line px-3 py-[7px] font-sans text-[10.5px] leading-[1.45] text-ink/25">
+          {macro.note}
+        </div>
+      </div>
 
       <ActivityFeed />
       <Note>{t.agent.pulseNote}</Note>
