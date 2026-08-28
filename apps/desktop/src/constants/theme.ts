@@ -40,6 +40,23 @@ export const GRID = {
   console: "grid flex-1 grid-cols-1 min-[1181px]:grid-cols-[200px_minmax(0,1fr)_320px]",
   wide: "grid flex-1 grid-cols-1",
   decision: "grid grid-cols-1 min-[901px]:grid-cols-[minmax(0,1fr)_316px]",
+  /**
+   * The P&L switcher and the equity curve, side by side where there is room.
+   *
+   * The middle breakpoint reverses, which looks like a mistake and is not. At 1181px
+   * the console grid gains its 200px rail and its 320px right column, so the space
+   * these two share *shrinks* by 520px exactly as the viewport crosses that line —
+   * roomy at 1180, cramped at 1200. So they sit side by side while the console is one
+   * column, stack while the rail is eating the width, and pair up again once the
+   * viewport is wide enough to afford both.
+   *
+   * The curve takes the larger share: the switcher is two figures and a row of
+   * labels, and a chart is the thing that suffers from being narrow.
+   */
+  pnl: ("grid grid-cols-1 gap-3 "
+        + "min-[901px]:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] "
+        + "min-[1181px]:grid-cols-1 "
+        + "min-[1441px]:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)]"),
 } as const;
 
 /** Class strings used in more than one place, so they stay one thing. */
