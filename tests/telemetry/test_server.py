@@ -118,7 +118,8 @@ def test_the_payload_carries_only_what_the_panel_renders(tmp_path):
                           "views", "menus", "equity_curve", "market",
                           "activity", "committees", "in_flight", "armed",
                           "gate_readings", "headlines", "spend", "periods",
-                          "chain", "families", "limits", "discovery", "pass"}
+                          "chain", "families", "limits", "discovery", "pass",
+                          "cadence"}
 
 
 def test_no_floats_reach_the_wire(tmp_path):

@@ -494,3 +494,29 @@ def test_one_signal_still_lets_the_cycle_finish():
     s = Scheduler(FakeClient({"is_open": True}), 30, log=lambda *_: None)
     assert run(s, cycle, max_cycles=3) == 1
     assert finished == [1]
+
+
+# --- the cadence, read once --------------------------------------------------------
+#
+# `run.py` held the only copy and the panel wanted the same number to say when a scan
+# is next due. A second `int(os.environ.get(...) or 30)` is a second claim about the
+# cadence, free to drift from the one the scheduler is actually keeping.
+
+def test_the_cadence_comes_from_the_environment():
+    assert schedule.scan_interval_seconds({"SCAN_INTERVAL_MINUTES": "5"}) == 300
+
+
+def test_an_unset_cadence_falls_back_rather_than_raising():
+    assert schedule.scan_interval_seconds({}) == schedule.DEFAULT_INTERVAL_MINUTES * 60
+
+
+@pytest.mark.parametrize("bad", ["", "soon", "5.5", None])
+def test_an_unreadable_cadence_falls_back_too(bad):
+    """The panel asks this on every request. A misconfigured .env must not empty it."""
+    assert schedule.scan_interval_seconds({"SCAN_INTERVAL_MINUTES": bad}) \
+        == schedule.DEFAULT_INTERVAL_MINUTES * 60
+
+
+def test_a_cadence_of_zero_is_still_a_cadence():
+    """Same floor the scheduler itself applies. A zero-second loop is not a schedule."""
+    assert schedule.scan_interval_seconds({"SCAN_INTERVAL_MINUTES": "0"}) == 60

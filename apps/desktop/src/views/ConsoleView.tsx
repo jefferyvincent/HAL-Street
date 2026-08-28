@@ -3,6 +3,7 @@ import { ICON } from "@/constants/icons";
 import { CLS, GRID, STROKE } from "@/constants/theme";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { EquityChart } from "@/components/EquityChart";
+import { Hero } from "@/components/Hero";
 import { Scoreboard } from "@/components/Scoreboard";
 import { Holding } from "@/components/Holding";
 import { Periods } from "@/components/Periods";
@@ -45,6 +46,7 @@ export function ConsoleView() {
   const run = (
     <>
       <Presence />
+      <Hero />
       <Scoreboard />
       <div className={GRID.pairRight}>
         <Periods />

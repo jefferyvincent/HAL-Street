@@ -453,5 +453,21 @@
       "gates": "GATES",
       "order": "ORDER"
     }
+  },
+  "hero": {
+    "equity": "EQUITY",
+    "today": "TODAY",
+    "unknown": "no equity reading yet",
+    "target": {
+      "scan": "NEXT SCAN",
+      "open": "MARKET OPENS",
+      "close": "MARKET CLOSES"
+    },
+    "mins": "MINS",
+    "secs": "SECS",
+    "hours": "HRS",
+    "waiting": "NOT SCHEDULED",
+    "waitingNote": "Nothing has recorded which side of the bell we are on.",
+    "stats": "{{scans}} scan(s) · {{gated}} gated · {{open}} open · {{orders}} order(s)"
   }
 }

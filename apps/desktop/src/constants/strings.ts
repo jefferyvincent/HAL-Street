@@ -297,6 +297,24 @@ export function makeStrings(t: Translate) {
         t("committeeRail.elsewhere", { underlying, stage }),
     },
 
+    hero: {
+      equity: t("hero.equity"),
+      today: t("hero.today"),
+      unknown: t("hero.unknown"),
+      target: {
+        scan: t("hero.target.scan"),
+        open: t("hero.target.open"),
+        close: t("hero.target.close"),
+      } as Record<string, string>,
+      mins: t("hero.mins"),
+      secs: t("hero.secs"),
+      hours: t("hero.hours"),
+      waiting: t("hero.waiting"),
+      waitingNote: t("hero.waitingNote"),
+      stats: (scans: number, gated: number, open: number, orders: number) =>
+        t("hero.stats", { scans, gated, open, orders }),
+    },
+
     agent: {
       title: t("agent.title"),
       meta: (done: number, count: number) => t("agent.meta", { done, count }),

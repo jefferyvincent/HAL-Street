@@ -98,6 +98,29 @@ async def market_clock(client: AlpacaMCP) -> MarketClock:
 #: immediate, long enough to be free while a 73-second cycle runs.
 _STOP_POLL_SECONDS = 0.05
 
+#: The cadence when nothing says otherwise. Half an hour, matching `.env.example`.
+DEFAULT_INTERVAL_MINUTES = 30
+
+
+def scan_interval_seconds(source: dict[str, str] | None = None) -> int:
+    """How often a scan is meant to run, from the environment.
+
+    One reader, because two would be two defaults. `run.py` had the only copy and the
+    panel wanted the same number to say when the next scan is due; a second
+    `int(os.environ.get(...) or 30)` somewhere else is a claim about the cadence that
+    can drift from the one the scheduler actually uses.
+
+    An unreadable or non-positive value falls back rather than raising. The panel asks
+    this on every request and a misconfigured .env should not empty a dashboard.
+    """
+    raw = (source if source is not None else os.environ).get("SCAN_INTERVAL_MINUTES")
+    try:
+        minutes = int(str(raw))
+    except (TypeError, ValueError):
+        minutes = DEFAULT_INTERVAL_MINUTES
+    return max(1, minutes) * 60
+
+
 #: 128 + SIGINT, the shell's own convention for a process a signal ended.
 INTERRUPTED = 130
 

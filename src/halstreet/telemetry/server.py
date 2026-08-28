@@ -37,6 +37,7 @@ from fastapi.staticfiles import StaticFiles
 
 from halstreet import clock, paths
 from halstreet.agent.brainstem.breaker import CircuitState
+from halstreet.agent.brainstem.schedule import scan_interval_seconds
 from halstreet.agent.cerebellum.manager import (
     CONTRACT_MULTIPLIER,
     ExitPolicy,
@@ -1273,6 +1274,10 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
         # What it is doing, as opposed to what it decided. See `_activity`.
         "activity": _activity(events),
         "pass": _pass(events),
+        # When the next scan is due, so the console can count down to it rather
+        # than leaving a reader to work out whether a quiet panel is waiting or
+        # stopped. The cadence is the scheduler's own, from one reader.
+        "cadence": {"interval_s": scan_interval_seconds()},
         # What each gate measured last time it ran. The counts say which gates have
         # ever bitten; these say how close the book is to each one now.
         "gate_readings": _gate_readings(events),

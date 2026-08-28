@@ -524,6 +524,8 @@ export interface Snapshot {
   discovery: Discovery;
   /** Null until a scan has started. See `PassRow`. */
   pass: Pass | null;
+  /** The scheduler's cadence, so the console can say when a scan is due. */
+  cadence: { interval_s: number } | null;
   pnl: Pnl;
   positions: Position[];
   closed: ClosedStructure[];

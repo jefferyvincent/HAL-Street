@@ -17,7 +17,12 @@ from halstreet import clock as session_clock
 from halstreet import paths
 from halstreet.agent.brainstem.breaker import CircuitState
 from halstreet.agent.brainstem.lock import AlreadyRunning, JournalLock
-from halstreet.agent.brainstem.schedule import Scheduler, hard_exit, market_clock
+from halstreet.agent.brainstem.schedule import (
+    Scheduler,
+    hard_exit,
+    market_clock,
+    scan_interval_seconds,
+)
 from halstreet.agent.cerebellum.loop import Agent
 from halstreet.agent.cerebellum.manager import ExitPolicy
 from halstreet.agent.cortex import committee as committee_mod
@@ -207,7 +212,7 @@ async def main_async(args: argparse.Namespace) -> int:
     # Built for both paths, because both need the same answer to Ctrl-C. A single
     # pass is a cycle too — it just happens to be the only one — and a mode where the
     # signal means something different is a mode nobody can predict from the outside.
-    interval = int(os.environ.get("SCAN_INTERVAL_MINUTES") or 30)
+    interval = scan_interval_seconds() // 60
     scheduler = Scheduler(client, interval, log=log, journal=journal)
     scheduler.install_signal_handlers()
 
