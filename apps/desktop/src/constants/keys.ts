@@ -22,7 +22,8 @@ export const KEY = {
 export const VIEW_KEYS: Record<string, View> = {
   "1": "console",
   "2": "journal",
-  "3": "gates",
-  "4": "committee",
-  "5": "book",
+  "3": "discovery",
+  "4": "gates",
+  "5": "committee",
+  "6": "book",
 };

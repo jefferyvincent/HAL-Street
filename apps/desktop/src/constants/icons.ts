@@ -10,6 +10,9 @@ export const ICON = {
   info: "M4 12a8 8 0 1 0 16 0 8 8 0 1 0-16 0 M12 11v6 M12 8h.01",
   // Three figures at a table: the catalyst, and the two who argue.
   committee: "M5 20v-2a3 3 0 013-3h1 M12 20v-3a3 3 0 013-3h1a3 3 0 013 3v3 M8.5 8a2 2 0 104 0 2 2 0 10-4 0 M15 5a2 2 0 104 0 2 2 0 10-4 0 M3 7a2 2 0 104 0 2 2 0 10-4 0",
+  // A grid with two cells filled: the heat map, whose whole idea is that some cells
+  // are hot and most are not.
+  heat: "M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z M14 3h7v7h-7z",
   candles: "M6 4v3 M6 15v5 M4 7h4v8H4z M17 3v5 M17 17v4 M15 8h4v9h-4z",
   back: "M15 5l-7 7 7 7",
   chevron: "M6 9l6 6 6-6",

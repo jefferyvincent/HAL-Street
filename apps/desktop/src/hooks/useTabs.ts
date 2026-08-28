@@ -19,6 +19,11 @@ export function useTabs(): { tabs: Tab[]; go: (v: View) => void } {
   const counts: Record<View, number | null> = {
     console: null,
     journal: snap?.decisions.length ?? null,
+    // The census size, not the shortlist: the tab counts what the map draws.
+    // Optional through `discovery` as well as `snap`: during a restart the panel can
+    // be the new build talking to a server that has not reloaded yet, and a missing
+    // key there would take the whole tab bar down rather than one count.
+    discovery: snap?.discovery?.cells.length ?? null,
     gates: snap?.chain.length ?? null,
     committee: snap?.committees.length ?? null,
     book: snap ? snap.positions.length + snap.closed.length : null,
@@ -30,6 +35,7 @@ export function useTabs(): { tabs: Tab[]; go: (v: View) => void } {
     [
       ["console", ICON.grid],
       ["journal", ICON.list],
+      ["discovery", ICON.heat],
       ["gates", ICON.chain],
       ["committee", ICON.committee],
       ["book", ICON.candles],

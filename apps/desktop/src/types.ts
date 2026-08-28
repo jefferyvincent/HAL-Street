@@ -423,6 +423,27 @@ export interface Period {
   since: string | null;
 }
 
+/** One symbol the market-wide news feed named, and what came of it. */
+export interface DiscoveryCell {
+  symbol: string;
+  mentions: number;
+  /** "scanned" | "refused" | "not-reached" — see `lib/heat`. */
+  status: string;
+  /** Untrusted publisher text. Rendered as text, never as markup. */
+  headline: string;
+  /** Present only when the screen objected. */
+  reason?: string;
+}
+
+/** The latest census: what the tape was talking about, and where the cut fell. */
+export interface Discovery {
+  headlines: number;
+  symbols: number;
+  /** The mention count the ramp is drawn against, floored at 1. */
+  hottest: number;
+  cells: DiscoveryCell[];
+}
+
 export interface Snapshot {
   chain: ChainEntry[];
   families: string[];
@@ -439,6 +460,7 @@ export interface Snapshot {
   spend: Spend;
   periods: Period[];
   headlines: NewsItem[];
+  discovery: Discovery;
   pnl: Pnl;
   positions: Position[];
   closed: ClosedStructure[];

@@ -74,6 +74,14 @@ EQUITY = "us_equity"
 OPTIONS_ATTR = "has_options"
 
 
+# What became of each name in the census. Three states, because "the screen threw it
+# out" and "the walk never got to it" are different facts and a map that draws them
+# alike claims a judgement that was never made.
+SCANNED = "scanned"
+REFUSED = "refused"
+NOT_REACHED = "not-reached"
+
+
 @dataclass(frozen=True)
 class Mention:
     """One symbol the tape named, with the evidence for why it is here."""

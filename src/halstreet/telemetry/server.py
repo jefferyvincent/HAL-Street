@@ -628,6 +628,79 @@ def _crossed(record: dict) -> tuple[str, str] | None:
 TICKER_HEADLINES = 24
 
 
+#: Cells drawn on the heat map at most.
+#:
+#: A census names sixty to eighty symbols on an ordinary morning, which fits. The
+#: bound is for the morning it does not — a payload polled every five seconds is the
+#: wrong place to discover that the tape had four hundred names in it. Cut by heat,
+#: never by arrival order: dropping the hottest to keep an alphabetical tail would
+#: make the map lie about the very thing it draws.
+DISCOVERY_CELLS = 160
+
+
+def _discovery(events: list[dict]) -> dict[str, Any]:
+    """The latest census — what the tape was talking about, and what came of each name.
+
+    The *latest*, not the accumulation. A name that was loud at the open would stay on
+    the map all day if passes were merged, which is the opposite of what a heat map of
+    a live feed is for.
+
+    The tail is the point. Six scanned names on their own are a list; what makes this a
+    map is the sixty below them and where the cut fell across the lot. So every cell
+    keeps its status — scanned, refused, or never reached — because "the screen threw
+    it out" and "the walk stopped before it got here" are different facts, and drawing
+    them alike would have the map assert a judgement about names nobody screened.
+
+    Never raises. The route it feeds is polled every five seconds, and a journal is
+    append-only text that predates any shape this function expects.
+    """
+    latest: dict = {}
+    for event in events:
+        if event.get("event") == "discovery":
+            latest = event
+
+    rows = latest.get("tally")
+    cells: list[dict[str, Any]] = []
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            symbol = str(row.get("symbol") or "").strip()
+            if not symbol:
+                continue
+            cell = {
+                "symbol": symbol,
+                "mentions": _int(row.get("mentions")),
+                "status": str(row.get("status") or ""),
+                # Untrusted publisher text, as everywhere it appears. It leaves here
+                # as a string and the panel renders it as text, never as markup.
+                "headline": str(row.get("headline") or "")[:180],
+            }
+            if reason := str(row.get("reason") or ""):
+                cell["reason"] = reason
+            cells.append(cell)
+
+    cells.sort(key=lambda c: (-c["mentions"], c["symbol"]))
+    cells = cells[:DISCOVERY_CELLS]
+    return {
+        "headlines": _int(latest.get("headlines")),
+        "symbols": _int(latest.get("symbols")),
+        # The scale the map's ramp is drawn against. Relative, because a four-mention
+        # morning and a forty-mention afternoon must both fill it — an absolute scale
+        # renders every quiet day as one flat cold grid, which is true and useless.
+        # Floored at 1 so an all-zero census cannot divide the ramp by nothing.
+        "hottest": max([c["mentions"] for c in cells] or [0]) or 1,
+        "cells": cells,
+    }
+
+
+def _int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
 def _headlines(events: list[dict]) -> list[dict]:
     """What the agent has been reading, newest first, one entry per article.
 
@@ -913,6 +986,9 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
         # What the catalyst has been reading. Untrusted publisher text: the panel
         # renders it as text, never as markup.
         "headlines": _headlines(events),
+        # The universe the agent chose for itself, and everything it passed over
+        # choosing it. See `_discovery`.
+        "discovery": _discovery(events),
         # What it is in the middle of, so a slow stage reads as work rather than
         # as an empty screen. None when nothing has been written recently.
         "in_flight": _in_flight(events),

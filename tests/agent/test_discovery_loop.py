@@ -92,6 +92,10 @@ def _event(journal, name):
     return next((e for e in journal.read() if e.get("event") == name), None)
 
 
+def _tally(journal):
+    return _event(journal, "discovery")["tally"]
+
+
 # --- the happy path ---------------------------------------------------------------
 
 @pytest.mark.asyncio
@@ -150,15 +154,19 @@ async def test_a_quiet_tape_is_an_empty_universe_not_a_crash(build):
 
 
 # --- the audit trail --------------------------------------------------------------
+#
+# One `tally` rather than separate picked/refused lists. The heat map wants the whole
+# census — the names that were scanned, the ones the screen threw out, and the long
+# tail below the cut that was never looked at — and three lists that must be kept in
+# step are three chances to disagree about what the agent saw.
 
 @pytest.mark.asyncio
-async def test_the_journal_records_why_each_name_was_chosen(build):
+async def test_the_journal_records_why_each_scanned_name_was_chosen(build):
     agent, journal = build(_Broker([_h("NVDA", headline="Nvidia beats"), _h("NVDA")]))
     await agent.discover(limit=5)
-    picked = _event(journal, "discovery")["picked"]
-    assert picked[0]["symbol"] == "NVDA"
-    assert picked[0]["mentions"] == 2
-    assert picked[0]["headline"] == "Nvidia beats"
+    row = _tally(journal)[0]
+    assert row["symbol"] == "NVDA" and row["mentions"] == 2
+    assert row["headline"] == "Nvidia beats" and row["status"] == "scanned"
 
 
 @pytest.mark.asyncio
@@ -170,14 +178,46 @@ async def test_the_journal_records_what_was_refused_and_on_what_grounds(build):
     """
     agent, journal = build(_Broker([_h("CYCUW"), _h("NVDA")], assets={"CYCUW": WARRANT}))
     await agent.discover(limit=5)
-    refused = _event(journal, "discovery")["refused"]
-    assert any(r["symbol"] == "CYCUW" and "no options" in r["reason"] for r in refused)
+    row = next(r for r in _tally(journal) if r["symbol"] == "CYCUW")
+    assert row["status"] == "refused" and "no options" in row["reason"]
 
 
 @pytest.mark.asyncio
-async def test_the_journal_records_the_size_of_the_census_behind_the_shortlist(build):
+async def test_the_names_below_the_cut_are_recorded_as_never_looked_at(build):
+    """Not the same as refused, and the heat map must not draw them the same.
+
+    The walk stops when the shortlist fills, so everything after it is unscreened —
+    the agent has no opinion about whether those names are tradable. Showing them as
+    rejected would claim knowledge nobody has.
+    """
+    agent, journal = build(_Broker([_h("A"), _h("A"), _h("B"), _h("C")]))
+    await agent.discover(limit=1)
+    by = {r["symbol"]: r["status"] for r in _tally(journal)}
+    assert by == {"A": "scanned", "B": "not-reached", "C": "not-reached"}
+
+
+@pytest.mark.asyncio
+async def test_the_whole_census_is_recorded_not_only_the_shortlist(build):
     """Six names off four headlines and six off four hundred are different claims."""
-    agent, journal = build(_Broker([_h("NVDA"), _h("PFE")]))
-    await agent.discover(limit=5)
+    agent, journal = build(_Broker([_h(f"S{i}") for i in range(9)]))
+    await agent.discover(limit=2)
     event = _event(journal, "discovery")
-    assert event["headlines"] == 2 and event["symbols"] == 2
+    assert event["headlines"] == 9 and event["symbols"] == 9
+    assert len(event["tally"]) == 9
+
+
+@pytest.mark.asyncio
+async def test_the_tally_is_ordered_hottest_first(build):
+    agent, journal = build(_Broker([_h("HOT"), _h("HOT"), _h("HOT"), _h("WARM"),
+                                    _h("WARM"), _h("COOL")]))
+    await agent.discover(limit=5)
+    assert [r["mentions"] for r in _tally(journal)] == [3, 2, 1]
+
+
+@pytest.mark.asyncio
+async def test_a_lookup_that_exploded_is_recorded_as_refused_not_as_unseen(build):
+    """It *was* reached. Saying otherwise hides a broker fault as a quiet tail."""
+    agent, journal = build(_Broker([_h("BOOM")], asset_raises={"BOOM"}))
+    await agent.discover(limit=5)
+    row = next(r for r in _tally(journal) if r["symbol"] == "BOOM")
+    assert row["status"] == "refused" and "lookup failed" in row["reason"]

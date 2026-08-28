@@ -693,35 +693,42 @@ class Agent:
             return []
 
         ranked = discovery.tally(headlines)
-        picked: list[discovery.Mention] = []
-        refused: list[dict[str, str]] = []
+        picked: list[str] = []
+        tally: list[dict[str, Any]] = []
         for mention in ranked:
+            row: dict[str, Any] = {
+                "symbol": mention.symbol, "mentions": mention.mentions,
+                "headline": mention.headline[:180],
+            }
             if len(picked) >= limit:
-                break
-            try:
-                asset = await self.client.get_asset(mention.symbol)
-            except Exception as exc:
-                refused.append({"symbol": mention.symbol,
-                                "reason": f"lookup failed: {type(exc).__name__}"})
-                continue
-            ok, why = discovery.screen(asset)
-            if ok:
-                picked.append(mention)
+                # Never screened, so the agent has no opinion about whether this name
+                # is tradable. Recording it as refused would claim a judgement nobody
+                # made; recording nothing would hide where the cut fell.
+                row["status"] = discovery.NOT_REACHED
             else:
-                refused.append({"symbol": mention.symbol, "reason": why})
+                try:
+                    asset = await self.client.get_asset(mention.symbol)
+                except Exception as exc:
+                    ok, why = False, f"lookup failed: {type(exc).__name__}"
+                else:
+                    ok, why = discovery.screen(asset)
+                if ok:
+                    picked.append(mention.symbol)
+                    row["status"] = discovery.SCANNED
+                else:
+                    row |= {"status": discovery.REFUSED, "reason": why}
+            tally.append(row)
 
-        # The whole census, not just the winners. "Why did the agent trade this name"
-        # is answered by the mention count and the headline behind it; "why did it
-        # stop trading that one" is answered by the refusals, and a screen whose
-        # rejections are invisible cannot be told from a feed that went quiet.
+        # The whole census, hottest first, not just the winners. "Why did the agent
+        # trade this name" is answered by the mention count and the headline behind
+        # it; "why did it stop trading that one" by the refusal; and the tail below
+        # the cut is what makes the shortlist a *choice* rather than a list — six
+        # names off four headlines and six off four hundred are different claims.
         self.journal.write(
             "discovery",
-            headlines=len(headlines), symbols=len(ranked),
-            picked=[{"symbol": m.symbol, "mentions": m.mentions,
-                     "headline": m.headline} for m in picked],
-            refused=refused,
+            headlines=len(headlines), symbols=len(ranked), tally=tally,
         )
-        return [m.symbol for m in picked]
+        return picked
 
     async def run_once(self, universe: list[str]) -> list[CycleResult]:
         """One full pass: manage what is open, then look for what to open next.

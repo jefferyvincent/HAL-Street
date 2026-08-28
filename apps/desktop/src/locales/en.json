@@ -33,7 +33,8 @@
     "journal": "JOURNAL",
     "gates": "GATES",
     "book": "BOOK",
-    "committee": "COMMITTEE"
+    "committee": "COMMITTEE",
+    "discovery": "DISCOVERY"
   },
   "families": {
     "contract": "contract",
@@ -347,5 +348,24 @@
     "shortSilent": "NOT SCANNING",
     "shortIdle": "BETWEEN CYCLES",
     "opensAt": "opens {{day}} {{time}}"
+  },
+  "discovery": {
+    "title": "WHAT THE TAPE IS TALKING ABOUT",
+    "meta": "{{symbols}} symbols across {{headlines}} headlines",
+    "note": "Every symbol the market-wide news feed named this pass, brightest where it was named most. Counting runs on the publisher's own symbol tags, never on the headline text — a headline never becomes a symbol here. Heat is what the tape said; the border is what the agent did about it.",
+    "emptyWaiting": "Nothing has been discovered yet.",
+    "emptyNoCensus": "No census in this run's journal. The agent takes one each pass when UNIVERSE is auto; a pinned list never does.",
+    "legend": "OUTCOME",
+    "scanned": "scanned",
+    "refused": "refused",
+    "notReached": "not reached",
+    "scannedNote": "Ran the full pipeline — chain, candidates, committee, gates.",
+    "refusedNote": "Named often enough to look at, and thrown out before it cost a scan.",
+    "notReachedNote": "Below the cut. Never screened, so nothing here says whether it is tradable.",
+    "cellTitle": "{{symbol}} — named {{mentions}} times\n{{headline}}",
+    "cellRefused": "{{symbol}} — named {{mentions}} times\nRefused: {{reason}}\n{{headline}}",
+    "mentions": "{{n}}",
+    "cut": "{{n}} scanned",
+    "hottest": "hottest {{n}}"
   }
 }

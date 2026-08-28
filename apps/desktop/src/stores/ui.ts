@@ -8,7 +8,7 @@ import { create } from "zustand";
  * update, and an index would slide as records arrive.
  */
 
-export type View = "console" | "journal" | "gates" | "committee" | "book";
+export type View = "console" | "journal" | "discovery" | "gates" | "committee" | "book";
 
 interface UI {
   view: View;

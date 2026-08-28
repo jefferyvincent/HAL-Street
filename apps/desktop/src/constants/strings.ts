@@ -110,6 +110,29 @@ export function makeStrings(t: Translate) {
       unattributedNote: t("spend.unattributedNote"),
     },
 
+    discovery: {
+      title: t("discovery.title"),
+      meta: (symbols: number, headlines: number) =>
+        t("discovery.meta", { symbols, headlines }),
+      note: t("discovery.note"),
+      emptyWaiting: t("discovery.emptyWaiting"),
+      emptyNoCensus: t("discovery.emptyNoCensus"),
+      legend: t("discovery.legend"),
+      scanned: t("discovery.scanned"),
+      refused: t("discovery.refused"),
+      notReached: t("discovery.notReached"),
+      scannedNote: t("discovery.scannedNote"),
+      refusedNote: t("discovery.refusedNote"),
+      notReachedNote: t("discovery.notReachedNote"),
+      cellTitle: (symbol: string, mentions: number, headline: string) =>
+        t("discovery.cellTitle", { symbol, mentions, headline }),
+      cellRefused: (symbol: string, mentions: number, reason: string, headline: string) =>
+        t("discovery.cellRefused", { symbol, mentions, reason, headline }),
+      mentions: (n: number) => t("discovery.mentions", { n }),
+      cut: (n: number) => t("discovery.cut", { n }),
+      hottest: (n: number) => t("discovery.hottest", { n }),
+    },
+
     presence: {
       disconnected: t("presence.disconnected"),
       closed: t("presence.closed"),
@@ -132,6 +155,7 @@ export function makeStrings(t: Translate) {
     tabs: {
       console: t("tabs.console"),
       journal: t("tabs.journal"),
+      discovery: t("tabs.discovery"),
       gates: t("tabs.gates"),
       committee: t("tabs.committee"),
       book: t("tabs.book"),
