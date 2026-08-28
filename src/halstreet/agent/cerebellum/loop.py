@@ -51,7 +51,7 @@ from halstreet.execution.structures import StructureError
 from halstreet.gates import ALL_GATES, evaluate
 from halstreet.gates.base import Decision, GateContext, Limits
 from halstreet.gates.contract import leg_signature
-from halstreet.marketdata import discovery
+from halstreet.marketdata import discovery, polymarket
 from halstreet.marketdata import events as events_mod
 from halstreet.marketdata import patterns as patterns_mod
 from halstreet.marketdata import smc as smc_mod
@@ -118,6 +118,10 @@ class Agent:
         self.dry_run = dry_run
         self.target_dte = target_dte
         self.profile = profile or P.DEFAULT_PROFILE
+        # Macro odds for the pass in progress. None means the venue was not read —
+        # which is not the same as a quiet backdrop, and the catalyst is told which.
+        # Set once per pass in `run_once`; a single `run_cycle` leaves it None.
+        self.macro: list | None = None
         # In-memory when the caller supplies nothing, which keeps tests free of a
         # filesystem. The CLI always passes a persisted one — a latch that dies with
         # the process is not a latch.
@@ -613,6 +617,14 @@ class Agent:
             # what price actually did at a price somebody can point to.
             "structure": (None if state.get("structure") is None
                           else state["structure"].to_prompt()),
+            # What a venue is charging for the macro questions the headlines are
+            # arguing about. Prose said "odds now favor a hike" on the day the market
+            # was 50.5 cents; one of those is a claim and the other is a price.
+            #
+            # None means the venue could not be read, which is not the same as a quiet
+            # macro backdrop, and the catalyst is told which.
+            "prediction_markets": (None if self.macro is None
+                                   else [o.to_prompt() for o in self.macro]),
             "note": "hv_rank is a realized-volatility proxy, not IV rank",
         }
         session.catalyst, counts = await asyncio.to_thread(
@@ -862,6 +874,15 @@ class Agent:
         except Exception as exc:
             self.journal.error("manage_exits", f"{type(exc).__name__}: {exc}")
             exits = []
+
+        # Macro odds, once for the pass. They are a claim about the backdrop rather
+        # than about any one name, so fetching them per underlying would be six
+        # identical HTTP calls for one answer. Off the event loop because the client
+        # is blocking, and it degrades to None rather than delaying a cycle.
+        self.macro = await asyncio.to_thread(polymarket.fetch)
+        if self.macro:
+            self.journal.write("macro", venue="polymarket",
+                               odds=[o.to_prompt() for o in self.macro])
 
         results: list[CycleResult] = []
         for underlying in universe:
