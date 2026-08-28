@@ -43,11 +43,15 @@ export function Holding() {
           {t.console.holdingNone}
         </div>
       ) : (
-        <ul>
+        /* Every row keeps its bottom rule, the last one included — the `last:border-b-0`
+           the other lists use left a single-position book with no line under the trade
+           at all. Padded at the foot so that rule stays a rule on a day the list is
+           long enough to reach the card's own frame. */
+        <ul className="pb-[8px]">
           {rows.map((r) => (
             <li key={r.id}
                 onClick={() => open(r.id)}
-                className="cursor-pointer border-b border-line-soft px-3 py-[9px] last:border-b-0 hover:bg-sunk">
+                className="cursor-pointer border-b border-line px-3 py-[9px] hover:bg-sunk">
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                 {/* Every row here is a position the agent is still carrying — the
                     snapshot builds this list from the ledger's open structures — so
