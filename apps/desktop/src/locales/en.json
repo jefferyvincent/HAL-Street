@@ -307,7 +307,12 @@
       "pop": "POP {{value}}",
       "risk": "risk {{loss}} to make {{gain}}",
       "score": "score {{value}}",
-      "note": "Built by the gates' own arithmetic before anyone argued. The committee chooses from this list or declines it; it cannot add to it."
+      "note": "Built by the gates' own arithmetic before anyone argued. The committee chooses from this list or declines it; it cannot add to it.",
+      "ev": "EV {{value}}",
+      "evNote": "after {{cost}} round trip",
+      "tail": "loses it all {{pct}} of the time",
+      "unsimulated": "not simulated — volatility was not measured",
+      "scenarioNote": "Sampled {{paths}} paths per structure at expiry, seeded from the structure so the figures reproduce. {{note}}."
     }
   },
   "scoreboard": {

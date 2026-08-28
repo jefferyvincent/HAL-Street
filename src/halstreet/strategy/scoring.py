@@ -113,6 +113,11 @@ class Context:
     #: expiry. Defaults to "not checked", which is penalised.
     events: EventWindow = EventWindow()
     weights: P.Weights = P.MODERATE.weights
+    #: Annualized realized volatility, as a fraction. Not part of the ranking — the
+    #: regime *label* above is what the six terms read. This is here because the menu
+    #: is where a structure's scenario is sampled, and `montecarlo` refuses to run on
+    #: a volatility nobody measured rather than defaulting to one.
+    realized_vol: float | None = None
 
 
 @dataclass(frozen=True)

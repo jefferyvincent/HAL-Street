@@ -309,6 +309,20 @@ export interface Verdict {
  * argues: `fits` if the structure is paid for the direction the tape was read to
  * have, `against` if it needs the opposite, `ambient` if no direction was earned.
  */
+/** A structure's sampled outcomes at expiry. Null where volatility was not measured. */
+export interface Scenario {
+  paths: number;
+  p_profit: number;
+  p_max_loss: number;
+  ev_usd: string;
+  p10_usd: string;
+  p50_usd: string;
+  p90_usd: string;
+  vol: number;
+  /** What it assumed. A figure without its assumption hides the assumption. */
+  note: string;
+}
+
 export interface BurnRow {
   kind: string;
   news_fit: "fits" | "against" | "ambient";

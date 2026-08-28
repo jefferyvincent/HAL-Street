@@ -15,6 +15,11 @@ export interface BriefLine {
   /** Why it sits that way, or null on an unscored row. */
   why: string | null;
   facts: string[];
+  /** Expectation after friction, or null where nothing was simulated. */
+  ev: string | null;
+  evUp: boolean;
+  /** How often it loses everything, or the words for a structure nobody sampled. */
+  tail: string;
 }
 
 export interface Brief {
@@ -78,6 +83,15 @@ export function useBrief(underlying: string, live: boolean): Brief | null {
           t.committee.brief.risk(f.money(r.maxLoss, 0), f.money(r.maxGain, 0)),
           t.committee.brief.score(f.plain(r.score, 1)),
         ],
+        // Expectation after the round trip, which is the number the desk keeps
+        // declining trades over and was reasoning about in prose. Null rather than
+        // zero where nothing was simulated — an unmeasured expectation and a flat one
+        // are not the same claim.
+        ev: r.scenario ? t.committee.brief.ev(f.money(r.scenario.ev_usd)) : null,
+        evUp: r.scenario ? Number(r.scenario.ev_usd) >= 0 : false,
+        tail: r.scenario
+          ? t.committee.brief.tail(f.plain(r.scenario.p_max_loss * 100, 0))
+          : t.committee.brief.unsimulated,
       };
     }
   }, [underlying, live, cards, menus, sessions, t, f]);

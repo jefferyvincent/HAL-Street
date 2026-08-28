@@ -86,6 +86,18 @@ function Structure({ row }: { row: BriefLine }) {
       {row.why && (
         <p className="mt-[5px] font-sans text-[11px] leading-[1.45] text-ink/45">{row.why}</p>
       )}
+      {/* What twenty thousand sampled paths make of it, after the round trip. The
+          expectation is the number every decline this week has actually been about,
+          and it was being reached in prose because nothing computed it. */}
+      <div className="mt-[5px] flex flex-wrap items-baseline gap-x-[10px] gap-y-1">
+        {row.ev && (
+          <span className={cn("font-mono text-[10px] font-bold leading-none tabular-nums",
+            row.evUp ? "text-pass" : "text-fail")}>
+            {row.ev}
+          </span>
+        )}
+        <span className="font-mono text-[9.5px] leading-none text-ink/30">{row.tail}</span>
+      </div>
     </li>
   );
 }

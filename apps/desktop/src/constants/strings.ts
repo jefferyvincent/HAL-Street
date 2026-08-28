@@ -362,6 +362,12 @@ export function makeStrings(t: Translate) {
         pop: (value: string) => t("committee.brief.pop", { value }),
         risk: (loss: string, gain: string) => t("committee.brief.risk", { loss, gain }),
         score: (value: string) => t("committee.brief.score", { value }),
+        ev: (value: string) => t("committee.brief.ev", { value }),
+        evNote: (cost: string) => t("committee.brief.evNote", { cost }),
+        tail: (pct: string) => t("committee.brief.tail", { pct }),
+        unsimulated: t("committee.brief.unsimulated"),
+        scenarioNote: (paths: string, note: string) =>
+          t("committee.brief.scenarioNote", { paths, note }),
         note: t("committee.brief.note"),
       },
       desk: {

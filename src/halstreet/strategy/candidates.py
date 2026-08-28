@@ -27,17 +27,19 @@ see it and charge for it.
 
 from __future__ import annotations
 
+import zlib
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from halstreet import clock
+from halstreet.marketdata import occ
 from halstreet.marketdata.chain import daily_volume
-from halstreet.marketdata.occ import Contract, Right, parse
+from halstreet.marketdata.occ import Contract, PayoffLeg, Right, parse
+from halstreet.strategy import montecarlo, scoring
 from halstreet.strategy import pop as pop_math
 from halstreet.strategy import profiles as P
-from halstreet.strategy import scoring
 
 CONTRACT_MULTIPLIER = 100
 
@@ -99,6 +101,9 @@ class Candidate:
     pop: float | None = None
     score: Decimal = field(default=Decimal(0))
     breakdown: scoring.ScoreBreakdown | None = None
+    #: Sampled outcomes at expiry. None when volatility was not measured, which the
+    #: ranking and the model both read as "unknown" rather than as "unremarkable".
+    scenario: montecarlo.Scenario | None = None
     # The underlying quotes, kept for per-leg liquidity checks. Not serialised: the
     # model gets the summary statistics, not the raw chain it would drown in.
     quotes: tuple[tuple[Quote, str], ...] = field(default=(), repr=False)
@@ -125,6 +130,10 @@ class Candidate:
             "prob_of_profit": None if self.pop is None else round(self.pop, 3),
             "score": str(self.score),
             "score_breakdown": None if self.breakdown is None else self.breakdown.to_prompt(),
+            # Sampled outcomes, with the assumption they were sampled under. The model
+            # was already reasoning about expectation and tail size in prose; this is
+            # the arithmetic it was doing in its head.
+            "scenario": None if self.scenario is None else self.scenario.to_prompt(),
         }
 
     @property
@@ -494,12 +503,52 @@ def _menu_for(chain: dict[str, dict], expiry: date, *, spot: Decimal | None, dte
             continue
         c.breakdown = score(c, ctx)
         c.score = scoring.as_decimal(c.breakdown.total)
+        c.scenario = scenario_for(c, spot=spot, vol=ctx.realized_vol)
         unique.append(c)
 
     # Ties broken by POP, then by name — so the same chain always produces the same
     # order rather than whatever the dict happened to iterate.
     unique.sort(key=lambda c: (c.score, c.pop or 0.0, c.name), reverse=True)
     return diversify(unique, limit)
+
+
+def payoff_legs(candidate: Candidate) -> list[PayoffLeg]:
+    """The legs reduced to what an expiry payoff depends on.
+
+    Empty when any leg cannot be parsed, rather than partial. A structure simulated
+    with one of its wings missing is not a conservative estimate of that structure; it
+    is a confident estimate of a different and far riskier one.
+    """
+    out: list[PayoffLeg] = []
+    for leg in candidate.legs:
+        contract = occ.parse(str(leg.get("symbol")))
+        if contract is None:
+            return []
+        out.append(PayoffLeg(right=contract.right, strike=contract.strike,
+                             ratio=int(leg.get("ratio_qty") or 1),
+                             long=str(leg.get("side")) == "buy"))
+    return out
+
+
+def scenario_for(candidate: Candidate, *, spot: Decimal | None,
+                 vol: float | None) -> montecarlo.Scenario | None:
+    """Sample this structure's outcomes, or None where it cannot honestly be sampled.
+
+    Seeded from the structure's own name, so the same chain always produces the same
+    figures: these are journalled, and a record nobody can reproduce is not a record.
+
+    Friction is the entry slippage doubled — one crossing to open and one to close.
+    That is the number the desk keeps declining trades over, and it was being reasoned
+    about in prose while the arithmetic sat one multiplication away.
+    """
+    legs = payoff_legs(candidate)
+    if not legs or spot is None:
+        return None
+    slip = candidate.slippage_usd or Decimal(0)
+    return montecarlo.simulate(
+        legs=legs, net=candidate.net, spot=spot, dte=candidate.dte, vol=vol,
+        friction_usd=slip * 2, seed=zlib.crc32(candidate.name.encode()),
+    )
 
 
 def diversify(ranked: list[Candidate], limit: int) -> list[Candidate]:

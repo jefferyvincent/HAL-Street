@@ -464,6 +464,10 @@ class Agent:
             regime=state["regime"].label,
             events=state["events"],
             weights=self.profile.weights,
+            # The number behind the label. The ranking reads the label; the menu's
+            # scenario sampling needs the measurement, and without it every structure
+            # arrives unsimulated rather than simulated on a guess.
+            realized_vol=state["regime"].realized_vol,
         )
         self.journal.market_view(
             underlying=underlying,

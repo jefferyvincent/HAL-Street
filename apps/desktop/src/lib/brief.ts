@@ -1,4 +1,4 @@
-import type { Burn, Menu } from "@/types";
+import type { Burn, Menu, Scenario } from "@/types";
 
 /**
  * The brief: every structure the deterministic side built, and how each one sits
@@ -42,7 +42,16 @@ export interface BriefRow {
   maxGain: string;
   pop: number;
   score: string;
+  /** Sampled outcomes, or null where volatility was not measured. */
+  scenario: Scenario | null;
 }
+
+/** This structure's sampled outcomes, from the menu, matched by name. */
+function scenarioFor(menu: Menu | null, name: string): Scenario | null {
+  const built = (menu?.candidates ?? []) as { name?: string; scenario?: Scenario }[];
+  return built.find((c) => c.name === name)?.scenario ?? null;
+}
+
 
 /** One row per structure, in the order the ranking put them. */
 export function briefRows({ burn, menu }: BriefSource): BriefRow[] {
@@ -59,13 +68,18 @@ export function briefRows({ burn, menu }: BriefSource): BriefRow[] {
       maxGain: s.max_gain_usd,
       pop: s.prob_of_profit,
       score: s.score,
+      // The burn table predates the simulation and does not carry it; the menu does.
+      // Matched by name rather than by position, because the two lists are built by
+      // different code paths and a positional join would silently pair the wrong
+      // structure with the wrong distribution.
+      scenario: scenarioFor(menu, s.name),
     }));
   }
   // `candidates` is optional on the record: older events counted without listing, and
   // a cycle that built nothing writes a count and no list at all.
   const built = (menu?.candidates ?? []) as Partial<BriefRow & {
     net_price: string; max_loss_usd: string; max_gain_usd: string;
-    prob_of_profit: number;
+    prob_of_profit: number; scenario: Scenario;
   }>[];
   return built.map((c, i) => ({
     key: `${c.name ?? i}-${i}`,
@@ -78,5 +92,6 @@ export function briefRows({ burn, menu }: BriefSource): BriefRow[] {
     maxGain: String(c.max_gain_usd ?? ""),
     pop: Number(c.prob_of_profit ?? 0),
     score: String(c.score ?? ""),
+    scenario: c.scenario ?? null,
   }));
 }
