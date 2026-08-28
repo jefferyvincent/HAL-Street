@@ -6,6 +6,7 @@ import { EquityChart } from "@/components/EquityChart";
 import { Scoreboard } from "@/components/Scoreboard";
 import { Holding } from "@/components/Holding";
 import { Periods } from "@/components/Periods";
+import { Presence } from "@/components/Presence";
 import { Spend } from "@/components/Spend";
 import { GateLedger } from "@/components/GateLedger";
 import { Cross, Icon, Note, Tick } from "@/components/Icon";
@@ -43,6 +44,7 @@ export function ConsoleView() {
   // screen rather than a sentence that reads as "broken".
   const run = (
     <>
+      <Presence />
       <Scoreboard />
       <div className={GRID.pairRight}>
         <Periods />

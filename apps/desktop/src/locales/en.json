@@ -334,5 +334,11 @@
     "gates": "GATES",
     "elsewhere": "now {{stage}} on {{underlying}}",
     "limits": "LIMITS"
+  },
+  "presence": {
+    "disconnected": "Not connected to the agent. Everything below is the last thing that arrived, and the market has moved since.",
+    "closed": "Market closed. The agent scans while the broker's clock says open, so nothing is expected until it does.",
+    "closedUntil": "Market closed — next open {{day}} at {{time}}. The agent scans while the broker's clock says open.",
+    "silent": "The market is open and nothing has scanned for a quarter of an hour. That is longer than any cycle takes — the agent may have stopped."
   }
 }

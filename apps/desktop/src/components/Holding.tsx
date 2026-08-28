@@ -3,10 +3,10 @@ import { ICON } from "@/constants/icons";
 import { STROKE } from "@/constants/theme";
 import { Icon } from "@/components/Icon";
 import { PatternBadge } from "@/components/PatternBadge";
+import { FlashFigure } from "@/components/FlashFigure";
 import { Sparkline } from "@/components/Sparkline";
 import { StructureName } from "@/components/StructureName";
 import { Ticker } from "@/components/Ticker";
-import { Trend } from "@/components/Trend";
 import { useHolding } from "@/hooks/useHolding";
 import { useStrings } from "@/hooks/useStrings";
 
@@ -74,11 +74,12 @@ export function Holding() {
                     {r.value}
                   </span>
                 ) : (
-                  <span className={cn("flex items-center gap-[5px] font-mono text-[12px] font-bold leading-none tabular-nums",
-                    r.pnl >= 0 ? "text-pass" : "text-fail")}>
-                    <Trend value={r.pnl} />
-                    {r.value}
-                  </span>
+                  <FlashFigure
+                    value={r.pnl}
+                    text={r.value}
+                    size={11}
+                    className={cn("text-[12px] font-bold leading-none",
+                      r.pnl >= 0 ? "text-pass" : "text-fail")} />
                 )}
               </div>
               <div className="mt-[5px] flex flex-wrap items-center gap-x-3 gap-y-1">

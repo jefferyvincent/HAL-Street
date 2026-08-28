@@ -110,6 +110,13 @@ export function makeStrings(t: Translate) {
       unattributedNote: t("spend.unattributedNote"),
     },
 
+    presence: {
+      disconnected: t("presence.disconnected"),
+      closed: t("presence.closed"),
+      closedUntil: (day: string, time: string) => t("presence.closedUntil", { day, time }),
+      silent: t("presence.silent"),
+    },
+
     news: {
       label: t("news.label"),
       title: t("news.title"),

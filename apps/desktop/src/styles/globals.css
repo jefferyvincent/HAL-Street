@@ -109,3 +109,31 @@
     opacity: 0.5;
   }
 }
+
+/*
+ * A figure lighting for a moment when it moves.
+ *
+ * A background wash rather than a colour change on the text: the text colour already
+ * means something else — whether the position is winning — and borrowing it for
+ * direction would make one signal carry two claims that routinely disagree.
+ *
+ * Off entirely under reduced motion. A figure that flashes is the definition of what
+ * that setting is asking not to see, and nothing is lost: the number is still there
+ * and still correct.
+ */
+@keyframes flash-up {
+  from { background-color: rgb(33 208 122 / 0.30); }
+  to   { background-color: rgb(33 208 122 / 0); }
+}
+
+@keyframes flash-down {
+  from { background-color: rgb(255 77 79 / 0.30); }
+  to   { background-color: rgb(255 77 79 / 0); }
+}
+
+.flash-up   { animation: flash-up 900ms ease-out; }
+.flash-down { animation: flash-down 900ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .flash-up, .flash-down { animation: none; }
+}

@@ -91,6 +91,14 @@ export const CLS = {
 export const CUE_GAP_MS = 700;
 
 /**
+ * How long a figure stays lit after it moves.
+ *
+ * Long enough to catch out of the corner of an eye, short enough to be gone before
+ * the next snapshot arrives — the marks poll is twenty seconds, so nothing overlaps.
+ */
+export const FLASH_MS = 900;
+
+/**
  * How often the panel asks for live marks.
  *
  * Not the five-second snapshot cadence. Each call spawns an MCP subprocess and
