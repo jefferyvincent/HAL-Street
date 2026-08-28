@@ -191,6 +191,60 @@ def test_the_later_boundary_wins_so_it_survives_a_weekend():
     assert market["state"] == "open", "and now the open is"
 
 
+#: A close still ahead of us — the session the agent was in when it went quiet.
+AHEAD = (_NOW_ET + timedelta(hours=1)).isoformat(sep=" ")
+
+
+def test_a_boundary_still_ahead_confirms_the_state_it_was_recorded_with():
+    """The mirror of the fix above, and the half of it that was missed.
+
+    "The close has passed, so it is closed" and "the close has not passed, so it is
+    open" are one claim read in two directions off the same published figure. Only
+    the first direction was taken, so a panel watching a stopped agent at 15:50 drew
+    OPEN with a question mark beside it while the broker's own 16:00 close sat unread
+    in the very record it was hedging.
+
+    Staleness is the agent's problem and it is reported separately. It is not
+    evidence about the market.
+    """
+    from halstreet.telemetry.server import _last_session
+
+    market = _last_session([session(state="open", next_open=OPEN, next_close=AHEAD),
+                            {"event": "cycle_start", "ts": at(20_000)}])
+    assert market["state"] == "open"
+    assert market["source"] == "published"
+    assert market["until"] == AHEAD
+    assert market["stale"] is True, "the agent is still silent and still said so"
+
+
+def test_it_confirms_a_closed_session_the_same_way():
+    from halstreet.telemetry.server import _last_session
+
+    market = _last_session([session(state="closed", next_open=AHEAD, next_close=None),
+                            {"event": "cycle_start", "ts": at(20_000)}])
+    assert market["state"] == "closed"
+    assert market["source"] == "published"
+
+
+def test_a_boundary_that_has_passed_still_outranks_one_that_has_not():
+    """Both exist on every record. The one that already happened is what changed."""
+    from halstreet.telemetry.server import _last_session
+
+    market = _last_session([session(state="open", next_open=AHEAD, next_close=CLOSE),
+                            {"event": "cycle_start", "ts": at(20_000)}])
+    assert market["state"] == "closed"
+    assert market["source"] == "boundary"
+
+
+def test_a_boundary_ahead_for_the_other_half_of_the_day_confirms_nothing():
+    """An open session's `next_open` is tomorrow's. It says nothing about today."""
+    from halstreet.telemetry.server import _last_session
+
+    market = _last_session([session(state="open", next_open=AHEAD, next_close=None),
+                            {"event": "cycle_start", "ts": at(20_000)}])
+    assert market["source"] == "last-seen"
+
+
 def test_with_no_boundary_and_nothing_writing_the_panel_says_it_does_not_know():
     """The one case that is genuinely unknown, and the only one that hedges."""
     from halstreet.telemetry.server import _last_session

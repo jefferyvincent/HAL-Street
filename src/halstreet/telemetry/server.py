@@ -679,6 +679,30 @@ def _crossed(record: dict) -> tuple[str, str] | None:
     return state, raw
 
 
+def _still(record: dict) -> str | None:
+    """When the recorded state's own next boundary is still ahead, and so still true.
+
+    The mirror of `_crossed`, and the half it was missing. "The close has passed, so
+    the market is closed" and "the close has not passed, so it is open" are one claim
+    read in two directions off the same figure Alpaca published — but only the first
+    direction was taken. So a panel watching a stopped agent at 15:50 drew OPEN with a
+    question mark beside it while the broker's own 16:00 close sat unread in the very
+    record being hedged.
+
+    Only the boundary that ends the recorded state counts. An open session's
+    `next_open` is tomorrow morning's and says nothing whatever about this afternoon;
+    reading it as confirmation would turn the wrong number into an answer.
+
+    The agent's silence is not evidence about the market. It is its own fact, it is
+    reported as `stale`, and the console says so in its own words.
+    """
+    ends = {"open": "next_close", "closed": "next_open"}.get(str(record.get("state")))
+    if ends is None:
+        return None
+    when = _when(record.get(ends))
+    return str(record.get(ends)) if when is not None and when > datetime.now(UTC) else None
+
+
 #: How many headlines the ticker carries. A strip you read one line at a time does
 #: not need a day of history behind it, and this rides on a route polled every five
 #: seconds.
@@ -1012,10 +1036,21 @@ def _last_session(events: list[dict]) -> dict | None:
         recorded = event.get("state")
         stale = latest is None or latest > SESSION_STALE_S
         crossed = _crossed(event)
+        # Four claims, strongest first. A boundary that passed is a *change* and
+        # outranks everything. An agent that is writing right now outranks a published
+        # figure, because "it is running and wrote this down" says more than "the
+        # broker said this would last until four". Only when neither holds does the
+        # unreached boundary settle it, and only when that is missing too is the panel
+        # actually in the dark.
+        ahead = _still(event)
         if crossed is not None:
-            state, source, at = crossed[0], "boundary", crossed[1]
+            state, source, at, until = crossed[0], "boundary", crossed[1], None
+        elif not stale:
+            state, source, at, until = recorded, "observed", None, None
+        elif ahead is not None:
+            state, source, at, until = recorded, "published", None, ahead
         else:
-            state, source, at = recorded, ("last-seen" if stale else "observed"), None
+            state, source, at, until = recorded, "last-seen", None, None
         return {
             "state": state,
             # What the journal actually said, kept beside what we concluded. A
@@ -1023,6 +1058,8 @@ def _last_session(events: list[dict]) -> dict | None:
             "recorded": recorded,
             "source": source,
             "crossed_at": at,
+            # The boundary that has not arrived yet, when that is what settles it.
+            "until": until,
             "at": event.get("ts"),
             "session_date": event.get("session_date"),
             "next_open": event.get("next_open"),

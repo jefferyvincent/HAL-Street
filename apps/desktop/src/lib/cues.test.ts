@@ -10,7 +10,7 @@ const market = (state: "open" | "closed", at: string, observed = false): Market 
      // A live run: the agent is there to write the crossing, which is the only
      // situation a bell should ring in. A boundary the panel merely inferred was
      // never heard by anyone, and there is nothing to sound for it.
-     source: "observed", recorded: state, crossed_at: null,
+     source: "observed", recorded: state, crossed_at: null, until: null,
      stale: false, quiet_for_s: 0 });
 
 describe("the first snapshot", () => {

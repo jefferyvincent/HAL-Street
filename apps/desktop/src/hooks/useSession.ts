@@ -31,8 +31,26 @@ export function useSession() {
   const open = market.state === "open";
   const label = open ? t.chrome.marketOpen : t.chrome.marketClosed;
 
-  // Nothing is writing and no published boundary has passed since. This is the only
-  // case where the panel genuinely does not know, and the only one that hedges.
+  // Nothing is writing, but the broker had already published when this session ends
+  // and that time is still ahead. The same figure that lets a passed close say CLOSED
+  // lets an unreached one say OPEN — it was only ever read in one direction, so a
+  // console watching a stopped agent at 15:50 hedged OPEN with a question mark while
+  // the 16:00 close sat unused in the record it was hedging.
+  //
+  // The agent's silence is a separate fact and the console states it separately.
+  if (market.source === "published") {
+    return {
+      known: true,
+      certain: true,
+      open,
+      label,
+      title: t.chrome.marketTitlePublished(market.until ?? ""),
+    };
+  }
+
+  // Nothing is writing and no boundary to reason from in either direction. This is
+  // the only case where the panel genuinely does not know, and the only one that
+  // hedges.
   if (market.source === "last-seen") {
     return {
       known: true,

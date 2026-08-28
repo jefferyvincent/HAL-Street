@@ -270,11 +270,17 @@ export interface Market {
    *              happen and that time has passed
    *   last-seen  no boundary to reason from and nothing writing — we do not know
    */
-  source: "observed" | "boundary" | "last-seen";
+  source: "observed" | "boundary" | "published" | "last-seen";
   /** What the journal said, beside what was concluded from it. */
   recorded: "open" | "closed" | null;
   /** The broker-published boundary the state was derived from, when it was. */
   crossed_at: string | null;
+  /**
+   * The boundary that has NOT arrived yet, when that is what settles the state.
+   * Null otherwise. A published close still ahead of us is as good a reason to
+   * say OPEN as a passed one is to say CLOSED.
+   */
+  until: string | null;
   /** Whether anything is still running that could write the next boundary. */
   stale: boolean;
   /** How long the journal has been silent, in seconds. Null if it has never spoken. */

@@ -76,6 +76,8 @@ export function makeStrings(t: Translate) {
       marketTitleClosed: (at: string) => t("chrome.marketTitleClosed", { at }),
       marketTitleUnknown: t("chrome.marketTitleUnknown"),
       marketTitleBoundary: (crossed: string) => t("chrome.marketTitleBoundary", { crossed }),
+      marketTitlePublished: (until: string) =>
+        t("chrome.marketTitlePublished", { until }),
       marketTitleLastSeen: (at: string) => t("chrome.marketTitleLastSeen", { at }),
     },
 
