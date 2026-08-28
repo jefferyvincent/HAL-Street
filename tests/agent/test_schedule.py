@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import sys
+import time
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
+from halstreet.agent.brainstem import schedule
 from halstreet.agent.brainstem.schedule import MarketClock, Scheduler
 from halstreet.execution.mcp_client import MCPError
 
@@ -346,10 +350,93 @@ def test_the_second_signal_says_it_is_not_waiting():
 
 def test_a_third_signal_does_not_start_repeating_itself():
     said = []
-    s = Scheduler(FakeClient({"is_open": True}), 30, log=said.append)
-    for _ in range(4):
+    s = Scheduler(FakeClient({"is_open": True}), 30, log=said.append,
+                  abort=lambda: None)
+    for _ in range(5):
         s.request_stop("SIGINT")
-    assert len(said) == 2, "one line per state, not one per keypress"
+    assert len(said) == 3, "one line per state, not one per keypress"
+
+
+# --- and actually leaving ----------------------------------------------------------
+#
+# Cancelling the cycle was as far as the second press went, and it was not far enough.
+# The committee's model calls run on `asyncio.to_thread`; a thread cannot be cancelled,
+# so `asyncio.run` joined whichever call was still in flight on its way out. Measured
+# on a probe: a cancelled cycle sat for the full twenty seconds of its worker before
+# the process ended, answering nothing. From a terminal that is indistinguishable from
+# a wedged process, and it is what "ctrl c does nothing, it gets locked" was.
+
+def test_a_third_signal_leaves_without_waiting_for_anything():
+    left = []
+    s = Scheduler(FakeClient({"is_open": True}), 30, log=lambda *_: None,
+                  abort=lambda: left.append(1))
+    s.request_stop("SIGINT")
+    s.request_stop("SIGINT")
+    assert left == [], "twice is still a request — the cycle is being cancelled"
+    s.request_stop("SIGINT")
+    assert left == [1]
+
+
+def test_a_third_signal_says_what_it_is_abandoning():
+    """Leaving quietly and hanging look the same from outside. One of them says so."""
+    said = []
+    s = Scheduler(FakeClient({"is_open": True}), 30, log=said.append,
+                  abort=lambda: None)
+    for _ in range(3):
+        s.request_stop("SIGINT")
+    assert "leaving" in said[-1].lower() or "abandon" in said[-1].lower()
+
+
+def test_hard_exit_is_not_a_polite_exit():
+    """`os._exit`, because skipping the interpreter's shutdown is the entire point."""
+    codes = []
+    real = schedule.os._exit
+    schedule.os._exit = codes.append
+    try:
+        schedule.hard_exit()
+    finally:
+        schedule.os._exit = real
+    assert codes == [schedule.INTERRUPTED]
+
+
+def test_hard_exit_flushes_before_it_goes():
+    """os._exit does not, so anything still buffered would be lost on the way out."""
+    order = []
+    real_exit, real_flush = schedule.os._exit, schedule.sys.stdout.flush
+    schedule.os._exit = lambda code: order.append("exit")
+    schedule.sys.stdout.flush = lambda: order.append("flush")
+    try:
+        schedule.hard_exit()
+    finally:
+        schedule.os._exit, schedule.sys.stdout.flush = real_exit, real_flush
+    assert order[0] == "flush" and order[-1] == "exit"
+
+
+#: Run in a subprocess because the defect is a property of interpreter shutdown, and
+#: nothing inside one process can observe its own failure to end.
+_ESCAPE = """
+import asyncio, time
+from halstreet.agent.brainstem import schedule
+
+async def main():
+    task = asyncio.ensure_future(asyncio.to_thread(time.sleep, 20))
+    await asyncio.sleep(0.1)
+    task.cancel()                      # the second Ctrl-C, in effect
+    schedule.hard_exit()
+
+asyncio.run(main())
+print("returned through the interpreter")
+"""
+
+
+def test_hard_exit_escapes_a_worker_thread_that_cannot_be_cancelled():
+    """The reason it exists. A plain return here waits out the whole 20s sleep."""
+    started = time.monotonic()
+    proc = subprocess.run(  # noqa: S603 - this interpreter, a literal above
+        [sys.executable, "-c", _ESCAPE], capture_output=True, text=True, timeout=30)
+    assert proc.returncode == schedule.INTERRUPTED
+    assert "returned through the interpreter" not in proc.stdout
+    assert time.monotonic() - started < 10, "it waited for the worker thread"
 
 
 def test_stopping_now_ends_the_run_without_another_cycle():

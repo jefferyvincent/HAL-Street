@@ -17,7 +17,7 @@ from halstreet import clock as session_clock
 from halstreet import paths
 from halstreet.agent.brainstem.breaker import CircuitState
 from halstreet.agent.brainstem.lock import AlreadyRunning, JournalLock
-from halstreet.agent.brainstem.schedule import Scheduler, market_clock
+from halstreet.agent.brainstem.schedule import Scheduler, hard_exit, market_clock
 from halstreet.agent.cerebellum.loop import Agent
 from halstreet.agent.cerebellum.manager import ExitPolicy
 from halstreet.agent.cortex import committee as committee_mod
@@ -204,6 +204,13 @@ async def main_async(args: argparse.Namespace) -> int:
         totals["approved"] += sum(r.approved for r in results)
         totals["submitted"] += sum(r.submitted for r in results)
 
+    # Built for both paths, because both need the same answer to Ctrl-C. A single
+    # pass is a cycle too — it just happens to be the only one — and a mode where the
+    # signal means something different is a mode nobody can predict from the outside.
+    interval = int(os.environ.get("SCAN_INTERVAL_MINUTES") or 30)
+    scheduler = Scheduler(client, interval, log=log, journal=journal)
+    scheduler.install_signal_handlers()
+
     if args.once:
         market = None
         # A single pass runs whether or not the clock could be read — but if it can,
@@ -217,11 +224,8 @@ async def main_async(args: argparse.Namespace) -> int:
         if clock is not None and not clock.is_open:
             log(f"note: market is closed (next open {clock.next_open}) — "
                 "quotes will be stale.")
-        await one_pass()
+        await scheduler.run_cycle(one_pass)
     else:
-        interval = int(os.environ.get("SCAN_INTERVAL_MINUTES") or 30)
-        scheduler = Scheduler(client, interval, log=log, journal=journal)
-        scheduler.install_signal_handlers()
         log(f"scheduled: every {interval}m while the market is open"
             f"{', until the close' if args.until_close else ''}. Ctrl-C to stop.")
         try:
@@ -240,6 +244,15 @@ async def main_async(args: argparse.Namespace) -> int:
         log("\nrejections by gate (whole journal):")
         for gate, n in counts.items():
             log(f"  {n:>4}  {gate}")
+
+    # Asked to stop *now*, and everything worth keeping is already on disk. What is
+    # left between here and the prompt is `asyncio.run` joining the committee's worker
+    # threads, which cannot be cancelled and hold the terminal for the length of
+    # whichever model call was in flight — see `schedule.hard_exit`. The summary above
+    # is printed first because it costs nothing and is the one thing a stopped run
+    # still owes the person who stopped it.
+    if scheduler.should_exit_now:
+        hard_exit()
     return 0
 
 

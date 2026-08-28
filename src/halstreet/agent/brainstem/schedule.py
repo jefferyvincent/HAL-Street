@@ -14,16 +14,22 @@ burns tokens on stale quotes and may act on them.
 the previous one, so a slow cycle delays the next rather than starting a second one
 alongside it — two concurrent scans would double-submit against the same account.
 
-**Stopping is deliberate.** `--until-close` ends at the bell rather than running to a
-count, which is what a judged window actually wants. SIGINT and SIGTERM finish the
-current cycle and shut down cleanly rather than abandoning a half-submitted order.
+**Stopping is deliberate, and then it is not.** `--until-close` ends at the bell rather
+than running to a count, which is what a judged window actually wants. Ctrl-C is three
+states rather than one: the first finishes the current cycle, because a scan
+interrupted between the gate chain and the broker is how a structure ends up half
+placed; the second cancels that cycle; the third leaves the process outright. Each
+says which it is doing, because a wait nobody announced is indistinguishable from a
+signal nobody received.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import signal
+import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
@@ -92,6 +98,38 @@ async def market_clock(client: AlpacaMCP) -> MarketClock:
 #: immediate, long enough to be free while a 73-second cycle runs.
 _STOP_POLL_SECONDS = 0.05
 
+#: 128 + SIGINT, the shell's own convention for a process a signal ended.
+INTERRUPTED = 130
+
+
+def hard_exit(code: int = INTERRUPTED) -> None:
+    """Leave now, without waiting for threads nobody can cancel.
+
+    `os._exit`, deliberately. The committee's four model calls run on
+    `asyncio.to_thread`, and a thread cannot be cancelled — so cancelling the cycle
+    frees the coroutine awaiting the call while the call itself carries on. Returning
+    normally then hands control to `asyncio.run`, whose last act is to join the
+    default executor. Measured on a probe: a cancelled cycle sat a further twenty
+    seconds, printing nothing and answering nothing, before the process ended. That is
+    not a slow shutdown, it is a terminal that looks wedged, and further Ctrl-C did
+    nothing because the handler by then had nothing left to set.
+
+    Nothing durable is lost by leaving this way, and that is a property of the design
+    rather than a hope. The journal flushes each record as it is appended, so there is
+    no buffer to lose. The lock is an `flock`, which the kernel drops when the holder
+    dies however it dies — there is no stale file to clean up. And every cycle
+    reconciles the ledger against the broker's own positions before it proposes
+    anything, so an order that landed without being written down surfaces as a
+    divergence on the next run rather than vanishing.
+
+    What is lost is anything sitting in stdio, which is why that goes first.
+    """
+    with contextlib.suppress(Exception):
+        sys.stdout.flush()
+    with contextlib.suppress(Exception):
+        sys.stderr.flush()
+    os._exit(code)
+
 
 class Scheduler:
     """Repeats a coroutine on a cadence, only while the market is open."""
@@ -99,7 +137,8 @@ class Scheduler:
     def __init__(self, client: AlpacaMCP, interval_minutes: int, *,
                  log: Callable[[str], None] = print,
                  journal: Any = None,
-                 max_sleep_seconds: float = 900.0) -> None:
+                 max_sleep_seconds: float = 900.0,
+                 abort: Callable[[], None] = hard_exit) -> None:
         self.client = client
         self.interval = max(1, interval_minutes) * 60
         self.log = log
@@ -117,6 +156,11 @@ class Scheduler:
         # Set by a second stop request. The first is a request to finish; this one
         # is a request to stop waiting for that.
         self._stop_now = False
+        # The third. Injectable only so a test can watch it being reached — every
+        # caller in this repository takes the default, and the default does not
+        # return.
+        self._abort = abort
+        self._aborted = False
 
     def _note_session(self, clock: MarketClock) -> None:
         """Journal the bell, once, when the broker's answer changes.
@@ -172,8 +216,16 @@ class Scheduler:
         elif not self._stop_now:
             self.log("stopping now; not waiting for the cycle to finish")
             self._stop_now = True
-        # A third and fourth press say nothing. One line per state, not one per
-        # keypress — a wall of repeats is how someone concludes it is wedged.
+        elif not self._aborted:
+            # The second press cancels the cycle, which frees the coroutines and not
+            # the worker threads underneath them — see `hard_exit`. Somebody pressing
+            # a third time is telling us the difference is not visible from where they
+            # are sitting, and they are right.
+            self.log("leaving now, abandoning work still in flight")
+            self._aborted = True
+            self._abort()
+        # A fourth press says nothing. One line per state, not one per keypress — a
+        # wall of repeats is how someone concludes it is wedged.
 
     def install_signal_handlers(self) -> None:
         loop = asyncio.get_running_loop()
@@ -192,7 +244,7 @@ class Scheduler:
                 await asyncio.wait_for(self._stop.wait(), timeout=chunk)
             remaining -= chunk
 
-    async def _run_cycle(self, cycle: Callable[[], Awaitable[None]]) -> bool:
+    async def run_cycle(self, cycle: Callable[[], Awaitable[None]]) -> bool:
         """Run one cycle, abandoning it if a second stop arrives. True if it finished.
 
         Cancellation lands at the cycle's next `await`, which can be inside an order
@@ -262,7 +314,7 @@ class Scheduler:
                 continue
 
             started = asyncio.get_running_loop().time()
-            if not await self._run_cycle(cycle):
+            if not await self.run_cycle(cycle):
                 # Abandoned by a second stop request. Not counted: it did not finish,
                 # and a coverage table that says otherwise is a false record.
                 break
