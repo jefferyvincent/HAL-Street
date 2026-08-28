@@ -82,7 +82,14 @@
 @media (prefers-reduced-motion: reduce) {
   .ticker-track {
     animation: none;
-    /* Still readable, and now scrollable by hand instead of on a timer. */
+  }
+  /*
+   * The scroll belongs on the clipping parent, not on the track. The track is
+   * `w-max` — sized to its own content — so it never overflows itself, and
+   * `overflow-x` on it scrolls nothing at all. Anyone who asked for less motion got
+   * a strip frozen at its first headline with no way to reach the rest.
+   */
+  .ticker-viewport {
     overflow-x: auto;
   }
 }

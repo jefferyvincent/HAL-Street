@@ -30,7 +30,13 @@ export function NewsTicker() {
   if (track.length === 0) return null;
 
   return (
-    <div className="group relative flex items-center overflow-hidden border-b border-line bg-sunk"
+    /* `shrink-0` is load-bearing, not tidiness. The app is a `flex h-full flex-col`,
+       and a flex item whose overflow is not `visible` has no automatic minimum size —
+       so on a view tall enough to fill the column, this strip was the one thing that
+       could be squashed, and it was: measured at **one pixel** on the console while
+       the same build drew it correctly on the shorter discovery view. The strip was
+       in the DOM, with the right headlines in it, and invisible. */
+    <div className="group relative flex shrink-0 items-center overflow-hidden border-b border-line bg-sunk"
          title={t.news.title}>
       {/* Fixed, and above the scroll: a moving strip with no label is a mystery, and
           this one is the difference between "the market did this" and "the desk read
@@ -39,7 +45,8 @@ export function NewsTicker() {
         {t.news.label}
       </span>
 
-      <div className="relative min-w-0 flex-1 overflow-hidden py-[6px]">
+      {/* `ticker-viewport` carries the reduced-motion fallback; see `globals.css`. */}
+      <div className="ticker-viewport relative min-w-0 flex-1 overflow-hidden py-[6px]">
         <div className="ticker-track flex w-max items-center gap-[26px] group-hover:[animation-play-state:paused]">
           {track.map((h) => (
             <Item key={h.key} url={h.url} title={h.title}>
