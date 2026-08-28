@@ -2,6 +2,7 @@ import { cn } from "@/lib/cn";
 import { ICON } from "@/constants/icons";
 import { CLS, STROKE } from "@/constants/theme";
 import { Icon } from "@/components/Icon";
+import { LiveCommittee } from "@/components/LiveCommittee";
 import { Ticker } from "@/components/Ticker";
 import { useCommittee, useCommitteeStatus, type Side } from "@/hooks/useCommittee";
 import { useStrings } from "@/hooks/useStrings";
@@ -49,6 +50,7 @@ export function CommitteeView() {
     return (
       <div className="mb-3 flex flex-col gap-3">
         {header}
+        <LiveCommittee />
         <div className="border border-edge bg-panel">
           <div className={CLS.empty}>{t.committee.empty}</div>
         </div>
@@ -59,6 +61,10 @@ export function CommitteeView() {
   return (
     <div className="mb-3 flex flex-col gap-3">
       {header}
+      {/* Above the archive, because it is the only card on this screen that is
+          not history yet — and it vanishes the moment the judge turns it into
+          one. */}
+      <LiveCommittee />
 
       {cards.map((card, index) => (
         // Newest first, so index 0 is the one that just happened. Ringed rather than

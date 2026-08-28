@@ -428,3 +428,67 @@ def test_a_journal_with_no_session_leaves_the_readings_unlabelled():
     events = [{"event": "gate_decision", "ts": at(30), "structure": "s",
                "gates": [{"gate": "g", "passed": True, "reason": "fine"}]}]
     assert _gate_readings(events)["g"]["after_hours"] is None
+
+
+# --- inside the committee ----------------------------------------------------------
+#
+# "deliberating" covered the whole of it: four model calls, roughly a minute, one
+# unchanging word. That is a spinner, not a status — it says the agent is alive and
+# nothing else, and the report was that the tab showed old history while the
+# interesting part was happening.
+
+def test_the_catalyst_finishing_says_the_debate_is_running():
+    flight = _in_flight([
+        {"event": "candidates", "ts": at(30), "underlying": "NVDA"},
+        {"event": "committee_stage", "stage": "catalyst", "ts": at(3),
+         "underlying": "NVDA", "lean": "bullish", "confidence": 0.62},
+    ])
+    assert flight["underlying"] == "NVDA"
+    assert "bull" in flight["stage"].lower() and "bear" in flight["stage"].lower()
+
+
+def test_the_debate_finishing_says_the_judge_is_deciding():
+    flight = _in_flight([
+        {"event": "committee_stage", "stage": "debate", "ts": at(2), "underlying": "NVDA"},
+    ])
+    assert "judge" in flight["stage"].lower()
+
+
+def test_a_stage_record_the_panel_does_not_know_is_not_a_stage():
+    """Forward compatibility in the safe direction: an unknown stage claims nothing."""
+    assert _in_flight([
+        {"event": "committee_stage", "stage": "rebuttal", "ts": at(2), "underlying": "NVDA"},
+    ]) is None
+
+
+def test_the_stages_already_finished_travel_with_the_one_running():
+    """So the live card can fill in as it goes instead of appearing whole at the end."""
+    flight = _in_flight([
+        {"event": "cycle_start", "ts": at(40), "underlying": "NVDA"},
+        {"event": "candidates", "ts": at(35), "underlying": "NVDA"},
+        {"event": "committee_stage", "stage": "catalyst", "ts": at(20),
+         "underlying": "NVDA", "lean": "bullish", "confidence": 0.62},
+        {"event": "committee_stage", "stage": "debate", "ts": at(2), "underlying": "NVDA"},
+    ])
+    assert flight["done"] == ["catalyst", "debate"]
+    assert flight["lean"] == "bullish"
+    assert flight["confidence"] == 0.62
+
+
+def test_the_previous_underlyings_stages_do_not_follow_the_next_one():
+    """The agent works the universe one name at a time, and the journal is one file.
+
+    Without the guard the live card would open on AMD already showing NVDA's catalyst
+    read — a fabricated read, attributed to the wrong name, on the one surface whose
+    whole job is to say what is happening now.
+    """
+    flight = _in_flight([
+        {"event": "committee_stage", "stage": "catalyst", "ts": at(50),
+         "underlying": "NVDA", "lean": "bullish", "confidence": 0.62},
+        {"event": "committee", "ts": at(40), "underlying": "NVDA"},
+        {"event": "cycle_start", "ts": at(20), "underlying": "AMD"},
+        {"event": "candidates", "ts": at(3), "underlying": "AMD"},
+    ])
+    assert flight["underlying"] == "AMD"
+    assert flight["done"] == []
+    assert flight["lean"] is None

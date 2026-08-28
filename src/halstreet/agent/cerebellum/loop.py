@@ -586,6 +586,18 @@ class Agent:
         session.spend(counts, "catalyst")
         if session.catalyst.error:
             session.errors.append(f"catalyst: {session.catalyst.error}")
+        # Said now rather than with the rest of the session, because the rest of the
+        # session is another forty seconds away and this is the half of it a watcher
+        # can already use: which name, and what the tape was read to be saying about
+        # it. A failed read still marks the stage done — a stage that failed is
+        # finished, and reporting it as running is the status light saying the
+        # opposite of what is true.
+        self.journal.committee_stage(
+            underlying=underlying, stage="catalyst",
+            lean=None if session.catalyst.error else session.catalyst.lean,
+            confidence=None if session.catalyst.error else session.catalyst.confidence,
+            error=session.catalyst.error or None,
+        )
 
         # Closed trades on this name, from the ledger. Outcomes, not recollections.
         session.reflection = reflection(self.ledger, underlying)
@@ -609,6 +621,10 @@ class Agent:
             self.committee.debate, debate_brief)
         session.spend(counts, "debate")
         session.errors.extend(errors)
+        # No arguments on this one. They are written in full the moment the judge
+        # returns; repeating them here would put the same paragraph on the record
+        # twice, seconds apart, with nothing to say which copy is the record.
+        self.journal.committee_stage(underlying=underlying, stage="debate")
 
         llm, counts = await asyncio.to_thread(
             self.committee.judge,

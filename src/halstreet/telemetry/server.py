@@ -180,6 +180,23 @@ _STAGE = {
     "committee": "writing the proposal",
 }
 
+#: The same rule one level in, for the stages inside a deliberation.
+#:
+#: `candidates` above can only ever say "deliberating", because from that record alone
+#: there is no telling whether a committee is about to sit or a single call is about to
+#: run. Once a stage record lands there is, and the four model calls stop being one
+#: unchanging word over the slowest minute of the cycle.
+#:
+#: No entry for `judge`: the full `committee` record is written the moment it returns,
+#: and `_STAGE` above already speaks for that.
+_COMMITTEE_STAGE = {
+    "catalyst": "bull and bear arguing",
+    "debate": "the judge deciding",
+}
+
+#: In the order they run, so the panel can draw the ones still to come.
+COMMITTEE_STAGES = ("catalyst", "debate", "judge")
+
 
 def _in_flight(events: list[dict]) -> dict | None:
     """What the agent is in the middle of, if anything, from the last record it wrote.
@@ -200,7 +217,11 @@ def _in_flight(events: list[dict]) -> dict | None:
     if not events:
         return None
     event = events[-1]
-    stage = _STAGE.get(str(event.get("event")))
+    kind = str(event.get("event"))
+    if kind == "committee_stage":
+        stage = _COMMITTEE_STAGE.get(str(event.get("stage")))
+    else:
+        stage = _STAGE.get(kind)
     if stage is None:
         # The last thing written finished something. Walking further back to find a
         # stage would report one forever: every completed cycle has four of them
@@ -209,8 +230,34 @@ def _in_flight(events: list[dict]) -> dict | None:
     started = _age(event.get("ts"))
     if started is None or started > IN_FLIGHT_S:
         return None
-    return {"stage": stage, "event": event.get("event"),
-            "underlying": event.get("underlying") or "", "since": event.get("ts")}
+    underlying = event.get("underlying") or ""
+    done = _stages_done(events, underlying)
+    read = next((e for e in done if e.get("stage") == "catalyst"), {})
+    return {"stage": stage, "event": kind,
+            "underlying": underlying, "since": event.get("ts"),
+            "done": [str(e.get("stage")) for e in done],
+            "lean": read.get("lean"), "confidence": read.get("confidence"),
+            "catalyst_error": read.get("error")}
+
+
+def _stages_done(events: list[dict], underlying: str) -> list[dict]:
+    """The stage records belonging to the deliberation running right now.
+
+    Bounded at the last `cycle_start`, and matched on the underlying. The agent walks
+    the universe one name at a time into one journal file, so without both the live
+    card would open on the next name already showing the previous one's catalyst read
+    — a real read, attributed to the wrong symbol, on the one surface whose entire job
+    is to say what is happening now.
+    """
+    if not underlying:
+        return []
+    cycle = 0
+    for i in range(len(events) - 1, -1, -1):
+        if events[i].get("event") == "cycle_start":
+            cycle = i
+            break
+    return [e for e in events[cycle:]
+            if e.get("event") == "committee_stage" and e.get("underlying") == underlying]
 
 
 def _age(ts: Any) -> float | None:

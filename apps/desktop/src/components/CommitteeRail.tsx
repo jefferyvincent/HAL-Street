@@ -2,6 +2,7 @@ import { cn } from "@/lib/cn";
 import { CLS, STROKE } from "@/constants/theme";
 import { ICON } from "@/constants/icons";
 import { Icon } from "@/components/Icon";
+import { LiveStages } from "@/components/LiveCommittee";
 import { Ticker } from "@/components/Ticker";
 import { useCommitteeRail, type RailRow } from "@/hooks/useCommitteeRail";
 import { useStrings } from "@/hooks/useStrings";
@@ -41,6 +42,10 @@ export function CommitteeRail() {
         {detail && (
           <div className="mt-[5px] font-mono text-[9px] leading-none text-ink/30">{detail}</div>
         )}
+        {/* Which of the four calls the desk is on. Silent unless a committee is
+            actually sitting — see `lib/liveSession` for why that is not the same
+            as "a cycle is running". */}
+        <LiveStages />
       </div>
 
       {rows.length === 0 ? (

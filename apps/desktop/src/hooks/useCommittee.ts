@@ -151,6 +151,11 @@ export function useCommitteeStatus(): { busy: boolean; label: string } {
   if (!busy) return { busy: false, label: t.committee.waiting };
   return {
     busy: true,
-    label: busy.underlying ? t.committee.working(busy.underlying) : t.committee.workingAny,
+    // The stage in the agent's own words, not a second coarser one beside it. The
+    // header said "deliberating SPY" while the card under it said "the judge
+    // deciding" — both true, one of them stale by three model calls.
+    label: busy.underlying
+      ? t.committee.working(busy.stage, busy.underlying)
+      : t.committee.workingAny,
   };
 }

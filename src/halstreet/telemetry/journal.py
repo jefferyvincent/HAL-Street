@@ -131,6 +131,26 @@ class Journal:
                           error=error, structure=structure, rationale=rationale,
                           confidence=confidence, tokens=tokens or {})
 
+    def committee_stage(self, *, underlying: str, stage: str,
+                        lean: str | None = None, confidence: float | None = None,
+                        error: str | None = None) -> dict:
+        """One committee stage finished. A progress record, not a second archive.
+
+        The full `committee` record is written once, after the judge, so that it
+        carries the whole session's cost — which is right for the archive and useless
+        for watching. Four model calls and about a minute pass with nothing on disk,
+        and a panel derives what is running from the last thing written, so the
+        slowest stretch of the cycle could only ever be described as "deliberating".
+
+        Deliberately thin. It carries what a live card needs to fill in as it goes —
+        which name, which stage, and the catalyst's read once there is one — and not
+        the arguments themselves. Those are already going to be written in full a few
+        seconds later, and a journal that says everything twice is one where a reader
+        has to work out which copy to believe.
+        """
+        return self.write("committee_stage", underlying=underlying, stage=stage,
+                          lean=lean, confidence=confidence, error=error)
+
     def decision(self, decision: Decision, *, dry_run: bool = False) -> dict:
         """Every gate verdict, not just the rejections.
 

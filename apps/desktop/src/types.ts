@@ -348,6 +348,17 @@ export interface InFlight {
   event: string;
   underlying: string;
   since: string;
+  /**
+   * The committee stages already reported for THIS underlying in THIS cycle. Empty
+   * when none has — which is not the same as "none has run": it is also what a
+   * `--no-committee` cycle looks like, and what every cycle looks like for its first
+   * twenty seconds. See `lib/liveSession`.
+   */
+  done: string[];
+  /** The catalyst's read, once it has landed. Null while it has not, or if it failed. */
+  lean: string | null;
+  confidence: number | null;
+  catalyst_error: string | null;
 }
 
 /** What one gate measured the last time it ran. Its own words, not a recomputation. */

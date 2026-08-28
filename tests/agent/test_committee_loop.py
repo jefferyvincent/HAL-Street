@@ -378,3 +378,60 @@ async def test_the_burn_table_is_journalled_with_the_rest_of_the_session(harness
     burn = _committee_event(journal)["burn"]
     assert burn["agreement"] == "conflicted"
     assert {r["kind"] for r in burn["structures"]}
+
+
+# --- saying so while it happens ------------------------------------------------------
+#
+# The whole session lands in one record after the judge, which is right for the archive
+# and useless for watching. Four model calls and about a minute pass with nothing on
+# disk, so the panel could say only "deliberating" — one unchanging word over the
+# slowest and most interesting stretch of the cycle.
+
+def _stages(journal):
+    return [e for e in journal.read() if e.get("event") == "committee_stage"]
+
+
+@pytest.mark.asyncio
+async def test_each_stage_says_so_as_it_finishes(harness):
+    agent, _, _, journal = harness()
+    await _run(agent)
+    assert [e["stage"] for e in _stages(journal)] == ["catalyst", "debate"]
+
+
+@pytest.mark.asyncio
+async def test_the_judge_does_not_get_its_own_stage_record(harness):
+    """The full `committee` record lands the moment the judge returns.
+
+    A stage record beside it would be a second, thinner claim about the same moment,
+    and the panel would have to decide which of the two it believed.
+    """
+    agent, _, _, journal = harness()
+    await _run(agent)
+    assert "judge" not in [e["stage"] for e in _stages(journal)]
+
+
+@pytest.mark.asyncio
+async def test_the_catalyst_read_is_on_the_record_before_the_debate_ends(harness):
+    """So the live card can show the lean it is being argued about, while it is."""
+    agent, _, _, journal = harness()
+    await _run(agent)
+    catalyst = _stages(journal)[0]
+    assert catalyst["underlying"] == "SPY"
+    assert catalyst["lean"] == "bearish"
+    assert catalyst["confidence"] == 0.8
+
+
+@pytest.mark.asyncio
+async def test_a_failed_catalyst_still_marks_the_stage_done(harness):
+    """Otherwise the panel shows the catalyst running for the rest of the session.
+
+    A stage that failed is finished. Reporting it as still working is the status
+    light saying the opposite of what is true, which is the one thing in_flight
+    exists not to do.
+    """
+    agent, _, _, journal = harness(committee=_Recorder(catalyst_error="timeout"))
+    await _run(agent)
+    catalyst = _stages(journal)[0]
+    assert catalyst["stage"] == "catalyst"
+    assert catalyst["lean"] is None
+    assert catalyst["error"] == "timeout"

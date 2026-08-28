@@ -241,7 +241,7 @@
     "tokens": "{{out}} tokens out",
     "note": "The committee cannot approve anything. Whichever path built a proposal, it meets the same sixteen gates.",
     "latest": "LATEST",
-    "working": "deliberating {{underlying}}…",
+    "working": "{{stage}} · {{underlying}}",
     "workingAny": "working…",
     "waiting": "between cycles",
     "ordered": "ORDER SENT",
@@ -255,6 +255,19 @@
       "bullish": "BULLISH",
       "bearish": "BEARISH",
       "neutral": "NEUTRAL"
+    },
+    "live": {
+      "title": "IN SESSION",
+      "on": "sitting on {{underlying}}",
+      "done": "in",
+      "running": "working",
+      "pending": "waiting",
+      "catalyst": "CATALYST",
+      "debate": "BULL & BEAR",
+      "judge": "JUDGE",
+      "read": "{{lean}} at confidence {{value}}",
+      "readFailed": "no read — {{error}}",
+      "note": "Written as it happens. It is replaced by the full session below the moment the judge returns."
     }
   },
   "scoreboard": {
