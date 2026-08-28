@@ -6,6 +6,8 @@ import math
 from datetime import date, timedelta
 from decimal import Decimal
 
+import pytest
+
 from halstreet.gates.base import Limits
 from halstreet.marketdata.occ import Right
 from halstreet.strategy import blackscholes as bs
@@ -501,3 +503,51 @@ def test_the_name_matches_the_root_of_its_own_legs():
         roots = {parse(leg["symbol"]).root for leg in candidate.legs}
         assert len(roots) == 1, f"{candidate.name} spans {roots}"
         assert candidate.name.split()[0] == roots.pop()
+
+
+# --- one definition of "this leg clears the floor" ------------------------------------
+#
+# `tradeable` asked three questions of a built structure. Discovery needs the same
+# three asked of a bare chain, *before* a symbol is given one of the scan's slots —
+# so the question moved into `leg_ok` and both callers ask it there.
+#
+# Measured on the live chains that motivated this: SPY's median bid-ask at 45 DTE is
+# 4% and it built six candidates; ESTC 13%, S 46% and BBY 53% built none. Against an
+# 8% ceiling those chains cannot produce a structure, and no amount of scanning them
+# will change that.
+
+def test_a_leg_that_clears_every_floor_is_accepted():
+    quote = _quotes()[0]
+    assert C.leg_ok(quote, _floor()) is True
+
+
+@pytest.mark.parametrize("field,value", [
+    ("oi", 1),          # under the open-interest floor
+    ("vol", 0),         # never traded today
+    ("bid", 1.0),       # a wide market: the ask stays put, the spread blows out
+])
+def test_a_leg_failing_any_one_floor_is_refused(field, value):
+    kw = {"bid": 8.0, "ask": 8.2, "delta": 0.3}
+    kw.update({"oi": value} if field == "oi" else
+              {"vol": value} if field == "vol" else {"bid": value})
+    chain = _chain(**{_occ(760, "P"): _snapshot(**kw)})
+    quote = next(q for q in C.quotes_for(chain, EXPIRY)
+                 if q.contract.symbol == _occ(760, "P"))
+    assert C.leg_ok(quote, _floor()) is False
+
+
+def test_an_unknown_value_fails_closed_like_the_gate_does():
+    chain = _chain(**{_occ(760, "P"): {"latestQuote": {"bp": 8.0, "ap": 8.2},
+                                       "greeks": {"delta": 0.3},
+                                       "impliedVolatility": 0.15}})
+    quote = next((q for q in C.quotes_for(chain, EXPIRY)
+                  if q.contract.symbol == _occ(760, "P")), None)
+    if quote is not None:                      # dropped entirely is also fine
+        assert C.leg_ok(quote, _floor()) is False
+
+
+def test_the_structure_filter_still_agrees_with_itself():
+    """`tradeable` now delegates. The behaviour it had must not have moved."""
+    built = C.credit_spread(_quotes(), Right.PUT, Decimal("0.30"), 1, P.MODERATE)
+    assert built is not None
+    assert C.tradeable(built, _floor()) is True

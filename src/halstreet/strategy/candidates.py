@@ -372,6 +372,23 @@ def viable(candidate: Candidate) -> bool:
     return candidate.slippage_usd < candidate.max_gain_usd
 
 
+def leg_ok(quote: Quote, floor: P.EffectiveFloor) -> bool:
+    """Whether one contract clears every liquidity floor. Fails closed on unknowns.
+
+    Extracted so there is one definition of the question. `tradeable` asks it of every
+    leg of a built structure; discovery asks it of a bare chain, before a symbol is
+    given one of the scan's slots. Two implementations of "is this leg liquid" would
+    be two answers, and the day they disagreed the agent would scan a name it had
+    already decided it could not trade.
+    """
+    if quote.open_interest is None or quote.open_interest < floor.min_open_interest:
+        return False
+    if quote.volume is None or quote.volume < floor.min_daily_volume:
+        return False
+    spread = quote.spread_pct
+    return spread is not None and spread <= floor.max_spread_pct
+
+
 def tradeable(candidate: Candidate, floor: P.EffectiveFloor) -> bool:
     """Whether the liquidity gate would accept every leg of this structure.
 
@@ -390,17 +407,9 @@ def tradeable(candidate: Candidate, floor: P.EffectiveFloor) -> bool:
     writing it per leg means a mid-dependent rule can be introduced in the gate later
     without this pre-filter silently continuing to apply the old one.
     """
-    if candidate.min_open_interest is None or candidate.min_open_interest < floor.min_open_interest:
-        return False
-    if candidate.min_volume is None or candidate.min_volume < floor.min_daily_volume:
-        return False
     if not candidate.quotes:
         return False
-    for quote, _side in candidate.quotes:
-        spread = quote.spread_pct
-        if spread is None or spread > floor.max_spread_pct:
-            return False
-    return True
+    return all(leg_ok(quote, floor) for quote, _side in candidate.quotes)
 
 
 def generate(chain: dict[str, dict], *, spot: Decimal | None = None,

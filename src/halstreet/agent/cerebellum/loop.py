@@ -697,23 +697,39 @@ class Agent:
         ranked = discovery.tally(headlines)
         picked: list[str] = []
         tally: list[dict[str, Any]] = []
+        examined = 0
         for mention in ranked:
             row: dict[str, Any] = {
                 "symbol": mention.symbol, "mentions": mention.mentions,
                 "headline": mention.headline[:180],
             }
-            if len(picked) >= limit:
+            if len(picked) >= limit or examined >= discovery.MAX_EXAMINED:
                 # Never screened, so the agent has no opinion about whether this name
                 # is tradable. Recording it as refused would claim a judgement nobody
                 # made; recording nothing would hide where the cut fell.
                 row["status"] = discovery.NOT_REACHED
             else:
+                examined += 1
                 try:
                     asset = await self.client.get_asset(mention.symbol)
                 except Exception as exc:
                     ok, why = False, f"lookup failed: {type(exc).__name__}"
                 else:
                     ok, why = discovery.screen(asset)
+                if ok:
+                    # The chain itself, before the name is given one of the scan's
+                    # slots. The asset screen only says a chain exists; this says it
+                    # could carry a structure. Measured on the live tape that is the
+                    # difference between a universe of six and a universe of one —
+                    # SPY's median bid-ask at 45 DTE is 4% and it builds candidates,
+                    # while ESTC at 13%, S at 46% and BBY at 53% cannot clear an 8%
+                    # ceiling however often they are scanned.
+                    #
+                    # Not a second liquidity gate: it asks `candidates.leg_ok`, the
+                    # same question the menu builder asks of every leg, and the
+                    # sixteen gates still decide everything after. It only declines
+                    # to spend a scan on a chain that has already answered.
+                    ok, why = await self._chain_is_tradeable(mention.symbol)
                 if ok:
                     picked.append(mention.symbol)
                     row["status"] = discovery.SCANNED
@@ -740,6 +756,41 @@ class Agent:
             feed=[h.to_ticker() for h in headlines[:discovery.FEED_KEPT]],
         )
         return picked
+
+    async def _chain_is_tradeable(self, symbol: str) -> tuple[bool, str]:
+        """Could this chain carry a structure at all? `(ok, why not)`.
+
+        Asks `generate` — the menu builder itself — rather than a cheaper proxy for
+        it. The first version counted strikes clearing the liquidity floor at the
+        nearest expiry, and it refused every symbol on the live tape including NVDA
+        and SPY: the builder tries several expiries and takes the first that yields a
+        menu, and at the *nearest* one the broker returns no open interest at all, so
+        a per-strike count saw nothing anywhere. A screen that disagrees with the
+        thing it is screening for is worse than no screen.
+
+        The arithmetic is free next to the two network calls above it — the chain is
+        already in hand, and everything after that is pure. What it buys is a whole
+        scan on a name that could never have traded.
+
+        Never raises. A chain that will not load is a fact about this pass rather than
+        about the symbol, so it costs that name its slot and nothing else.
+        """
+        asof = clock.today()
+        lo = asof + timedelta(days=max(self.limits.min_dte, self.target_dte - 10))
+        hi = asof + timedelta(days=self.target_dte + 10)
+        try:
+            snaps = (await self.client.get_option_chain(
+                symbol, expiry_from=f"{lo}", expiry_to=f"{hi}"))["snapshots"]
+            contracts = await self.client.get_option_contracts(
+                symbol, expiry_from=f"{lo}", expiry_to=f"{hi}")
+            built = buildable(enrich(snaps, contracts), self.limits, self.profile,
+                              self.target_dte, asof)
+        except Exception as exc:
+            return False, f"chain unavailable: {type(exc).__name__}"
+
+        if built:
+            return True, ""
+        return False, "no structure can be built from this chain inside the floors"
 
     async def run_once(self, universe: list[str], *,
                        on_start: Callable[[str], None] | None = None,
@@ -786,3 +837,16 @@ def _report(hook: Callable[[Any], None] | None, value: Any) -> None:
         return
     with contextlib.suppress(Exception):
         hook(value)
+
+
+def buildable(chain: dict, limits, profile, target_dte: int, asof) -> int:
+    """How many structures the menu builder can make from this chain. 0 means none.
+
+    The ranking terms are neutral on purpose: bias and regime move a candidate's
+    *score*, never whether it survives the floors, and inventing a market view here
+    to ask a liquidity question would be inventing one for the whole scan.
+    """
+    ctx = scoring.Context(bias=bias_mod.NEUTRAL, regime="unknown",
+                          events=scoring.EventWindow(), weights=profile.weights)
+    return len(generate(chain, spot=None, target_dte=target_dte, limits=limits,
+                        profile=profile, ctx=ctx, asof=asof))

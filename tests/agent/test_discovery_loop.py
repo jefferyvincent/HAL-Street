@@ -39,6 +39,10 @@ def _h(*symbols, headline="A thing happened"):
                     source="benzinga", symbols=tuple(symbols))
 
 
+#: Marker snapshots. The chain arithmetic itself is tested in tests/strategy; here
+#: the question is only whether the loop reads a chain and acts on the answer.
+LIQUID, WIDE = "LIQUID", "WIDE"
+
 OPTIONABLE = {"class": "us_equity", "status": "active", "tradable": True,
               "attributes": ["has_options"]}
 WARRANT = {"class": "us_equity", "status": "active", "tradable": True,
@@ -55,6 +59,7 @@ class _Broker:
         self._news_raises = news_raises
         self._asset_raises = set(asset_raises)
         self.asked: list[str] = []
+        self.chains_read: list[str] = []
 
     async def get_market_news(self, **_):
         if self._news_raises:
@@ -67,9 +72,33 @@ class _Broker:
             raise RuntimeError("asset lookup exploded")
         return dict(self._assets.get(symbol, OPTIONABLE))
 
+    # Every candidate that clears the asset screen is then measured against its own
+    # chain, so a broker in these tests has to have one. Liquid by default: the tests
+    # above are about counting and screening assets, not about liquidity.
+    async def get_option_chain(self, underlying, **_):
+        self.chains_read.append(underlying)
+        return {"snapshots": {LIQUID: {}}}
+
+    async def get_option_contracts(self, underlying, **_):
+        return []
+
 
 class _Writer:
     system_prompt = "RULES"
+
+
+@pytest.fixture(autouse=True)
+def stub_chain_arithmetic(monkeypatch):
+    """Stand in for the chain maths; this file tests the wiring around it.
+
+    `generate` and `leg_ok` have their own tests against a real Black-Scholes chain
+    in tests/strategy/test_candidates.py.
+    """
+    monkeypatch.setattr("halstreet.agent.cerebellum.loop.enrich",
+                        lambda snaps, contracts: snaps)
+    monkeypatch.setattr("halstreet.agent.cerebellum.loop.buildable",
+                        lambda chain, limits, profile, dte, asof:
+                            6 if LIQUID in chain else 0)
 
 
 @pytest.fixture
@@ -280,3 +309,115 @@ async def test_a_dead_feed_journals_nothing_rather_than_a_broken_event(build):
     agent, journal = build(_Broker(news_raises=True))
     await agent.discover(limit=5)
     assert _event(journal, "discovery") is None
+
+
+# --- the liquidity screen -------------------------------------------------------------
+#
+# The point of discovery was to widen the universe. It was not widening it. Six names
+# came back per pass and five of them could never trade: measured on the live chains,
+# SPY's median bid-ask at 45 DTE is 4% and it built six candidates, while ESTC (13%),
+# S (46%) and BBY (53%) built none against an 8% ceiling. The agent was still trading
+# exactly one symbol, and the other five slots were spent proving it.
+#
+# So a name now earns its slot by having a chain that could produce a structure. This
+# is not a second liquidity gate — it asks `candidates.leg_ok`, the same question the
+# menu builder asks of every leg, and the sixteen gates still decide everything after.
+# It only declines to spend a scan on a chain that has already answered.
+
+class _Chains(_Broker):
+    """A broker whose chains differ by symbol, so the screen has something to decide."""
+
+    def __init__(self, headlines=(), assets=None, *, liquid=(), raises=(), **kw):
+        super().__init__(headlines, assets, **kw)
+        self._liquid = set(liquid)
+        self._chain_raises = set(raises)
+
+    async def get_option_chain(self, underlying, **_):
+        self.chains_read.append(underlying)
+        if underlying in self._chain_raises:
+            raise RuntimeError("chain unavailable")
+        return {"snapshots": {LIQUID if underlying in self._liquid else WIDE: {}}}
+
+
+@pytest.mark.asyncio
+async def test_a_name_whose_chain_cannot_trade_does_not_get_a_slot(build):
+    broker = _Chains([_h("BBY"), _h("BBY"), _h("SPY")], liquid={"SPY"})
+    agent, _ = build(broker)
+    assert await agent.discover(limit=2) == ["SPY"]
+
+
+@pytest.mark.asyncio
+async def test_the_next_name_down_takes_the_slot_instead(build):
+    """The slot is not lost with the name. That is the whole point of screening."""
+    broker = _Chains([_h("BBY"), _h("BBY"), _h("S"), _h("SPY")], liquid={"SPY"})
+    agent, _ = build(broker)
+    assert await agent.discover(limit=1) == ["SPY"]
+
+
+@pytest.mark.asyncio
+async def test_the_refusal_says_it_was_the_chain_and_not_the_asset(build):
+    """"No options listed" and "options nobody will quote" are different facts,
+    and the second is the one that changes tomorrow."""
+    broker = _Chains([_h("BBY"), _h("SPY")], liquid={"SPY"})
+    agent, journal = build(broker)
+    await agent.discover(limit=2)
+    row = next(r for r in _tally(journal) if r["symbol"] == "BBY")
+    assert row["status"] == "refused" and "no structure" in row["reason"].lower()
+
+
+@pytest.mark.asyncio
+async def test_a_chain_that_will_not_load_costs_that_name_and_no_other(build):
+    broker = _Chains([_h("BOOM"), _h("SPY")], liquid={"SPY"}, raises={"BOOM"})
+    agent, _ = build(broker)
+    assert await agent.discover(limit=2) == ["SPY"]
+
+
+@pytest.mark.asyncio
+async def test_no_chain_is_read_for_a_name_the_asset_screen_already_refused(build):
+    """A warrant has no chain to fetch. Asking anyway is a round trip for a 404."""
+    broker = _Chains([_h("CYCUW"), _h("SPY")], assets={"CYCUW": WARRANT}, liquid={"SPY"})
+    agent, _ = build(broker)
+    await agent.discover(limit=2)
+    assert "CYCUW" not in broker.chains_read
+
+
+@pytest.mark.asyncio
+async def test_it_stops_reading_chains_once_the_shortlist_is_full(build):
+    broker = _Chains([_h(f"S{i}") for i in range(20)],
+                     liquid={f"S{i}" for i in range(20)})
+    agent, _ = build(broker)
+    await agent.discover(limit=3)
+    assert len(broker.chains_read) == 3
+
+
+@pytest.mark.asyncio
+async def test_it_gives_up_examining_rather_than_walking_the_whole_census(build):
+    """A census names seventy-odd symbols and each one costs two broker calls.
+
+    On a thin pre-market where nothing is liquid, walking the lot is minutes of
+    silence at the top of every pass, repeated every thirty minutes. Better a short
+    universe now than a full one late — and the cap is per pass, so a name below it
+    gets its turn as soon as the tape reshuffles.
+    """
+    broker = _Chains([_h(f"S{i}") for i in range(80)], liquid=set())
+    agent, _ = build(broker)
+    assert await agent.discover(limit=6) == []
+    assert len(broker.chains_read) <= discovery.MAX_EXAMINED
+
+
+@pytest.mark.asyncio
+async def test_the_cap_is_generous_enough_to_fill_a_shortlist(build):
+    """It took 19 examined to find 6 on the live tape. A cap under that would bite
+    on an ordinary day, which is the one thing it must not do."""
+    assert discovery.MAX_EXAMINED >= 30
+
+
+@pytest.mark.asyncio
+async def test_names_never_examined_are_recorded_as_such_not_as_refused(build):
+    """The distinction the heat map already draws. Hitting the cap must not start
+    claiming the agent judged names it never looked at."""
+    broker = _Chains([_h(f"S{i}") for i in range(80)], liquid=set())
+    agent, journal = build(broker)
+    await agent.discover(limit=6)
+    statuses = {r["status"] for r in _tally(journal)}
+    assert "not-reached" in statuses

@@ -74,6 +74,18 @@ DEFAULT_SHORTLIST = 6
 #: because that is what ranks the map; this bounds only what is kept to be re-read.
 FEED_KEPT = 30
 
+#: Candidates examined per pass at most, whether or not the shortlist fills.
+#:
+#: Each one costs two broker calls — the chain and its contracts — and a census names
+#: seventy-odd symbols. On a thin pre-market where nothing is liquid, walking the lot
+#: is minutes of silence at the top of every pass, repeated every thirty minutes.
+#: Better a short universe now than a full one late.
+#:
+#: Generous against what it actually takes: 19 examined to fill a shortlist of six on
+#: the live tape. The cap is per pass, so a name below it gets its turn as soon as the
+#: tape reshuffles.
+MAX_EXAMINED = 30
+
 #: Alpaca's asset class for the only thing this agent can build a structure on.
 EQUITY = "us_equity"
 
