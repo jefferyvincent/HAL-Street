@@ -213,7 +213,7 @@ outright.
 **Gates are deterministic Python.** No model call, no network, no clock beyond an injected date,
 and nothing the agent can rewrite at runtime. Every gate has a test proving it **rejects**, which
 is the only kind of test that shows a safety layer is load-bearing rather than decorative.
-1231 tests, and the per-gate rejection count for the window is in Results below — generated from
+1230 tests, and the per-gate rejection count for the window is in Results below — generated from
 the journal rather than asserted here, because a safety layer's own write-up is the last place a
 number should be taken on trust. Coverage is not the standard used: a test is accepted when the
 defect it names, planted back into the source, actually makes it fail.
