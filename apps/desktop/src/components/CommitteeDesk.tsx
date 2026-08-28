@@ -2,6 +2,7 @@ import { cn } from "@/lib/cn";
 import { CLS, STROKE } from "@/constants/theme";
 import { ICON } from "@/constants/icons";
 import { Icon } from "@/components/Icon";
+import { Brief } from "@/components/Brief";
 import { Ticker } from "@/components/Ticker";
 import { useCommitteeDesk, type DeskRow } from "@/hooks/useCommitteeDesk";
 import { useStrings } from "@/hooks/useStrings";
@@ -28,7 +29,15 @@ export function CommitteeDesk() {
   const desk = useCommitteeDesk();
 
   return (
-    <article className={cn("border bg-panel", desk.live ? "border-amber/60" : "border-edge")}>
+    <div className="flex flex-col gap-3">
+      {/* First, because it is first. The menu is built by the gates' own arithmetic
+          and journalled a stage before the committee sits, so it is on screen for the
+          whole of the minute that used to show nothing — and reading four paragraphs
+          of argument before seeing what was being argued about is the wrong order
+          however long the page is. */}
+      <Brief underlying={desk.underlying} live={desk.live} />
+
+      <article className={cn("border bg-panel", desk.live ? "border-amber/60" : "border-edge")}>
       <header className="flex flex-wrap items-center gap-x-[9px] gap-y-1 border-b border-edge px-3 py-[9px]">
         <Icon d={ICON.committee} stroke={desk.live ? STROKE.amber : STROKE.muted} width={2.2} />
         <span className={cn("font-mono text-[9px] font-bold leading-none tracking-[.14em]",
@@ -59,7 +68,8 @@ export function CommitteeDesk() {
           {desk.note}
         </div>
       )}
-    </article>
+      </article>
+    </div>
   );
 }
 

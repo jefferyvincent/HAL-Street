@@ -3,13 +3,15 @@ import { ICON } from "@/constants/icons";
 import { CLS, STROKE } from "@/constants/theme";
 import { useTape } from "@/hooks/useTape";
 import { useStrings } from "@/hooks/useStrings";
+import { useUI } from "@/stores/ui";
 import { Cross, Icon, Tick } from "./Icon";
 import { Ticker } from "./Ticker";
 
 /** The run as it happened, newest first, with the equity curve above it. */
 export function Tape() {
   const t = useStrings();
-  const { lines, counts, show, chart } = useTape();
+  const { lines, earlier, counts, show, chart } = useTape();
+  const openJournal = useUI((s) => s.setView);
   if (counts === null) return null;
 
   return (
@@ -87,6 +89,21 @@ export function Tape() {
             </div>
           </button>
         ))
+      )}
+
+      {/* Counted, not dropped. The journal tab has every decision ever gated; this
+          rail is the run you are watching, and a rail that opens on two days of
+          rehearsals is one you stop reading. */}
+      {earlier > 0 && (
+        <button
+          onClick={() => openJournal("journal")}
+          className={cn("flex w-full items-center gap-[6px] px-3 py-[9px] text-left",
+            "font-mono text-[9px] font-bold leading-none tracking-[.1em] text-ink/35",
+            "transition-colors hover:text-ink focus-visible:outline",
+            "focus-visible:outline-1 focus-visible:outline-amber")}>
+          <Icon d={ICON.list} size={11} stroke="currentColor" />
+          {t.tape.earlier(earlier)}
+        </button>
       )}
     </aside>
   );

@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 
-import { RAIL_ROWS, railFocus, railList, railScan, type RailLive } from "@/lib/committeeRail";
+import { RAIL_ROWS, railFocus, railList, type RailLive } from "@/lib/committeeRail";
+import { samePass } from "@/lib/scan";
 import { clock, day } from "@/lib/format";
 import { useCommittee, type CommitteeCard } from "@/hooks/useCommittee";
 import { usePresence } from "@/hooks/usePresence";
@@ -65,7 +66,7 @@ export function useCommitteeRail(): CommitteeRail {
     // quiet afternoon put three deliberations from this scan beside two from
     // eighteen hours ago, same weight, same list. The older ones are counted,
     // not dropped — the tab still has every one of them.
-    const scan = railScan(cards);
+    const scan = samePass(cards);
     const { shown, hidden } = railList(scan.shown, RAIL_ROWS);
 
     const state = kind === "disconnected" ? t.presence.shortDisconnected

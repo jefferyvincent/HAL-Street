@@ -45,6 +45,7 @@ export function makeStrings(t: Translate) {
       justNow: t("format.justNow"),
       minutesAgo: (n: number) => t("format.minutesAgo", { n }),
       hoursAgo: (n: number) => t("format.hoursAgo", { n }),
+      stamped: (day: string, clock: string) => t("format.stamped", { day, clock }),
     },
 
     app: {
@@ -288,6 +289,25 @@ export function makeStrings(t: Translate) {
       bull: t("committee.bull"),
       bear: t("committee.bear"),
       judge: t("committee.judge"),
+      brief: {
+        title: t("committee.brief.title"),
+        meta: (count: number) => t("committee.brief.meta", { count }),
+        empty: t("committee.brief.empty"),
+        waiting: t("committee.brief.waiting"),
+        signal: (news: string, chart: string, agreement: string) =>
+          t("committee.brief.signal", { news, chart, agreement }),
+        noNews: t("committee.brief.noNews"),
+        fit: {
+          fits: t("committee.brief.fits"),
+          against: t("committee.brief.against"),
+          ambient: t("committee.brief.ambient"),
+        } as Record<string, string>,
+        unscored: t("committee.brief.unscored"),
+        pop: (value: string) => t("committee.brief.pop", { value }),
+        risk: (loss: string, gain: string) => t("committee.brief.risk", { loss, gain }),
+        score: (value: string) => t("committee.brief.score", { value }),
+        note: t("committee.brief.note"),
+      },
       desk: {
         title: t("committee.desk.title"),
         live: t("committee.desk.live"),
@@ -444,6 +464,7 @@ export function makeStrings(t: Translate) {
       rejected: (bad: number, n: number) => t("tape.rejected", { bad, n }),
       dryRun: t("tape.dryRun"),
       dryRunTitle: t("tape.dryRunTitle"),
+      earlier: (count: number) => t("tape.earlier", { count }),
     },
 
     equity: {

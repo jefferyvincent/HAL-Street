@@ -118,7 +118,8 @@
     "rejected": "REJECTED {{bad}}/{{n}}",
     "viewTrade": "CHART",
     "dryRun": "DRY RUN",
-    "dryRunTitle": "This cycle was a rehearsal. It ran every gate and wrote every record a live cycle would, and stopped before submission — nothing reached the broker."
+    "dryRunTitle": "This cycle was a rehearsal. It ran every gate and wrote every record a live cycle would, and stopped before submission — nothing reached the broker.",
+    "earlier": "{{count}} EARLIER — OPEN THE JOURNAL"
   },
   "equity": {
     "title": "EQUITY",
@@ -280,7 +281,23 @@
       "clipped": "the record keeps the first part of this case; the head trader heard all of it"
     },
     "railScan": "{{count}} earlier on the tab",
-    "railNoneFresh": "Nothing this scan. {{count}} earlier on the tab."
+    "railNoneFresh": "Nothing this scan. {{count}} earlier on the tab.",
+    "brief": {
+      "title": "THE BRIEF",
+      "meta": "{{count}} structure(s) built",
+      "empty": "Nothing built for this name — no structure in the chain cleared the floors.",
+      "waiting": "not scored yet",
+      "signal": "news {{news}} · chart {{chart}} · {{agreement}}",
+      "noNews": "no read",
+      "fits": "FITS",
+      "against": "AGAINST",
+      "ambient": "AMBIENT",
+      "unscored": "UNSCORED",
+      "pop": "POP {{value}}",
+      "risk": "risk {{loss}} to make {{gain}}",
+      "score": "score {{value}}",
+      "note": "Built by the gates' own arithmetic before anyone argued. The committee chooses from this list or declines it; it cannot add to it."
+    }
   },
   "scoreboard": {
     "title": "THE RUN",
@@ -339,7 +356,8 @@
     "toClose": "{{amount}} to close",
     "justNow": "just now",
     "minutesAgo": "{{n}}m ago",
-    "hoursAgo": "{{n}}h ago"
+    "hoursAgo": "{{n}}h ago",
+    "stamped": "{{day}} {{clock}}"
   },
   "periods": {
     "title": "P&L",

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 
+import { samePass } from "@/lib/scan";
 import { useDecisions } from "@/hooks/useDecisions";
 import { useFormat } from "@/hooks/useFormat";
 import { useStrings } from "@/hooks/useStrings";
@@ -39,7 +40,7 @@ export function useTape() {
 
   const lines = useMemo<TapeLine[]>(() => rows.map((r) => ({
     ts: r.ts,
-    time: f.clock(r.ts),
+    time: f.stamp(r.ts),
     approved: r.decision.approved,
     verdict: r.decision.approved
       ? t.tape.approved(r.total)
@@ -52,8 +53,15 @@ export function useTape() {
     selected: r.ts === selected,
   })), [rows, selected, t, f]);
 
+  // This pass, and everything before it counted rather than dropped. The tape held
+  // every decision ever gated, newest first and undivided, so two days of dry-run
+  // approvals sat above this afternoon's at the same weight — nine rows deep before
+  // anything from the run you are watching.
+  const { shown, hidden } = useMemo(() => samePass(lines), [lines]);
+
   return {
-    lines,
+    lines: shown,
+    earlier: hidden,
     show,
     chart,
     // Nothing at all until the first push: the counts below the title come off the

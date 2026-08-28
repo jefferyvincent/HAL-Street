@@ -140,6 +140,11 @@ def _committees(events: list[dict]) -> list[dict]:
             # predate the field and get an empty list, which is the truthful answer
             # for them: nobody wrote down whether anything was lost.
             "clipped": event.get("clipped") or [],
+            # What the desk was handed: every structure the deterministic side built,
+            # each one already scored against the catalyst's read. It was written down
+            # from the first committee and shown nowhere — so the tab had the argument
+            # and not the thing being argued about.
+            "burn": event.get("burn") or None,
             "reflection": event.get("reflection") or [],
             "tokens": event.get("tokens") or {},
             # And where they went. One total says the committee is expensive; this

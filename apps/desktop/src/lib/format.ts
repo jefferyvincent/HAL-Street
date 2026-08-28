@@ -12,6 +12,8 @@
  * through `useFormat()`.
  */
 
+import { needsDate } from "@/lib/stamp";
+
 /** The words the formatters put around a number, from the string table. */
 export interface FormatWords {
   dash: string;
@@ -21,6 +23,8 @@ export interface FormatWords {
   justNow: string;
   minutesAgo: (n: number) => string;
   hoursAgo: (n: number) => string;
+  /** A date and a time together, in whatever order this locale wants them. */
+  stamped: (day: string, clock: string) => string;
 }
 
 export const clock = (t?: string | null): string =>
@@ -84,6 +88,17 @@ export function makeFormat(w: FormatWords) {
     return w.toClose(money(Math.abs(n), dp));
   };
 
+  /**
+   * A wall clock, dated when it is not from today.
+   *
+   * `clock` alone is right for a list you are watching and wrong for one you are
+   * reading back: the tape stamped a two-day-old approval `17:26:19` and put it above
+   * this afternoon's, identical. `needsDate` decides; the separator is the string
+   * table's, because a locale orders and punctuates this its own way.
+   */
+  const stamp = (t?: string | null): string =>
+    needsDate(t, Date.now()) && t ? w.stamped(day(t), clock(t)) : clock(t);
+
   /** How long ago, in words, for a number that is a scan old rather than live. */
   const ago = (t?: string | null): string => {
     if (!t) return "";
@@ -116,7 +131,8 @@ export function makeFormat(w: FormatWords) {
       : w.dash;
   };
 
-  return { money, premium, toClose, ago, plain, signed, clock, day, short, dash: w.dash };
+  return { money, premium, toClose, ago, plain, signed, clock, day, stamp, short,
+           dash: w.dash };
 }
 
 export type Format = ReturnType<typeof makeFormat>;

@@ -36,7 +36,7 @@ export function ActivityFeed() {
           <li key={`${r.ts}-${i}`}
               className="flex items-baseline gap-2 border-b border-line-soft px-3 py-[5px] last:border-b-0">
             <span className="shrink-0 font-mono text-[10px] leading-[1.4] text-ink/25 tabular-nums">
-              {f.clock(r.ts)}
+              {f.stamp(r.ts)}
             </span>
             <span className="w-[34px] shrink-0 font-mono text-[10px] font-semibold leading-[1.4] text-ink/45">
               {r.underlying}

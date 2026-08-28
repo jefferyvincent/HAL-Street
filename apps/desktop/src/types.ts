@@ -296,6 +296,36 @@ export interface Verdict {
   note: string;
 }
 
+/**
+ * One structure on the menu, already scored against the catalyst's read.
+ *
+ * `news_fit` is the deterministic half of the decision, worked out before anybody
+ * argues: `fits` if the structure is paid for the direction the tape was read to
+ * have, `against` if it needs the opposite, `ambient` if no direction was earned.
+ */
+export interface BurnRow {
+  kind: string;
+  news_fit: "fits" | "against" | "ambient";
+  why: string;
+  name: string;
+  net_price: string;
+  max_loss_usd: string;
+  max_gain_usd: string;
+  prob_of_profit: number;
+  score: string;
+}
+
+/** What the desk was handed: the menu, and the read the menu was scored against. */
+export interface Burn {
+  structures: BurnRow[];
+  direction: string;
+  agreement: string;
+  news_lean: string | null;
+  price_trend: string;
+  news_confidence: number;
+  note: string;
+}
+
 /** A committee session: the deliberation behind one proposal, and what came of it. */
 export interface Committee {
   ts: string;
@@ -304,6 +334,8 @@ export interface Committee {
   catalyst: Verdict;
   bull: string;
   bear: string;
+  /** The brief. Null on sessions recorded before it was surfaced. */
+  burn: Burn | null;
   /**
    * The cases whose tail the record dropped. The judge heard them whole; only
    * the journal is bounded, and a reader who cannot tell a clipped argument from

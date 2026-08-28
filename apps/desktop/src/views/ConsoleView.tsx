@@ -94,7 +94,7 @@ export function ConsoleView() {
           </button>
         )}
         <span className="font-mono text-[10.5px] font-medium leading-none text-ink/40">
-          {f.clock(current.ts)}
+          {f.stamp(current.ts)}
         </span>
         {/* The record is a rationale and sixteen verdicts. The verdict itself is in
             this header, so the rest opens on request rather than pushing the run's
