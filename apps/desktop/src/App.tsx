@@ -1,7 +1,7 @@
 import { ChromeBar } from "@/components/ChromeBar";
 import { NewsTicker } from "@/components/NewsTicker";
 import { HaltBanner } from "@/components/HaltBanner";
-import { Rail } from "@/components/Rail";
+import { CommitteeRail } from "@/components/CommitteeRail";
 import { StatusBar } from "@/components/StatusBar";
 import { Tape } from "@/components/Tape";
 import { GRID } from "@/constants/theme";
@@ -51,7 +51,7 @@ export default function App() {
       <HaltBanner />
       {snap ? (
         <div className={rails ? GRID.console : GRID.wide}>
-          {rails && <Rail families={families} />}
+          {rails && <CommitteeRail />}
           <main className="min-w-0 bg-void p-3">
             <View />
           </main>

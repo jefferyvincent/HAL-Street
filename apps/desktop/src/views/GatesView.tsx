@@ -4,6 +4,7 @@ import { FAMILY_ICON } from "@/constants/icons";
 import { CLS, STROKE } from "@/constants/theme";
 import { Icon, Note } from "@/components/Icon";
 import { useGateChain } from "@/hooks/useGateChain";
+import { useLimits } from "@/hooks/useLimits";
 import { useStrings } from "@/hooks/useStrings";
 
 /**
@@ -27,6 +28,7 @@ export function GatesView() {
   const f = useFormat();
   const t = useStrings();
   const { groups, total, seen, readAt, readOf, afterHoursNote } = useGateChain();
+  const limits = useLimits();
 
   return (
     <>
@@ -84,6 +86,29 @@ export function GatesView() {
         </div>
       ))}
 
+      {/* The numbers the readings above are measured against. A gate reporting
+          "2/20 open positions" means little without the 20 beside it, and these had
+          been in the left rail that became the committee. */}
+      <div className={`${CLS.caption} text-ink/40`}>{t.gates.limits}</div>
+      <div className="border border-line bg-panel">
+        {limits.map((l) => (
+          // `min-w-0` on the name and `shrink-0` on the value. A flex child will not
+          // shrink below its content by default, so a name like
+          // MAX_LOSS_PER_POSITION_USD pushed the number straight out of the card —
+          // and the number is the half that matters. The name wraps instead.
+          <div key={l.name}
+               className="flex items-baseline justify-between gap-3 border-b border-line-soft px-3 py-[7px] last:border-b-0">
+            <span className="min-w-0 break-all font-mono text-[10px] leading-[1.3] text-ink/45">
+              {l.name}
+            </span>
+            <span className="shrink-0 whitespace-nowrap font-mono text-[11px] font-semibold leading-[1.3] tabular-nums text-ink">
+              {l.value}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <Note>{t.gates.limitsNote}</Note>
       <Note>{t.gates.note(seen)}</Note>
       <Note>{t.gates.readOnly}</Note>
     </>

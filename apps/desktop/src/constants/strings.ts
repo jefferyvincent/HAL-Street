@@ -225,9 +225,18 @@ export function makeStrings(t: Translate) {
       readAt: (structure: string, when: string) => t("gates.readAt", { structure, when }),
       readOnly: t("gates.readOnly"),
       afterHours: t("gates.afterHours"),
+      limits: t("gates.limits"),
+      limitsNote: t("gates.limitsNote"),
       note: (seen: number) => t("gates.note", { seen }),
       familyHeading: (family: string, count: number) =>
         t("gates.familyHeading", { family, count }),
+    },
+
+    committeeRail: {
+      title: t("committeeRail.title"),
+      gates: t("committeeRail.gates"),
+      elsewhere: (underlying: string, stage: string) =>
+        t("committeeRail.elsewhere", { underlying, stage }),
     },
 
     committee: {
@@ -356,12 +365,6 @@ export function makeStrings(t: Translate) {
       realizedTag: t("chart.realizedTag"),
       stopUnreachable: t("chart.stopUnreachable"),
       unreachableNote: t("chart.unreachableNote"),
-    },
-
-  rail: {
-      families: t("rail.families"),
-      limits: t("rail.limits"),
-      limitsNote: t("rail.limitsNote"),
     },
 
     tape: {
