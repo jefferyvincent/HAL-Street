@@ -260,7 +260,6 @@
     "desk": {
       "title": "COMMITTEE DESK",
       "live": "sitting now",
-      "lastSat": "rose {{ago}}",
       "empty": "No committee has sat yet. The desk fills in as one does.",
       "catalyst": "CATALYST",
       "bull": "BULL",
@@ -278,7 +277,17 @@
       "archiveHide": "HIDE EARLIER SESSIONS",
       "archiveNote": "Everything below has been superseded by the desk above.",
       "debate": "BULL & BEAR",
-      "clipped": "the record keeps the first part of this case; the head trader heard all of it"
+      "clipped": "the record keeps the first part of this case; the head trader heard all of it",
+      "progress": "{{pct}}% · {{elapsed}}",
+      "idle": "NO COMMITTEE SITTING",
+      "idleDetail": "The desk convenes on the next scan. The last one rose {{ago}}.",
+      "idleNever": "The desk convenes when a scan builds a menu worth arguing about.",
+      "closed": "MARKET CLOSED",
+      "silent": "NOTHING WRITTEN FOR A QUARTER OF AN HOUR",
+      "silentDetail": "The market is open and the agent has not spoken. That is a stopped process, not a quiet one.",
+      "offline": "PANEL OFFLINE",
+      "offlineDetail": "The console cannot reach its own server, so nothing on this screen can be trusted.",
+      "archived": "{{count}} session(s) in the archive"
     },
     "railScan": "{{count}} earlier on the tab",
     "railNoneFresh": "Nothing this scan. {{count}} earlier on the tab.",

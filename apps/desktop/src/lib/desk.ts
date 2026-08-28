@@ -92,3 +92,21 @@ function seated(s: FinishedSession): DeskSeat[] {
     { key: "gates", state: s.gated ? "in" : s.passed ? "skipped" : "pending" },
   ];
 }
+
+
+/**
+ * How much of the deliberation has actually landed, 0 to 1.
+ *
+ * HAL fills a bar toward the final call and it is most of what makes a minute of
+ * waiting read as progress rather than as a stopped screen. Ours counts settled seats
+ * — reported, absent, or skipped — over all of them.
+ *
+ * `working` counts for nothing. A bar that filled on "started" would reach the end
+ * while the head trader was still thinking, which is the one moment anybody is
+ * watching it.
+ */
+export function deskProgress(seats: DeskSeat[]): number {
+  if (seats.length === 0) return 0;
+  const settled = seats.filter((s) => s.state !== "working" && s.state !== "pending");
+  return settled.length / seats.length;
+}

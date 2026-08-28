@@ -25,8 +25,10 @@ export function CommitteeView() {
   const status = useCommitteeStatus();
   const archiveOpen = useUI((s) => s.archiveOpen);
   const toggleArchive = useUI((s) => s.toggleArchive);
-  // The desk above already carries the newest one in full.
-  const earlier = cards.slice(1);
+  // Every one of them. The desk above is live-only now, so nothing here is
+  // duplicated by it — and a finished deliberation belongs in the archive whether it
+  // finished five hours ago or forty seconds ago.
+  const earlier = cards;
 
   const header = (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border border-line bg-panel px-3 py-[9px]">

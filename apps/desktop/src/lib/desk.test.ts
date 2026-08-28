@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DESK, deskSeats } from "@/lib/desk";
+import { DESK, deskProgress, deskSeats } from "@/lib/desk";
 
 const state = (seats: ReturnType<typeof deskSeats>) =>
   Object.fromEntries(seats.map((s) => [s.key, s.state]));
@@ -91,5 +91,46 @@ describe("deskSeats", () => {
     expect(state(deskSeats({
       live: null, session: { ...finished, judgeFailed: true, gated: false },
     })).judge).toBe("absent");
+  });
+});
+
+// --- how far along ------------------------------------------------------------------
+//
+// A roster of dots says which seat is working and not how much of the deliberation is
+// left. HAL's fills a bar toward the final call, and that is most of what makes a
+// minute of waiting read as progress rather than as a stopped screen.
+
+describe("deskProgress", () => {
+  it("is empty before anyone has reported", () => {
+    expect(deskProgress(deskSeats({ live: ["catalyst"], session: null }))).toBeCloseTo(0.2);
+  });
+
+  it("counts only the seats that are in", () => {
+    // Working is not done. A bar that filled on 'started' would reach the end while
+    // the head trader was still thinking, which is the one moment it matters.
+    expect(deskProgress(deskSeats({ live: ["catalyst", "debate"], session: null })))
+      .toBeCloseTo(0.6);
+  });
+
+  it("is full when every seat has reported", () => {
+    expect(deskProgress(deskSeats({ live: null, session: finished }))).toBe(1);
+  });
+
+  it("is zero with no desk at all rather than dividing by nothing", () => {
+    expect(deskProgress([])).toBe(0);
+  });
+
+  it("counts a skipped seat as settled", () => {
+    // The gates after a considered pass are not outstanding work. Leaving the bar
+    // short would say the deliberation never finished, which it did.
+    const seats = deskSeats({
+      live: null, session: { ...finished, passed: true, gated: false },
+    });
+    expect(deskProgress(seats)).toBe(1);
+  });
+
+  it("counts an absent seat as settled", () => {
+    const seats = deskSeats({ live: null, session: { ...finished, bullAbsent: true } });
+    expect(deskProgress(seats)).toBe(1);
   });
 });

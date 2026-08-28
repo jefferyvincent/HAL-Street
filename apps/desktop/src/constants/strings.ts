@@ -311,7 +311,17 @@ export function makeStrings(t: Translate) {
       desk: {
         title: t("committee.desk.title"),
         live: t("committee.desk.live"),
-        lastSat: (ago: string) => t("committee.desk.lastSat", { ago }),
+        progress: (pct: string, elapsed: string) =>
+          t("committee.desk.progress", { pct, elapsed }),
+        idle: t("committee.desk.idle"),
+        idleDetail: (ago: string) => t("committee.desk.idleDetail", { ago }),
+        idleNever: t("committee.desk.idleNever"),
+        closed: t("committee.desk.closed"),
+        silent: t("committee.desk.silent"),
+        silentDetail: t("committee.desk.silentDetail"),
+        offline: t("committee.desk.offline"),
+        offlineDetail: t("committee.desk.offlineDetail"),
+        archived: (count: number) => t("committee.desk.archived", { count }),
         empty: t("committee.desk.empty"),
         catalyst: t("committee.desk.catalyst"),
         bull: t("committee.desk.bull"),

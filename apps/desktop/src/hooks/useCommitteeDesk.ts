@@ -1,9 +1,12 @@
 import { useMemo } from "react";
 
-import { DESK, deskSeats, type SeatState } from "@/lib/desk";
-import { useCommittee, type CommitteeCard } from "@/hooks/useCommittee";
+import { DESK, deskProgress, deskSeats, type SeatState } from "@/lib/desk";
+import { running } from "@/lib/stamp";
+import { useCommittee } from "@/hooks/useCommittee";
 import { useFormat } from "@/hooks/useFormat";
+import { usePresence } from "@/hooks/usePresence";
 import { useStrings } from "@/hooks/useStrings";
+import { useTick } from "@/hooks/useTick";
 import { useConnection } from "@/stores/connection";
 
 export interface DeskRow {
@@ -14,56 +17,61 @@ export interface DeskRow {
   word: string;
   /** What it said, once it has said anything. */
   text: string | null;
-  /** Said about the text rather than by it — that the record bounded it. */
-  footnote: string | null;
+}
+
+export interface DeskIdle {
+  title: string;
+  detail: string;
+  tone: string;
 }
 
 export interface Desk {
+  /** True only while a deliberation is actually being had. */
+  sitting: boolean;
   underlying: string;
-  /** True while the deliberation is still being had. */
-  live: boolean;
-  /** The stage in the agent's own words, or how long ago the desk rose. */
-  status: string;
+  /** The stage in the agent's own words. */
+  stage: string;
+  /** 0..1 across the five seats, for the bar. */
+  progress: number;
+  /** "62% · 0:41", moving. Null before a stage has reported a start. */
+  clock: string | null;
   rows: DeskRow[];
-  note: string | null;
-  /** The words for a panel that has never seen a committee, or null. */
-  empty: string | null;
+  note: string;
+  /** Why there is no desk, when there is none. */
+  idle: DeskIdle | null;
+  /** How many finished sessions are filed behind it. */
+  archived: string;
 }
 
 /**
- * The desk, live where there is one and from the record where there is not.
+ * The desk, and only while it is sitting.
  *
- * Which of those it is has to be unmistakable, and it is the whole reason this hook
- * exists rather than the tab reading two sources itself. A finished session and a
- * running one look alike in a list — the tab led with a stack of cards and most of
- * the screen was five and eighteen hours old, with the deliberation actually
- * happening reduced to one word in a header.
+ * It used to fall back to the last finished session, which was the whole complaint:
+ * a deliberation that ended five hours ago drawn in the present tense, as the lead
+ * item, on the tab whose job is to say what is happening now. Finished sessions are
+ * archive; the archive is one control away and holds every one of them.
  *
- * The seats of a live desk are never filled from the last session. `lib/desk` holds
- * that rule and the test that names it: a real verdict shown against a deliberation
- * that has not reached it yet is worse than an empty row, because a reader cannot
- * tell it apart from one that has.
+ * What replaces the fallback is not an empty state but a reason. Four of them, in the
+ * order `lib/presence` establishes — a dropped socket outranks a shut market, which
+ * outranks a silent agent — because "nothing is happening" covers a panel that cannot
+ * be trusted, a market that is closed, and a process that has died, and those call for
+ * opposite reactions.
  */
 export function useCommitteeDesk(): Desk {
   const t = useStrings();
   const f = useFormat();
   const cards = useCommittee();
+  const { kind } = usePresence();
   const flight = useConnection((s) => s.snapshot?.in_flight ?? null);
 
-  return useMemo(() => {
-    const done = flight?.done ?? [];
-    const live = done.length > 0 && Boolean(flight?.underlying);
-    const latest: CommitteeCard | null = cards[0] ?? null;
-    const session = latest && {
-      catalystAbsent: latest.catalyst.absent !== null || latest.catalyst.lean === null,
-      bullAbsent: latest.bull.absent !== null,
-      bearAbsent: latest.bear.absent !== null,
-      judgeFailed: latest.judge.error !== null,
-      passed: latest.verdict.label === t.committee.passed,
-      gated: latest.gated !== null,
-    };
-    const seats = deskSeats({ live: live ? done : null, session });
+  const done = flight?.done ?? [];
+  const sitting = done.length > 0 && Boolean(flight?.underlying);
+  // Only while it is sitting: an idle console redrawing four times a second for a
+  // number nobody is reading is a laptop fan.
+  const now = useTick(sitting);
 
+  return useMemo(() => {
+    const seats = sitting ? deskSeats({ live: done, session: null }) : [];
     const word: Record<SeatState, string> = {
       in: t.committee.desk.in,
       working: t.committee.desk.working,
@@ -71,61 +79,56 @@ export function useCommitteeDesk(): Desk {
       absent: t.committee.desk.absent,
       skipped: t.committee.desk.skipped,
     };
+    const progress = deskProgress(seats);
+    const since = running(flight?.since, now);
 
     return {
-      underlying: (live ? flight?.underlying : latest?.underlying) ?? "",
-      live,
-      status: live
-        ? (flight?.stage ?? t.committee.desk.live)
-        : latest ? t.committee.desk.lastSat(latest.ago) : "",
+      sitting,
+      underlying: sitting ? (flight?.underlying ?? "") : "",
+      stage: flight?.stage ?? "",
+      progress,
+      clock: since
+        ? t.committee.desk.progress(f.plain(progress * 100, 0), since)
+        : null,
       rows: seats.map((seat) => ({
         key: seat.key,
         label: t.committee.desk[seat.key],
         state: seat.state,
         word: word[seat.state],
-        text: seat.state === "in"
-          ? (live ? liveText(seat.key) : said(latest!, seat.key))
-          : seat.state === "absent" && !live ? absent(latest!, seat.key)
+        // The catalyst's read is the one thing a live seat can be quoted on. The
+        // arguments are written in full seconds later, and half a bull case attributed
+        // to a researcher still writing it would be a quote nobody said.
+        text: seat.state === "in" && seat.key === "catalyst" && flight?.lean
+          ? t.committee.desk.read(flight.lean, f.plain(flight.confidence ?? 0, 2))
           : null,
-        footnote: !live && latest && clipped(latest, seat.key)
-          ? t.committee.desk.clipped : null,
       })),
-      note: live ? t.committee.desk.note : null,
-      empty: seats.length === 0 ? t.committee.desk.empty : null,
+      note: t.committee.desk.note,
+      idle: sitting ? null : idleFor(),
+      archived: t.committee.desk.archived(cards.length),
     };
 
-    /** What a live seat can be quoted on, which is the catalyst's read and no more. */
-    function liveText(key: string): string | null {
-      if (key !== "catalyst") return null;
-      if (!flight?.lean) return null;
-      return t.committee.desk.read(flight.lean, f.plain(flight.confidence ?? 0, 2));
+    /** Why the desk is empty — never merely that it is. */
+    function idleFor(): DeskIdle {
+      if (kind === "disconnected") {
+        return { title: t.committee.desk.offline,
+                 detail: t.committee.desk.offlineDetail, tone: "text-fail" };
+      }
+      if (kind === "closed") {
+        return { title: t.committee.desk.closed,
+                 detail: t.committee.desk.idleNever, tone: "text-ink/40" };
+      }
+      if (kind === "silent") {
+        return { title: t.committee.desk.silent,
+                 detail: t.committee.desk.silentDetail, tone: "text-amber" };
+      }
+      const last = cards[0];
+      return {
+        title: t.committee.desk.idle,
+        detail: last ? t.committee.desk.idleDetail(last.ago) : t.committee.desk.idleNever,
+        tone: "text-ink/40",
+      };
     }
-  }, [cards, flight, t, f]);
-}
-
-/** Whether the record kept only the first part of what this seat said. */
-function clipped(card: CommitteeCard, key: string): boolean {
-  if (key === "bull") return card.bull.clipped;
-  if (key === "bear") return card.bear.clipped;
-  return false;
-}
-
-/** What a seat said, from the finished record. */
-function said(card: CommitteeCard, key: string): string | null {
-  if (key === "catalyst") return card.catalyst.note || null;
-  if (key === "bull") return card.bull.text || null;
-  if (key === "bear") return card.bear.text || null;
-  if (key === "judge") return card.judge.rationale || null;
-  return card.judge.outcome;
-}
-
-/** Why a seat is empty. Never the same as having nothing to say. */
-function absent(card: CommitteeCard, key: string): string | null {
-  if (key === "catalyst") return card.catalyst.absent;
-  if (key === "bull") return card.bull.absent;
-  if (key === "bear") return card.bear.absent;
-  if (key === "judge") return card.judge.error;
-  return null;
+  }, [sitting, done, flight, now, cards, kind, t, f]);
 }
 
 export { DESK };
