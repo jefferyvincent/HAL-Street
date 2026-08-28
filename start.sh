@@ -30,6 +30,43 @@ LOG="$VAR/log/halstreet.log"
 mkdir -p "$VAR/log"
 
 say()  { printf '\033[1;36m==> %s\033[0m\n' "$*" >&2; }
+
+# The wordmark. Chrome, and deliberately cheap: printed once at launch, never per
+# cycle — the broker's own server prints a banner on every call and burying the
+# agent's output under it is the mistake being avoided, not copied.
+#
+# Terminal only. `./start.sh` pipes the agent through `tee` into var/log and CI
+# captures the lot; block-drawing characters in a log are noise on every run and the
+# first thing to break a grep. `[ -t 2 ]` because everything else here says its piece
+# on stderr, which keeps stdout clean for `report --export`.
+#
+# Nothing on these lines is a secret. It is the most screenshot-prone surface in the
+# project — the line below it prints a redacted key prefix, and this is the one most
+# likely to be cropped into a post.
+banner() {
+  [ -t 2 ] || return 0
+  local a='' r='' z=''
+  if [ -z "${NO_COLOR:-}" ]; then a='\033[38;5;214m'; r='\033[38;5;196m'; z='\033[0m'; fi
+  printf '%b' "$a" >&2
+  cat >&2 <<'ART'
+    ██╗  ██╗ █████╗ ██╗     ███████╗████████╗██████╗ ███████╗███████╗████████╗
+    ██║  ██║██╔══██╗██║     ██╔════╝╚══██╔══╝██╔══██╗██╔════╝██╔════╝╚══██╔══╝
+    ███████║███████║██║     ███████╗   ██║   ██████╔╝█████╗  █████╗     ██║
+    ██╔══██║██╔══██║██║     ╚════██║   ██║   ██╔══██╗██╔══╝  ██╔══╝     ██║
+    ██║  ██║██║  ██║███████╗███████║   ██║   ██║  ██║███████╗███████╗   ██║
+    ╚═╝  ╚═╝╚═╝  ╚═╝╚══════╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝   ╚═╝
+ART
+  printf '%b' "$z" >&2
+  printf '    %b●%b  The model proposes; deterministic gates dispose.  %bpaper only%b\n\n' \
+    "$r" "$z" "$a" "$z" >&2
+}
+
+usage() {
+  banner
+  # The header comment is the help text, so the two cannot drift — same trick
+  # install.sh uses.
+  sed -n "3,$(($(grep -n '^set -euo' "$0" | cut -d: -f1) - 2))p" "$0" | sed 's/^# \?//'
+}
 warn() { printf '\033[1;33m!  %s\033[0m\n' "$*" >&2; }
 die()  { printf '\033[1;31m!  %s\033[0m\n' "$*" >&2; exit 1; }
 
@@ -55,6 +92,7 @@ ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     verify|preflight|test|loop|report|panel|soak) MODE="$1"; shift ;;
+    -h|--help) usage; exit 0 ;;
     --env) ENV_NAME="${2:?--env needs dev or comp}"; shift 2 ;;
     --) shift; ARGS+=("$@"); break ;;
     *) ARGS+=("$1"); shift ;;
@@ -88,6 +126,7 @@ case "$KEY" in
   *)   die "$KEY_VAR does not carry the paper PK… prefix. Refusing to guess." ;;
 esac
 
+banner
 say "env=$ENV_NAME  key=${KEY:0:6}…  mode=$MODE  log=$LOG"
 
 run() { say "$*"; "$@" 2>&1 | tee -a "$LOG"; return "${PIPESTATUS[0]}"; }

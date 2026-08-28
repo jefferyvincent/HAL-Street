@@ -196,3 +196,72 @@ def test_the_in_use_guard_survives_a_process_exiting_while_it_looks():
         f"the guard aborts when a process exits mid-walk: {done.stderr.strip()}")
     assert not re.search(r"No such file", done.stderr), (
         f"and it must not print the vanished path: {done.stderr.strip()}")
+
+
+# --- the wordmark --------------------------------------------------------------------
+#
+# Chrome, and chrome has two ways of going wrong. It can end up in places that are not
+# a terminal — a log file, a CI transcript, the output of `report --export` — and it
+# can end up in a screenshot next to a credential. Both are tested; the second is the
+# one that matters.
+
+def _run_start(args, *, tty: bool, env: dict | None = None):
+    import os
+    import shutil
+    import subprocess
+
+    bash = shutil.which("bash") or "/bin/bash"
+    cmd = [bash, str(START), *args]
+    if tty:
+        # `script` gives it a pty, which is what the TTY check actually reads.
+        script = shutil.which("script") or "/usr/bin/script"
+        cmd = [script, "-qec", " ".join([bash, str(START), *args]), "/dev/null"]
+    return subprocess.run(  # noqa: S603 - fixed argv, absolute interpreter
+        cmd, capture_output=True, text=True, timeout=60,
+        env={**os.environ, **(env or {})}, cwd=str(ROOT))
+
+
+def test_help_exits_cleanly_and_lists_the_modes():
+    """`start.sh` had no `--help` at all, while carrying twenty lines of header
+    comment describing every mode. `install.sh` prints its own; this now matches."""
+    done = _run_start(["--help"], tty=False)
+    assert done.returncode == 0
+    for mode in ("panel", "report", "soak", "preflight"):
+        assert mode in done.stdout + done.stderr
+
+
+def test_the_wordmark_appears_on_a_terminal():
+    out = _run_start(["--help"], tty=True)
+    assert "█" in out.stdout + out.stderr
+
+
+def test_it_does_not_appear_when_the_output_is_not_a_terminal():
+    """`./start.sh` pipes through `tee` into var/log, and CI captures everything.
+
+    Block-drawing characters in a log are noise a reader has to scroll past on every
+    run, and they are the first thing to break a grep.
+    """
+    out = _run_start(["--help"], tty=False)
+    assert "█" not in out.stdout + out.stderr
+
+
+def test_the_wordmark_carries_no_credential():
+    """It is the most screenshot-prone surface in the project.
+
+    The launcher already prints a redacted key prefix on the line below; this is the
+    line most likely to be cropped into a build-in-public post, and nothing on it may
+    be a secret.
+    """
+    out = _run_start(["--help"], tty=True)
+    text = out.stdout + out.stderr
+    for marker in ("PK", "AK", "SECRET", "APCA"):
+        banner = "\n".join(ln for ln in text.splitlines() if "█" in ln or "╚" in ln)
+        assert marker not in banner
+
+
+def test_colour_is_dropped_when_asked_but_the_art_is_kept():
+    """NO_COLOR is a request about escape codes, not about output."""
+    out = _run_start(["--help"], tty=True, env={"NO_COLOR": "1"})
+    text = out.stdout + out.stderr
+    assert "█" in text
+    assert "\033[" not in text
