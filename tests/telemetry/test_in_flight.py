@@ -191,6 +191,57 @@ def test_the_later_boundary_wins_so_it_survives_a_weekend():
     assert market["state"] == "open", "and now the open is"
 
 
+# --- and telling anybody about it ---------------------------------------------------
+#
+# The badge is derived from the wall clock; the socket pushes on file change. With no
+# agent writing, nothing changes, so nothing is pushed, so a state that depends on the
+# time of day froze at whatever it was when the last record landed. Measured: the route
+# answered "closed" at 16:01 while the browser had been showing "open" since 15:26,
+# because 15:26 was the last time anything touched the journal.
+
+def test_a_boundary_passing_is_worth_a_push_on_its_own():
+    """Nothing else will cause one. That is the whole bug."""
+    from halstreet.telemetry.server import _boundary_passed
+
+    market = {"next_close": (datetime.now(UTC) - timedelta(minutes=1)).isoformat(),
+              "next_open": None}
+    since = datetime.now(UTC) - timedelta(minutes=30)
+    assert _boundary_passed(market, since) is True
+
+
+def test_a_boundary_that_passed_before_we_last_spoke_is_old_news():
+    """Otherwise every tick for the rest of the day is a fresh push of the same thing."""
+    from halstreet.telemetry.server import _boundary_passed
+
+    market = {"next_close": (datetime.now(UTC) - timedelta(hours=2)).isoformat()}
+    since = datetime.now(UTC) - timedelta(minutes=1)
+    assert _boundary_passed(market, since) is False
+
+
+def test_a_boundary_still_ahead_is_not_a_reason_to_push():
+    from halstreet.telemetry.server import _boundary_passed
+
+    market = {"next_open": (datetime.now(UTC) + timedelta(hours=2)).isoformat()}
+    assert _boundary_passed(market, datetime.now(UTC) - timedelta(hours=1)) is False
+
+
+def test_the_open_counts_as_well_as_the_close():
+    """A panel left running overnight should ring in the morning without being poked."""
+    from halstreet.telemetry.server import _boundary_passed
+
+    market = {"next_open": (datetime.now(UTC) - timedelta(seconds=30)).isoformat()}
+    assert _boundary_passed(market, datetime.now(UTC) - timedelta(minutes=5)) is True
+
+
+@pytest.mark.parametrize("market", [None, {}, {"next_close": "tomorrow"},
+                                    {"next_close": None}])
+def test_nothing_to_reason_from_is_not_a_push(market):
+    """This runs twice a second on every open socket. A raise here kills the feed."""
+    from halstreet.telemetry.server import _boundary_passed
+
+    assert _boundary_passed(market, datetime.now(UTC) - timedelta(hours=1)) is False
+
+
 #: A close still ahead of us — the session the agent was in when it went quiet.
 AHEAD = (_NOW_ET + timedelta(hours=1)).isoformat(sep=" ")
 

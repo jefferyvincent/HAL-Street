@@ -113,21 +113,49 @@ describe("the bell", () => {
   });
 });
 
-describe("a crossing nobody watched", () => {
-  it("does not ring a bell the panel worked out for itself", () => {
-    // The failure this prevents: the agent writes `open` at 09:30 and exits at
-    // 15:40. At 16:00 the server derives `closed` from the broker's published
-    // boundary, the bell key changes, and the panel rings a closing bell for a
-    // crossing that happened after everything had stopped running.
-    const w = watch();
-    const morning: Market = { ...market("open", "T-0930"), source: "observed" };
-    expect(decide(w, [], morning)).toEqual([]);            // primes
+describe("a crossing the agent did not write down", () => {
+  const inferred = (): Market => ({
+    ...market("closed", "T-0930"), source: "boundary",
+    recorded: "open", crossed_at: "2026-08-27 16:00:00-04:00", stale: true,
+  });
 
-    const inferred: Market = {
-      ...market("closed", "T-0930"), source: "boundary",
-      recorded: "open", crossed_at: "2026-08-27 16:00:00-04:00", stale: true,
-    };
-    expect(decide(w, [], inferred)).toEqual([]);
+  it("rings for a crossing the panel worked out from the published boundary", () => {
+    // This used to be silent, and the reason given was that the crossing "happened
+    // after everything had stopped running". That conflated two things: the agent
+    // was not there to write it down, and nobody was there at all. The person
+    // watching the panel is there — that is who a bell is for — and the market did
+    // genuinely close, on the broker's own published time.
+    //
+    // The panel already treats that figure as good enough to draw CLOSED in the
+    // badge. Good enough for the eye and not for the ear is the screen holding two
+    // confidences about one fact.
+    const w = watch();
+    expect(decide(w, [], { ...market("open", "T-0930"), source: "observed" }))
+      .toEqual([]);                                        // primes
+    expect(decide(w, [], inferred())).toEqual(["closingBell"]);
+  });
+
+  it("does not ring for a close that had already happened when the page opened", () => {
+    // The case the old gate was really protecting, and `primed` protects it properly:
+    // opening a dashboard at six in the evening is not the market closing.
+    const w = watch();
+    expect(decide(w, [], inferred())).toEqual([]);
+  });
+
+  it("does not ring twice for the same worked-out crossing", () => {
+    const w = watch();
+    decide(w, [], { ...market("open", "T-0930"), source: "observed" });
+    expect(decide(w, [], inferred())).toEqual(["closingBell"]);
+    expect(decide(w, [], inferred())).toEqual([]);
+  });
+
+  it("stays silent for a state nothing has confirmed either way", () => {
+    // `last-seen` is the one case with no boundary to reason from in any direction.
+    // It cannot flip the state, so it should never reach the bell — and if it ever
+    // does, silence is the honest sound for "we do not know".
+    const w = watch();
+    decide(w, [], { ...market("open", "T1"), source: "observed" });
+    expect(decide(w, [], { ...market("closed", "T2"), source: "last-seen" })).toEqual([]);
   });
 
   it("still rings for one the agent actually recorded", () => {

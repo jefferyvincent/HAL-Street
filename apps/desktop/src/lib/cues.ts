@@ -63,17 +63,31 @@ export function decide(
   if (rang) state.bell = key;
 
   const cues: Cue[] = [];
-  // The bell first: it frames whatever else arrived in the same push. Two separate
-  // reasons not to sound one, and both are about a crossing nobody heard:
+  // The bell first: it frames whatever else arrived in the same push. Two ways to
+  // earn one, and they are different claims about the same moment:
   //
-  //   `observed` marks a state the scheduler merely *found* on startup rather than
-  //   watched change — it began mid-session, and there was no bell.
+  //   `observed` — the agent was running and wrote the crossing down. `market.observed`
+  //   still excludes a state the scheduler merely *found* on startup: it began
+  //   mid-session, and there was no crossing to hear.
   //
-  //   `source` marks a state the panel *worked out* from a boundary the broker had
-  //   published, because the agent had exited and never wrote the crossing down.
-  //   Without this gate a dead run rings a closing bell at 16:00 off a record from
-  //   09:30, which is the panel making a noise about something it inferred.
-  if (rang && market && !market.observed && market.source === "observed") {
+  //   `boundary` — nobody wrote it down, but the broker had published when it would
+  //   happen and that time has now passed. This used to be silent, on the grounds
+  //   that the crossing "happened after everything had stopped running" — which
+  //   conflated the agent not being there with nobody being there. The person
+  //   watching the panel is there, which is who a bell is for, and the market did
+  //   genuinely close. The panel already treats that same published figure as good
+  //   enough to draw CLOSED in the badge; good enough for the eye and not for the ear
+  //   is one fact held at two confidences.
+  //
+  // What is not a reason to ring is `last-seen`: no boundary in either direction and
+  // nothing writing. It cannot flip the state, and if it ever did, silence is the
+  // honest sound for not knowing.
+  //
+  // Opening the panel after a close still sounds nothing. That is `primed`, above,
+  // and it was always the rule doing that work.
+  const heard = market?.source === "observed" ? !market.observed
+    : market?.source === "boundary";
+  if (rang && market && heard) {
     cues.push(market.state === "open" ? "openingBell" : "closingBell");
   }
   for (const trade of fresh) {

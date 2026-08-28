@@ -679,6 +679,34 @@ def _crossed(record: dict) -> tuple[str, str] | None:
     return state, raw
 
 
+def _boundary_passed(market: dict | None, since: datetime) -> bool:
+    """A published session boundary has come and gone since we last said anything.
+
+    The socket pushes when a file changes, which is the right trigger for everything
+    the agent writes and no trigger at all for the one value derived from the wall
+    clock. With nothing running there is nothing to change, so the badge froze:
+    measured on 2026-08-28, the route answered "closed" at 16:01 while the browser had
+    been showing "open" since 15:26, because 15:26 was the last time anything touched
+    the journal. The market had shut half an hour earlier and no bell rang, because no
+    snapshot carrying the close ever reached the page.
+
+    Bounded on both sides — after the last push, at or before now — so the crossing is
+    worth exactly one push. Testing only "has it passed" would re-push every half
+    second for the rest of the day.
+
+    Cheap on purpose. This runs twice a second on every open socket, so it reads two
+    strings off the snapshot we already built rather than going near the journal.
+    """
+    if not market:
+        return False
+    now = datetime.now(UTC)
+    for key in ("next_open", "next_close"):
+        when = _when(market.get(key))
+        if when is not None and since < when <= now:
+            return True
+    return False
+
+
 def _still(record: dict) -> str | None:
     """When the recorded state's own next boundary is still ahead, and so still true.
 
@@ -1393,14 +1421,20 @@ async def ws(socket: WebSocket) -> None:
     """
     await socket.accept()
     last: tuple[float, ...] | None = None
+    # The snapshot we last sent, and when. Both only so the loop can notice the one
+    # thing no file will tell it about — see `_boundary_passed`.
+    sent: dict | None = None
+    since = datetime.now(UTC)
     idle = 0.0
     try:
         while True:
             now = PATHS.stamp()
-            if now != last:
+            if now != last or _boundary_passed((sent or {}).get("market"), since):
                 last = now
                 idle = 0.0
-                await socket.send_json(state())
+                sent = state()
+                since = datetime.now(UTC)
+                await socket.send_json(sent)
             elif idle >= HEARTBEAT_S:
                 # Not the snapshot: a tick that proves the connection is alive without
                 # making the client re-render everything it already has.
