@@ -155,3 +155,61 @@ def simulate(*, legs: list[PayoffLeg], net: Decimal, spot: Decimal, dte: int,
 def _cents(value: Decimal) -> Decimal:
     """Money leaves as money. The sampling is float; what it hands back is not."""
     return value.quantize(Decimal("0.01"))
+
+
+@dataclass(frozen=True)
+class Outlook:
+    """One structure, priced at the market's volatility and at the tape's.
+
+    The distinction became load-bearing the moment a judge reasoned from it. On a live
+    NVDA menu every structure printed negative EV and the judge concluded that realized
+    vol was running above the implied vol that quoted the credits, so short premium was
+    the wrong side of that gap whatever the strikes. Sound reasoning — resting on a
+    number that had only ever seen one of the two volatilities.
+
+    A structure is *priced* at implied and *simulated* at realized. One EV silently
+    asserts that the tape's trailing behaviour is the better forecast of the next seven
+    weeks. Sometimes it is. When the two disagree, that disagreement is not noise to be
+    resolved by picking a side — it is the trade thesis, and it belongs on the page
+    where the judge can argue about it.
+    """
+
+    #: Priced at the short leg's own implied volatility — what the market charged.
+    at_implied: Scenario | None
+    #: Priced at trailing realized volatility — what the tape has actually done.
+    at_realized: Scenario | None
+
+    @property
+    def agree(self) -> bool | None:
+        """Whether both volatilities reach the same verdict. None with only one read.
+
+        Agreement is a conclusion a reader can stop at. Disagreement is the question.
+        """
+        if self.at_implied is None or self.at_realized is None:
+            return None
+        return (self.at_implied.ev_usd >= 0) == (self.at_realized.ev_usd >= 0)
+
+    def to_prompt(self) -> dict:
+        return {
+            "at_implied": None if self.at_implied is None else self.at_implied.to_prompt(),
+            "at_realized": None if self.at_realized is None else self.at_realized.to_prompt(),
+            "agree": self.agree,
+            "note": ("the same structure at the volatility the market charged and at "
+                     "the one the tape has run; where they disagree, the trade is a "
+                     "bet on which is the better forecast"),
+        }
+
+
+def outlook(*, legs: list[PayoffLeg], net: Decimal, spot: Decimal, dte: int,
+            vol_realized: float | None, vol_implied: float | None,
+            friction_usd: Decimal, seed: int, paths: int = PATHS) -> Outlook:
+    """The same structure sampled at both volatilities. Either may be missing.
+
+    A chain without IV is common enough that losing the realized read alongside it
+    would trade a partial answer for none.
+    """
+    def at(vol: float | None) -> Scenario | None:
+        return simulate(legs=legs, net=net, spot=spot, dte=dte, vol=vol,
+                        friction_usd=friction_usd, seed=seed, paths=paths)
+
+    return Outlook(at_implied=at(vol_implied), at_realized=at(vol_realized))

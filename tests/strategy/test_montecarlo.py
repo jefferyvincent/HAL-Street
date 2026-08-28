@@ -165,7 +165,8 @@ def test_the_menu_carries_each_structures_scenario_to_the_model():
                   max_gain_usd=Decimal(41), dte=49, slippage_usd=Decimal(6))
     c.scenario = scenario_for(c, spot=SPOT, vol=0.18)
     assert c.scenario is not None
-    assert c.to_prompt()["scenario"]["ev_usd"] == str(c.scenario.ev_usd)
+    shape = c.to_prompt()["scenario"]
+    assert shape["at_realized"]["ev_usd"] == str(c.scenario.at_realized.ev_usd)
 
 
 def test_the_round_trip_is_priced_not_just_the_entry():
@@ -180,7 +181,7 @@ def test_the_round_trip_is_priced_not_just_the_entry():
                             {"symbol": "SPY261016P00733000", "side": "buy", "ratio_qty": 1}],
                       net=Decimal("-0.41"), max_loss_usd=Decimal(359),
                       max_gain_usd=Decimal(41), dte=49, slippage_usd=slip)
-        return scenario_for(c, spot=SPOT, vol=0.18)
+        return scenario_for(c, spot=SPOT, vol=0.18).at_realized
 
     assert built(Decimal(6)).ev_usd == built(Decimal(0)).ev_usd - Decimal(12)
 
@@ -238,3 +239,98 @@ def test_there_is_one_contract_multiplier_in_the_codebase():
               if re.search(r"^[A-Z_]*MULTIPLIER\s*=", p.read_text(), re.MULTILINE)]
     assert [p.name for p in owners] == ["occ.py"], \
         f"the multiplier is defined in more than one place: {[p.name for p in owners]}"
+
+
+# --- the volatility the market used, beside the one the tape ran at -------------------
+#
+# The caveat became load-bearing the moment a judge reasoned from it. On a live NVDA
+# menu every structure printed negative EV, and the judge concluded: "the sim telling
+# us realized vol (42.9%) is running above the implied vol that quoted these credits —
+# short-premium is the wrong side of that gap regardless of which strikes we pick."
+#
+# That reasoning is sound and the number it rests on was one-sided. A structure is
+# *priced* at implied vol and *simulated* at realized, so a single EV silently asserts
+# that the tape's trailing behaviour is the better forecast. Sometimes it is. The
+# disagreement between the two is not noise to be resolved by picking one — it is the
+# whole trade thesis, and it belongs on the page.
+
+def outlook(**over):
+    args = {"legs": put_credit_spread(), "net": Decimal("-0.41"), "spot": SPOT,
+            "dte": 49, "vol_realized": 0.18, "vol_implied": 0.24,
+            "friction_usd": Decimal(0), "seed": 7}
+    return mc.outlook(**{**args, **over})
+
+
+def test_a_structure_is_priced_at_both_volatilities():
+    out = outlook()
+    assert out.at_realized is not None and out.at_implied is not None
+    assert out.at_realized.vol == 0.18
+    assert out.at_implied.vol == 0.24
+
+
+def test_selling_premium_looks_better_when_the_market_charges_more_than_the_tape_moves():
+    """The usual case for index options, and the reason a one-sided EV flatters or
+    damns short premium depending only on which volatility it happened to use."""
+    out = outlook(vol_realized=0.18, vol_implied=0.30)
+    assert out.at_realized.ev_usd > out.at_implied.ev_usd
+
+
+def test_the_two_agreeing_is_reported_as_agreement():
+    """Both negative, or both positive, is a conclusion. The judge can stop there."""
+    assert outlook(vol_realized=0.60, vol_implied=0.60).agree is True
+
+
+def test_the_two_disagreeing_is_reported_rather_than_averaged():
+    """A trade that is good at implied and bad at realized is a bet on which volatility
+    is the better forecast. Averaging them would hide the only question that matters."""
+    # Measured: this structure flips sign between 5% and 8% volatility. Below the
+    # flip the market is charging enough for the tail; above it, it is not.
+    out = outlook(vol_realized=0.30, vol_implied=0.05)
+    assert out.at_implied.ev_usd > 0 > out.at_realized.ev_usd
+    assert out.agree is False
+
+
+def test_a_missing_implied_leaves_the_realized_read_standing():
+    """A chain without IV is common enough. Losing the realized read too would trade a
+    partial answer for none."""
+    out = outlook(vol_implied=None)
+    assert out.at_implied is None and out.at_realized is not None
+    assert out.agree is None, "one opinion cannot agree with itself"
+
+
+def test_a_structure_nobody_could_price_either_way_is_no_outlook():
+    assert outlook(vol_realized=None, vol_implied=None).at_realized is None
+
+
+def test_the_prompt_names_which_volatility_each_figure_used():
+    """A figure without its assumption hides the assumption, and here the assumption
+    is the disagreement the whole read is about."""
+    shape = outlook().to_prompt()
+    assert shape["at_implied"]["vol"] == 0.24
+    assert shape["at_realized"]["vol"] == 0.18
+    assert "agree" in shape
+
+
+def test_the_menu_prices_each_structure_at_the_iv_it_was_quoted_at():
+    """The short strike's own IV, from the quote that set the credit — not a number
+    from somewhere else in the surface."""
+    import inspect
+
+    from halstreet.strategy import candidates
+    source = inspect.getsource(candidates.scenario_for)
+    assert "iv" in source
+
+
+def test_the_proposal_prompt_says_how_to_read_two_disagreeing_volatilities():
+    """Computed and never named is how a number gets misread with confidence.
+
+    A live judge, given a one-sided EV, concluded "short premium is the wrong side of
+    that gap regardless of which strikes we pick" — a real inference from a figure that
+    had only seen the tape's volatility and not the market's. Both are on the menu now,
+    and a model has to be told what their disagreement means or it will pick one.
+    """
+    from halstreet.agent.cortex.llm import SYSTEM_PROMPT
+
+    text = SYSTEM_PROMPT.lower()
+    assert "at_implied" in text and "at_realized" in text
+    assert "forecast" in text

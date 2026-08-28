@@ -375,6 +375,14 @@ export function makeStrings(t: Translate) {
         ev: (value: string) => t("committee.brief.ev", { value }),
         evNote: (cost: string) => t("committee.brief.evNote", { cost }),
         tail: (pct: string) => t("committee.brief.tail", { pct }),
+        evPair: (implied: string, realized: string) =>
+          t("committee.brief.evPair", { implied, realized }),
+        evOne: (value: string, basis: string) =>
+          t("committee.brief.evOne", { value, basis }),
+        basisImplied: t("committee.brief.basisImplied"),
+        basisRealized: t("committee.brief.basisRealized"),
+        agree: t("committee.brief.agree"),
+        disagree: t("committee.brief.disagree"),
         unsimulated: t("committee.brief.unsimulated"),
         scenarioNote: (paths: string, note: string) =>
           t("committee.brief.scenarioNote", { paths, note }),

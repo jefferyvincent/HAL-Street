@@ -1,4 +1,4 @@
-import type { Burn, Menu, Scenario } from "@/types";
+import type { Burn, Menu, Outlook } from "@/types";
 
 /**
  * The brief: every structure the deterministic side built, and how each one sits
@@ -43,7 +43,7 @@ export interface BriefRow {
   pop: number;
   score: string;
   /** Sampled outcomes, or null where volatility was not measured. */
-  scenario: Scenario | null;
+  scenario: Outlook | null;
   /** Days to expiry — the hold a read has to reach before it can be quoted at it. */
   dte: number | null;
 }
@@ -56,13 +56,13 @@ export interface BriefRow {
  * distribution while looking perfectly ordered.
  */
 function fromMenu(menu: Menu | null, name: string):
-    { scenario?: Scenario; dte?: number } | undefined {
+    { scenario?: Outlook; dte?: number } | undefined {
   const built = (menu?.candidates ?? []) as
-    { name?: string; scenario?: Scenario; dte?: number }[];
+    { name?: string; scenario?: Outlook; dte?: number }[];
   return built.find((c) => c.name === name);
 }
 
-function scenarioFor(menu: Menu | null, name: string): Scenario | null {
+function scenarioFor(menu: Menu | null, name: string): Outlook | null {
   return fromMenu(menu, name)?.scenario ?? null;
 }
 
@@ -94,7 +94,7 @@ export function briefRows({ burn, menu }: BriefSource): BriefRow[] {
   // a cycle that built nothing writes a count and no list at all.
   const built = (menu?.candidates ?? []) as Partial<BriefRow & {
     net_price: string; max_loss_usd: string; max_gain_usd: string;
-    prob_of_profit: number; scenario: Scenario; dte: number;
+    prob_of_profit: number; scenario: Outlook; dte: number;
   }>[];
   return built.map((c, i) => ({
     key: `${c.name ?? i}-${i}`,

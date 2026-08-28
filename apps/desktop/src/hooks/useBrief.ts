@@ -15,9 +15,11 @@ export interface BriefLine {
   /** Why it sits that way, or null on an unscored row. */
   why: string | null;
   facts: string[];
-  /** Expectation after friction, or null where nothing was simulated. */
+  /** Expectation after friction at both volatilities, or null where none was run. */
   ev: string | null;
   evUp: boolean;
+  /** Whether the two forecasts reach the same verdict, where there are two. */
+  verdict: string | null;
   /** How often it loses everything, or the words for a structure nobody sampled. */
   tail: string;
 }
@@ -88,6 +90,30 @@ export function useBrief(underlying: string, live: boolean): Brief | null {
       empty: rows.length === 0 ? t.committee.brief.empty : null,
     };
 
+    /** The two expectancies, and what their agreement means. */
+    function expectancy(out: BriefRow["scenario"]) {
+      const implied = out?.at_implied ?? null;
+      const realized = out?.at_realized ?? null;
+      if (!implied && !realized) {
+        return { ev: null, evUp: false, verdict: null,
+                 tail: t.committee.brief.unsimulated };
+      }
+      const both = implied && realized;
+      const one = implied ?? realized!;
+      return {
+        ev: both
+          ? t.committee.brief.evPair(f.money(implied.ev_usd), f.money(realized.ev_usd))
+          : t.committee.brief.evOne(f.money(one.ev_usd),
+              implied ? t.committee.brief.basisImplied : t.committee.brief.basisRealized),
+        // Coloured on the market's own volatility where there is one: that is the
+        // number the structure was actually priced against.
+        evUp: Number(one.ev_usd) >= 0,
+        verdict: out?.agree === null || out?.agree === undefined ? null
+          : out.agree ? t.committee.brief.agree : t.committee.brief.disagree,
+        tail: t.committee.brief.tail(f.plain(one.p_max_loss * 100, 0)),
+      };
+    }
+
     function line(r: BriefRow): BriefLine {
       return {
         key: r.key,
@@ -107,11 +133,10 @@ export function useBrief(underlying: string, live: boolean): Brief | null {
         // declining trades over and was reasoning about in prose. Null rather than
         // zero where nothing was simulated — an unmeasured expectation and a flat one
         // are not the same claim.
-        ev: r.scenario ? t.committee.brief.ev(f.money(r.scenario.ev_usd)) : null,
-        evUp: r.scenario ? Number(r.scenario.ev_usd) >= 0 : false,
-        tail: r.scenario
-          ? t.committee.brief.tail(f.plain(r.scenario.p_max_loss * 100, 0))
-          : t.committee.brief.unsimulated,
+        // Both, never averaged. Short premium pays exactly when implied exceeds what
+        // realizes, so a structure positive at one and negative at the other is not an
+        // ambiguous read — it is the trade thesis stated as two numbers.
+        ...expectancy(r.scenario),
       };
     }
   }, [underlying, live, cards, menus, sessions, views, t, f]);

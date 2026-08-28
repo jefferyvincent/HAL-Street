@@ -113,6 +113,13 @@ function Structure({ row }: { row: BriefLine }) {
           </span>
         )}
         <span className="font-mono text-[9.5px] leading-none text-ink/30">{row.tail}</span>
+        {/* Agreement is a conclusion; disagreement is the question. Drawn differently
+            because a reader should not have to compare two numbers to notice. */}
+        {row.verdict && (
+          <span className="font-mono text-[9px] leading-none text-ink/30">
+            {row.verdict}
+          </span>
+        )}
       </div>
     </li>
   );

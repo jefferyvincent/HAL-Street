@@ -105,9 +105,10 @@ class Candidate:
     pop: float | None = None
     score: Decimal = field(default=Decimal(0))
     breakdown: scoring.ScoreBreakdown | None = None
-    #: Sampled outcomes at expiry. None when volatility was not measured, which the
-    #: ranking and the model both read as "unknown" rather than as "unremarkable".
-    scenario: montecarlo.Scenario | None = None
+    #: Sampled outcomes at expiry, at both the market's volatility and the tape's.
+    #: None when neither could be measured, which the ranking and the model both read
+    #: as "unknown" rather than as "unremarkable".
+    scenario: montecarlo.Outlook | None = None
     # The underlying quotes, kept for per-leg liquidity checks. Not serialised: the
     # model gets the summary statistics, not the raw chain it would drown in.
     quotes: tuple[tuple[Quote, str], ...] = field(default=(), repr=False)
@@ -549,10 +550,26 @@ def scenario_for(candidate: Candidate, *, spot: Decimal | None,
     if not legs or spot is None:
         return None
     slip = candidate.slippage_usd or Decimal(0)
-    return montecarlo.simulate(
-        legs=legs, net=candidate.net, spot=spot, dte=candidate.dte, vol=vol,
+    out = montecarlo.outlook(
+        legs=legs, net=candidate.net, spot=spot, dte=candidate.dte,
+        vol_realized=vol, vol_implied=short_iv(candidate),
         friction_usd=slip * 2, seed=zlib.crc32(candidate.name.encode()),
     )
+    return out if (out.at_implied or out.at_realized) else None
+
+
+def short_iv(candidate: Candidate) -> float | None:
+    """The implied volatility the credit was quoted at, from the legs being sold.
+
+    The short strikes, because they are what the structure is paid for. A condor has
+    two and takes their mean — one number for a one-volatility model, which ignores
+    skew and is worth naming: index put skew is steep enough that the downside tail is
+    fatter than a shared vol implies. `pop.py` prices each tail with its own leg's IV
+    and is the better read of *probability*; this is the better read of *expectation*,
+    and they are not the same question.
+    """
+    ivs = [float(q.iv) for q in candidate.shorts if q.iv is not None and q.iv > 0]
+    return sum(ivs) / len(ivs) if ivs else None
 
 
 def diversify(ranked: list[Candidate], limit: int) -> list[Candidate]:

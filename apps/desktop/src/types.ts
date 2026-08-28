@@ -331,7 +331,22 @@ export interface Verdict {
  * argues: `fits` if the structure is paid for the direction the tape was read to
  * have, `against` if it needs the opposite, `ambient` if no direction was earned.
  */
-/** A structure's sampled outcomes at expiry. Null where volatility was not measured. */
+/**
+ * The same structure at both volatilities.
+ *
+ * `at_implied` is what the market charged; `at_realized` is what the tape has done.
+ * Where they disagree, the disagreement is the trade — short premium pays exactly when
+ * implied exceeds what realizes — so the panel shows both and never averages them.
+ */
+export interface Outlook {
+  at_implied: Scenario | null;
+  at_realized: Scenario | null;
+  /** Null with only one read: one opinion cannot agree with itself. */
+  agree: boolean | null;
+  note: string;
+}
+
+/** A structure's sampled outcomes at one volatility. */
 export interface Scenario {
   paths: number;
   p_profit: number;

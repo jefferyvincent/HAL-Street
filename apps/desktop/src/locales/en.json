@@ -315,7 +315,13 @@
       "scenarioNote": "Sampled {{paths}} paths per structure at expiry, seeded from the structure so the figures reproduce. {{note}}.",
       "persistence": "direction {{label}} · {{state}} days repeat {{repeats}}% vs {{base}}%",
       "reach": "informative for {{days}} day(s)",
-      "outOfReach": "shorter than this hold — not an argument for it"
+      "outOfReach": "shorter than this hold — not an argument for it",
+      "evPair": "EV {{implied}} at the market's vol · {{realized}} at the tape's",
+      "evOne": "EV {{value}} at the {{basis}} vol",
+      "basisImplied": "market's",
+      "basisRealized": "tape's",
+      "agree": "both volatilities agree",
+      "disagree": "they disagree — this is a bet on which forecast is right"
     }
   },
   "scoreboard": {
