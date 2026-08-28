@@ -1,50 +1,101 @@
 import { useMemo } from "react";
 
-import { railFocus, type RailLive } from "@/lib/committeeRail";
+import { RAIL_ROWS, railFocus, railList, type RailLive } from "@/lib/committeeRail";
+import { clock, day } from "@/lib/format";
 import { useCommittee, type CommitteeCard } from "@/hooks/useCommittee";
+import { usePresence } from "@/hooks/usePresence";
 import { useStrings } from "@/hooks/useStrings";
 import { useConnection } from "@/stores/connection";
+import { useUI } from "@/stores/ui";
+
+export interface RailRow {
+  key: string;
+  underlying: string;
+  lean: { label: string; tone: string } | null;
+  verdict: { label: string; tone: string };
+  gated: { label: string; ok: boolean } | null;
+  ago: string;
+  /** The one currently being argued, if any. */
+  live: boolean;
+}
 
 export interface CommitteeRail {
-  /** The deliberation on show, or null before any has finished. */
-  card: CommitteeCard | null;
+  /** What the desk is doing, in two or three words. Always something. */
+  state: string;
+  stateTone: string;
+  /** When the market is shut, when it opens again. */
+  detail: string | null;
   live: RailLive | null;
-  /** What to say about a cycle running on a name other than the one on show. */
-  elsewhere: string | null;
+  rows: RailRow[];
+  /** How many deliberations are only on the tab. */
+  hidden: number;
   empty: string;
+  /** Take the reader to the full argument. */
+  openArchive: () => void;
 }
 
 /**
- * The newest deliberation, condensed for the rail, and whether one is happening now.
+ * The committee rail: what the desk is doing, and the deliberations behind it.
  *
- * The full argument is a tab; this is the corner-of-the-eye version — which name, what
- * the catalyst read, whether both researchers spoke, what the judge did and what the
- * gates then did with it.
+ * It showed one card and no state, so after hours it read as a panel with nothing in
+ * it rather than a desk waiting for the bell. Two things follow from that.
  *
- * `elsewhere` is the honest case and the common one: the agent works through the
- * universe a name at a time, so by the time a deliberation is on the screen it has
- * usually moved on. Saying which name it moved to beats a live mark over a finished
- * argument. See `lib/committeeRail`.
+ * The state line is always present — offline, market closed with the next open, the
+ * stage running now, or between cycles. A rail that only speaks when something is
+ * happening is indistinguishable from a broken one when nothing is.
+ *
+ * And it lists the recent deliberations rather than the newest alone. The full
+ * argument — catalyst, both cases, the judge's reasoning — stays on the tab, which is
+ * the archive; this is the stream. `hidden` is how many are only there.
  */
 export function useCommitteeRail(): CommitteeRail {
   const t = useStrings();
   const cards = useCommittee();
-  const inFlight = useConnection((s) => s.snapshot?.in_flight) ?? null;
+  const { kind } = usePresence();
+  const market = useConnection((s) => s.snapshot?.market ?? null);
+  const inFlight = useConnection((s) => s.snapshot?.in_flight ?? null);
+  const setView = useUI((s) => s.setView);
 
   return useMemo(() => {
     const focus = railFocus(
       cards.map((c) => ({ key: c.key, underlying: c.underlying })),
       inFlight ? { underlying: inFlight.underlying, stage: inFlight.stage } : null,
     );
-    const card = cards.find((c) => c.key === focus.key) ?? null;
-    const live = focus.live;
+    const { shown, hidden } = railList(cards, RAIL_ROWS);
+
+    const state = kind === "disconnected" ? t.presence.shortDisconnected
+      : kind === "closed" ? t.presence.shortClosed
+      : kind === "working" ? (inFlight?.stage ?? t.presence.shortIdle)
+      : kind === "silent" ? t.presence.shortSilent
+      : t.presence.shortIdle;
+
+    const tone = kind === "disconnected" ? "text-fail"
+      : kind === "working" ? "text-amber"
+      : kind === "silent" ? "text-amber"
+      : "text-ink/40";
+
+    const opens = market?.next_open;
     return {
-      card,
-      live,
-      elsewhere: live && !live.onShown && live.underlying
-        ? t.committeeRail.elsewhere(live.underlying, live.stage)
+      state,
+      stateTone: tone,
+      detail: kind === "closed" && opens
+        ? t.presence.opensAt(day(opens), clock(opens))
         : null,
-      empty: t.committee.empty,
+      live: focus.live,
+      rows: shown.map<RailRow>((c: CommitteeCard) => ({
+        key: c.key,
+        underlying: c.underlying,
+        lean: c.catalyst.lean,
+        verdict: c.verdict,
+        gated: c.gated,
+        ago: c.ago,
+        // Only the one actually being argued, which is usually none of them: the
+        // agent has moved on by the time a card reaches the screen.
+        live: Boolean(focus.live?.onShown) && c.key === focus.key,
+      })),
+      hidden,
+      empty: t.committeeRail.none,
+      openArchive: () => setView("committee"),
     };
-  }, [cards, inFlight, t]);
+  }, [cards, kind, inFlight, market, t, setView]);
 }

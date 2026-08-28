@@ -115,6 +115,11 @@ export function makeStrings(t: Translate) {
       closed: t("presence.closed"),
       closedUntil: (day: string, time: string) => t("presence.closedUntil", { day, time }),
       silent: t("presence.silent"),
+      shortDisconnected: t("presence.shortDisconnected"),
+      shortClosed: t("presence.shortClosed"),
+      shortSilent: t("presence.shortSilent"),
+      shortIdle: t("presence.shortIdle"),
+      opensAt: (day: string, time: string) => t("presence.opensAt", { day, time }),
     },
 
     news: {
@@ -242,6 +247,8 @@ export function makeStrings(t: Translate) {
     committeeRail: {
       title: t("committeeRail.title"),
       gates: t("committeeRail.gates"),
+      more: (count: number) => t("committeeRail.more", { count }),
+      none: t("committeeRail.none"),
       elsewhere: (underlying: string, stage: string) =>
         t("committeeRail.elsewhere", { underlying, stage }),
     },

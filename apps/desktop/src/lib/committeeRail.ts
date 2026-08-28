@@ -47,3 +47,28 @@ export function railFocus(
     },
   };
 }
+
+/**
+ * How many deliberations the rail carries.
+ *
+ * It is a 200px column beside the thing you are actually reading, and the tab is
+ * where the whole argument lives. Enough to see the shape of the last half hour, few
+ * enough that it never becomes the thing you are reading.
+ */
+export const RAIL_ROWS = 5;
+
+/**
+ * The newest few deliberations, and how many are only on the tab.
+ *
+ * The count is the part with a bug in it. `length - limit` goes negative on a short
+ * archive and reads as "-3 more"; clamping it at zero is what stops a rail with three
+ * sessions offering a link to somewhere with nothing extra in it. The exact-fit case
+ * is the one that catches an off-by-one — four sessions and a limit of four must
+ * offer nothing, not "1 more".
+ */
+export function railList<T>(sessions: T[], limit: number): { shown: T[]; hidden: number } {
+  return {
+    shown: sessions.slice(0, limit),
+    hidden: Math.max(0, sessions.length - limit),
+  };
+}

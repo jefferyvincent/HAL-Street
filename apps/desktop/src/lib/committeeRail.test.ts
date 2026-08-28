@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { railFocus } from "./committeeRail";
+import { RAIL_ROWS, railFocus, railList } from "./committeeRail";
 
 const SESSIONS = [
   { key: "QQQ@2", underlying: "QQQ" },   // newest first, as the server sends them
@@ -55,5 +55,36 @@ describe("before anything has deliberated", () => {
     const focus = railFocus([], { underlying: "SPY", stage: "reading the tape" });
     expect(focus.key).toBeNull();
     expect(focus.live).toEqual({ stage: "reading the tape", underlying: "SPY", onShown: false });
+  });
+});
+
+describe("how much of the archive the rail carries", () => {
+  const many = Array.from({ length: 12 }, (_, i) => ({ key: `k${i}`, underlying: "SPY" }));
+
+  it("shows the newest few and counts the rest", () => {
+    const { shown, hidden } = railList(many, 4);
+    expect(shown.map((s) => s.key)).toEqual(["k0", "k1", "k2", "k3"]);
+    expect(hidden).toBe(8);
+  });
+
+  it("hides nothing when everything fits", () => {
+    const { shown, hidden } = railList(many.slice(0, 3), 4);
+    expect(shown).toHaveLength(3);
+    expect(hidden).toBe(0);
+  });
+
+  it("hides nothing when the count is exactly the limit", () => {
+    // The off-by-one this exists for: a "1 more" link to a tab holding nothing new.
+    expect(railList(many.slice(0, 4), 4).hidden).toBe(0);
+  });
+
+  it("copes with an empty archive", () => {
+    expect(railList([], 4)).toEqual({ shown: [], hidden: 0 });
+  });
+
+  it("keeps the rail short enough to sit beside a view", () => {
+    // It is a 200px column next to the thing you are actually reading. The tab is
+    // where the whole argument lives; this is the corner of the eye.
+    expect(RAIL_ROWS).toBeLessThanOrEqual(6);
   });
 });
