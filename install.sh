@@ -103,7 +103,13 @@ else
   running=""
   for proc in /proc/[0-9]*; do
     pid="${proc#/proc/}"
-    argv0="$(tr '\0' '\n' < "$proc/cmdline" 2>/dev/null | head -1)"
+    # The redirect is inside the group, and the group's stderr is what gets dropped.
+    # `2>/dev/null` on `tr` alone silences the wrong process: when a PID exits between
+    # the glob above and this read — which happens, because this walks every process
+    # on the machine — the failure is the *shell's* input redirection, reported by
+    # bash and fatal under `set -e`. The installer then died naming a PID the reader
+    # cannot look up, describing a machine state that had already gone.
+    argv0="$( { tr '\0' '\n' < "$proc/cmdline"; } 2>/dev/null | head -1 )" || continue
     case "$argv0" in
       .venv/bin/python*|"$PWD/.venv/bin/python"*) ;;
       *) continue ;;

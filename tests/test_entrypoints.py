@@ -155,3 +155,44 @@ def test_every_mode_start_advertises_is_one_it_can_dispatch():
         assert branch, f"{mode} has no branch body"
         assert re.search(r"^\s*run\s+\S", branch.group(1), re.MULTILINE), \
             f"./start.sh {mode} dispatches but its branch runs nothing"
+
+
+def test_the_in_use_guard_survives_a_process_exiting_while_it_looks():
+    """The guard walks every PID on the machine, so this race is not exotic.
+
+    A process that exits between the `/proc/[0-9]*` glob and the read leaves a path
+    that no longer exists. The read was written as
+
+        argv0="$(tr '\\0' '\\n' < "$proc/cmdline" 2>/dev/null | head -1)"
+
+    where `2>/dev/null` silences *tr*, and the thing that fails is the **shell's own
+    input redirection** — reported by bash, not by tr, and fatal under `set -e`. Ports
+    8792-8798 held six panels for a day and a half; clearing them and re-running was
+    enough to lose the race, and the installer died with
+
+        ./install.sh: line 106: /proc/3878315/cmdline: No such file or directory
+
+    on a machine where nothing was wrong. Worse than a false refusal: the message
+    names a PID the reader cannot look up, so it describes a state that no longer
+    exists — Constitution VII.
+
+    The real line is extracted and executed here rather than pattern-matched, because
+    what matters is that it *survives*, not how it is spelled.
+    """
+    import re
+
+    line = next((ln for ln in INSTALL.read_text().splitlines()
+                 if "cmdline" in ln and "argv0=" in ln), None)
+    assert line, "the guard no longer reads cmdline this way — this test has drifted"
+
+    # `set -e` and friends exactly as install.sh runs, against a path that is gone.
+    # Absolute interpreter and a script built only from this repo's own file — the
+    # same shape, and the same reason, as `test_the_shell_entrypoints_parse` above.
+    script = f'set -euo pipefail\nproc=/proc/nonexistent-{"0" * 6}\n{line.strip()}\necho SURVIVED'
+    bash = shutil.which("bash") or "/bin/bash"
+    done = subprocess.run([bash, "-c", script], capture_output=True, text=True)  # noqa: S603
+
+    assert "SURVIVED" in done.stdout, (
+        f"the guard aborts when a process exits mid-walk: {done.stderr.strip()}")
+    assert not re.search(r"No such file", done.stderr), (
+        f"and it must not print the vanished path: {done.stderr.strip()}")
