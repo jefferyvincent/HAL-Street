@@ -44,12 +44,14 @@ export function ConsoleView() {
   const run = (
     <>
       <Scoreboard />
-      <div className={GRID.pnl}>
+      <div className={GRID.pairRight}>
         <Periods />
         {snap && <EquityChart curve={snap.equity_curve} pnl={snap.pnl} />}
       </div>
-      <Holding />
-      <Spend />
+      <div className={GRID.pairLeft}>
+        <Holding />
+        <Spend />
+      </div>
     </>
   );
 

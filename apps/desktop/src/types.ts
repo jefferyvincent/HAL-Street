@@ -357,6 +357,12 @@ export interface GateReading {
   at: string;
   /** The structure it was reading against. */
   structure: string;
+  /**
+   * Whether the market was shut when this was measured, or null when the journal
+   * cannot say. The same words mean different things either side of the close: "no
+   * greeks" after hours is nobody quoting, and during the session it is an outage.
+   */
+  after_hours: boolean | null;
 }
 
 /**

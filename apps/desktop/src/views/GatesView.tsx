@@ -26,7 +26,7 @@ import { useStrings } from "@/hooks/useStrings";
 export function GatesView() {
   const f = useFormat();
   const t = useStrings();
-  const { groups, total, seen, readAt, readOf } = useGateChain();
+  const { groups, total, seen, readAt, readOf, afterHoursNote } = useGateChain();
 
   return (
     <>
@@ -41,6 +41,8 @@ export function GatesView() {
           {t.gates.readAt(readOf, f.ago(readAt))}
         </div>
       )}
+
+      {afterHoursNote && <Note>{afterHoursNote}</Note>}
 
       {groups.map((group) => (
         <div key={group.family}>

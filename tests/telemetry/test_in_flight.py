@@ -341,3 +341,81 @@ def test_a_gate_with_no_reason_is_still_listed():
 
     readings = _gate_readings([decision(gates=[{"gate": "g", "passed": True}])])
     assert readings["g"]["reason"] == ""
+
+
+# --- a reading taken after the close --------------------------------------------
+#
+# `portfolio-greek-bounds` refused a proposal at 16:44 with "no greeks for 2
+# contract(s)". That is the gate working: the contracts it could not price were the
+# *open position's* legs, so it could not bound the exposure the desk already carries,
+# and opening more on an unmeasurable book is the thing fail-closed exists to stop.
+#
+# It read as a fault because the gates tab showed the reading flat, with no sign that
+# the market had been shut for forty-four minutes when it was taken. A gate reading is
+# a measurement of a moment, and a moment after the close is a different fact from the
+# same words during the session.
+
+def test_a_reading_taken_after_the_close_says_so():
+    from halstreet.telemetry.server import _after_hours
+
+    session = {"next_close": "2026-08-27 16:00:00-04:00"}
+    assert _after_hours("2026-08-27T20:44:19+00:00", session) is True   # 16:44 ET
+
+
+def test_a_reading_taken_during_the_session_does_not():
+    from halstreet.telemetry.server import _after_hours
+
+    session = {"next_close": "2026-08-27 16:00:00-04:00"}
+    assert _after_hours("2026-08-27T16:40:24+00:00", session) is False  # 12:40 ET
+
+
+def test_the_boundary_itself_counts_as_closed():
+    """The close is the moment quoting stops, not the last moment it works."""
+    from halstreet.telemetry.server import _after_hours
+
+    session = {"next_close": "2026-08-27 16:00:00-04:00"}
+    assert _after_hours("2026-08-27T20:00:00+00:00", session) is True
+
+
+@pytest.mark.parametrize("session", [None, {}, {"next_close": None},
+                                     {"next_close": "whenever"},
+                                     {"next_close": "2026-08-27 16:00:00"}])
+def test_without_a_usable_close_it_does_not_guess(session):
+    """`None`, not `False`. "We cannot tell" and "the market was open" are different
+    claims, and the louder one must not be the default."""
+    from halstreet.telemetry.server import _after_hours
+
+    assert _after_hours("2026-08-27T20:44:19+00:00", session) is None
+
+
+@pytest.mark.parametrize("ts", [None, "", "not-a-time", 17])
+def test_an_unreadable_reading_time_does_not_guess_either(ts):
+    from halstreet.telemetry.server import _after_hours
+
+    assert _after_hours(ts, {"next_close": "2026-08-27 16:00:00-04:00"}) is None
+
+
+def test_the_gate_readings_carry_it():
+    """So the tab can say it beside the reading rather than leaving the reader to
+    work out that 16:44 is after four o'clock."""
+    from halstreet.telemetry.server import _gate_readings
+
+    events = [
+        {"event": "session", "state": "open", "ts": at(30_000),
+         "next_close": "2026-08-27 16:00:00-04:00"},
+        {"event": "gate_decision", "ts": "2026-08-27T20:44:19+00:00",
+         "structure": "SPY put credit spread", "approved": False,
+         "gates": [{"gate": "portfolio-greek-bounds", "passed": False,
+                    "reason": "no greeks for 2 contract(s)"}]},
+    ]
+    reading = _gate_readings(events)["portfolio-greek-bounds"]
+    assert reading["after_hours"] is True
+    assert reading["passed"] is False
+
+
+def test_a_journal_with_no_session_leaves_the_readings_unlabelled():
+    from halstreet.telemetry.server import _gate_readings
+
+    events = [{"event": "gate_decision", "ts": at(30), "structure": "s",
+               "gates": [{"gate": "g", "passed": True, "reason": "fine"}]}]
+    assert _gate_readings(events)["g"]["after_hours"] is None

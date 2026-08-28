@@ -224,6 +224,7 @@ export function makeStrings(t: Translate) {
       neverRejected: t("gates.neverRejected"),
       readAt: (structure: string, when: string) => t("gates.readAt", { structure, when }),
       readOnly: t("gates.readOnly"),
+      afterHours: t("gates.afterHours"),
       note: (seen: number) => t("gates.note", { seen }),
       familyHeading: (family: string, count: number) =>
         t("gates.familyHeading", { family, count }),

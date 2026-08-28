@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { byFamily } from "@/lib/gates";
+import { useStrings } from "@/hooks/useStrings";
 import { useConnection } from "@/stores/connection";
 
 export interface ChainGate {
@@ -27,6 +28,8 @@ export interface GateChain {
   seen: number;
   /** When the readings were taken. Null when the chain has never run. */
   readAt: string | null;
+  /** Set when the readings were taken after the close, and said once above them. */
+  afterHoursNote: string | null;
   /** What it was reading against. */
   readOf: string;
 }
@@ -45,10 +48,14 @@ export interface GateChain {
  * system that says no.
  */
 export function useGateChain(): GateChain {
+  const t = useStrings();
   const snap = useConnection((s) => s.snapshot);
 
   return useMemo(() => {
-    if (!snap) return { groups: [], total: 0, seen: 0, readAt: null, readOf: "" };
+    if (!snap) {
+      return { groups: [], total: 0, seen: 0, readAt: null, readOf: "",
+               afterHoursNote: null };
+    }
     const by = snap.pnl.rejections_by_gate ?? {};
     const readings = snap.gate_readings ?? {};
     const any = Object.values(readings)[0];
@@ -69,6 +76,9 @@ export function useGateChain(): GateChain {
       seen: snap.pnl.approved + snap.pnl.rejected,
       readAt: any?.at ?? null,
       readOf: any?.structure ?? "",
+      // Said once, above the list, rather than repeated on sixteen rows. Every
+      // reading in a set comes from the same evaluation, so they share an answer.
+      afterHoursNote: any?.after_hours ? t.gates.afterHours : null,
     };
-  }, [snap]);
+  }, [snap, t]);
 }

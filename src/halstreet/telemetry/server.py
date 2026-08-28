@@ -684,6 +684,32 @@ def _headlines(events: list[dict]) -> list[dict]:
     return ordered[:TICKER_HEADLINES]
 
 
+def _after_hours(ts: Any, session: Any) -> bool | None:
+    """Whether a timestamp falls at or after the session's close. `None` if unknowable.
+
+    A gate reading is a measurement of a moment, and a moment after the close is a
+    different fact from the same words during the session. `portfolio-greek-bounds`
+    refusing a proposal for "no greeks" at 16:44 is the gate working — nobody is
+    quoting, so the exposure the desk already carries cannot be bounded, and opening
+    more on an unmeasurable book is exactly what fail-closed exists to stop. The same
+    sentence at 11:00 would be a data outage worth chasing.
+
+    `None` rather than `False` when there is no usable boundary. "We cannot tell" and
+    "the market was open" are different claims, and the louder of the two must not be
+    what a missing field defaults to.
+
+    The close comes from the session record, which took it from Alpaca's clock. No
+    calendar is kept here — see `_crossed` for why that matters.
+    """
+    if not isinstance(session, dict):
+        return None
+    close = _when(session.get("next_close"))
+    taken = _when(ts)
+    if close is None or taken is None:
+        return None
+    return taken >= close
+
+
 def _gate_readings(events: list[dict]) -> dict[str, dict]:
     """What each gate measured the last time it ran, and when.
 
@@ -713,12 +739,20 @@ def _gate_readings(events: list[dict]) -> dict[str, dict]:
             # `.get`. This route is polled every five seconds, and a raise here empties
             # the whole panel — found by test, not by staring at it.
             return {}
+        # The session in force, for the one thing a reading cannot say about itself.
+        session = next((e for e in reversed(events)
+                        if e.get("event") == "session"), None)
+        shut = _after_hours(event.get("ts"), session)
         return {
             str(gate["gate"]): {
                 "reason": gate.get("reason") or "",
                 "passed": bool(gate.get("passed")),
                 "at": event.get("ts"),
                 "structure": event.get("structure") or "",
+                # Whether the market was shut when this was measured. See
+                # `_after_hours`: the same words mean different things either side of
+                # the close, and the tab should not make the reader work that out.
+                "after_hours": shut,
             }
             for gate in gates
             if isinstance(gate, dict) and gate.get("gate")

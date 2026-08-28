@@ -104,7 +104,8 @@
     "readAt": "readings from {{structure}}, {{when}}",
     "readOnly": "Nothing here is a control, by design. Limits live in .env, so changing one is a diff someone can review — a field in a dashboard that moves a risk limit leaves no such trace. The socket this panel listens on is never read from at all.",
     "dryRunRow": "DRY RUN",
-    "familyHeading": "{{family}} · {{count}}"
+    "familyHeading": "{{family}} · {{count}}",
+    "afterHours": "These readings were taken after the close. A gate that cannot price a contract then is reporting that nobody is quoting it, not a fault — and refusing to open on a book it cannot measure is what fail-closed means. The same reason during the session would be worth chasing."
   },
   "rail": {
     "families": "GATE FAMILIES",
