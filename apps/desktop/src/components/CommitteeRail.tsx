@@ -2,7 +2,7 @@ import { cn } from "@/lib/cn";
 import { CLS, STROKE } from "@/constants/theme";
 import { ICON } from "@/constants/icons";
 import { Icon } from "@/components/Icon";
-import { LiveStages } from "@/components/LiveCommittee";
+import { LiveStages } from "@/components/LiveStages";
 import { Ticker } from "@/components/Ticker";
 import { useCommitteeRail, type RailRow } from "@/hooks/useCommitteeRail";
 import { useStrings } from "@/hooks/useStrings";

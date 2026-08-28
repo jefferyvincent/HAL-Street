@@ -136,6 +136,10 @@ def _committees(events: list[dict]) -> list[dict]:
             "catalyst": event.get("catalyst") or {},
             "bull": event.get("bull") or "",
             "bear": event.get("bear") or "",
+            # Which cases the record bounded — see `committee.clip`. Older records
+            # predate the field and get an empty list, which is the truthful answer
+            # for them: nobody wrote down whether anything was lost.
+            "clipped": event.get("clipped") or [],
             "reflection": event.get("reflection") or [],
             "tokens": event.get("tokens") or {},
             # And where they went. One total says the committee is expensive; this

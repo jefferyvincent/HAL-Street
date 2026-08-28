@@ -256,19 +256,31 @@
       "bearish": "BEARISH",
       "neutral": "NEUTRAL"
     },
-    "live": {
-      "title": "IN SESSION",
-      "on": "sitting on {{underlying}}",
-      "done": "in",
-      "running": "working",
-      "pending": "waiting",
+    "desk": {
+      "title": "COMMITTEE DESK",
+      "live": "sitting now",
+      "lastSat": "rose {{ago}}",
+      "empty": "No committee has sat yet. The desk fills in as one does.",
       "catalyst": "CATALYST",
-      "debate": "BULL & BEAR",
-      "judge": "JUDGE",
+      "bull": "BULL",
+      "bear": "BEAR",
+      "judge": "HEAD TRADER",
+      "gates": "THE GATES",
+      "in": "in",
+      "working": "working",
+      "pending": "waiting",
+      "absent": "no answer",
+      "skipped": "nothing to gate",
       "read": "{{lean}} at confidence {{value}}",
-      "readFailed": "no read — {{error}}",
-      "note": "Written as it happens. It is replaced by the full session below the moment the judge returns."
-    }
+      "note": "Written as it happens. The seats fill in as each one reports.",
+      "archiveShow": "{{count}} EARLIER SESSION(S)",
+      "archiveHide": "HIDE EARLIER SESSIONS",
+      "archiveNote": "Everything below has been superseded by the desk above.",
+      "debate": "BULL & BEAR",
+      "clipped": "the record keeps the first part of this case; the head trader heard all of it"
+    },
+    "railScan": "{{count}} earlier on the tab",
+    "railNoneFresh": "Nothing this scan. {{count}} earlier on the tab."
   },
   "scoreboard": {
     "title": "THE RUN",

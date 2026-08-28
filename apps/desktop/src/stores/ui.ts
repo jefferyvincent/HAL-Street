@@ -32,7 +32,17 @@ interface UI {
    * when they go looking.
    */
   decisionOpen: boolean;
+  /**
+   * Whether the committee tab shows the sessions behind the desk.
+   *
+   * Closed by default, and that is the point rather than tidiness: the tab used
+   * to open on a stack of finished cards, so most of the screen was deliberations
+   * from five and eighteen hours ago while the desk was one word in a header.
+   * They are still there, one control away, and the control says how many.
+   */
+  archiveOpen: boolean;
   toggleDecision: () => void;
+  toggleArchive: () => void;
   /**
    * What the structure chart's price axis is scaled to.
    *
@@ -114,6 +124,7 @@ export const useUI = create<UI>((set) => ({
   select: (selected) => set({ selected }),
   chart: (charting) => set({ charting, view: "book" }),
   decisionOpen: false,
+  archiveOpen: false,
   chartFit: "working",
   chartTimeframe: null,
   setTimeframe: (chartTimeframe) => set({ chartTimeframe }),
@@ -121,6 +132,7 @@ export const useUI = create<UI>((set) => ({
   setPnlPeriod: (pnlPeriod) => set({ pnlPeriod }),
   toggleFit: () => set((s) => ({ chartFit: s.chartFit === "working" ? "levels" : "working" })),
   toggleDecision: () => set((s) => ({ decisionOpen: !s.decisionOpen })),
+  toggleArchive: () => set((s) => ({ archiveOpen: !s.archiveOpen })),
   showDecision: (selected) => set({ selected, decisionOpen: true, view: "console" }),
   muted: storedMute(),
   setMuted: (muted) => {

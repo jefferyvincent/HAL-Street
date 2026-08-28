@@ -645,7 +645,31 @@ def test_the_journalled_arguments_are_bounded():
     # this is the panel payload problem again, in the file that must never be rotated.
     s = C.Session(bull="b" * 5000, bear="r" * 5000)
     rec = s.to_journal()
-    assert len(rec["bull"]) == 1200 and len(rec["bear"]) == 1200
+    assert len(rec["bull"]) <= C.RECORD_CHARS and len(rec["bear"]) <= C.RECORD_CHARS
+
+
+def test_a_bounded_argument_says_it_was_bounded():
+    """Otherwise the record reads as a complete case that happened to stop oddly.
+
+    It does stop oddly — mid-word — and nothing anywhere said why. The panel now
+    leads with these paragraphs rather than filing them behind a card, so a reader
+    meets the cut before they meet anything else and has no way to tell a clipped
+    argument from a researcher who trailed off.
+    """
+    rec = C.Session(bull="word " * 900, bear="short").to_journal()
+    assert rec["clipped"] == ["bull"]
+
+
+def test_nothing_is_marked_clipped_when_nothing_was():
+    rec = C.Session(bull="short", bear="short").to_journal()
+    assert rec["clipped"] == []
+
+
+def test_the_cut_lands_between_words():
+    """A case ending "which is a very di" reads as a fault in the panel drawing it."""
+    rec = C.Session(bull="word " * 900).to_journal()
+    assert not rec["bull"].endswith("wor")
+    assert rec["bull"].endswith("word")
 
 
 # --- the boundary the committee must not cross ----------------------------------------------

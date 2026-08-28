@@ -2,9 +2,10 @@ import { cn } from "@/lib/cn";
 import { ICON } from "@/constants/icons";
 import { CLS, STROKE } from "@/constants/theme";
 import { Icon } from "@/components/Icon";
-import { LiveCommittee } from "@/components/LiveCommittee";
+import { CommitteeDesk } from "@/components/CommitteeDesk";
 import { Ticker } from "@/components/Ticker";
 import { useCommittee, useCommitteeStatus, type Side } from "@/hooks/useCommittee";
+import { useUI } from "@/stores/ui";
 import { useStrings } from "@/hooks/useStrings";
 
 /**
@@ -22,6 +23,10 @@ export function CommitteeView() {
   const t = useStrings();
   const cards = useCommittee();
   const status = useCommitteeStatus();
+  const archiveOpen = useUI((s) => s.archiveOpen);
+  const toggleArchive = useUI((s) => s.toggleArchive);
+  // The desk above already carries the newest one in full.
+  const earlier = cards.slice(1);
 
   const header = (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-1 border border-line bg-panel px-3 py-[9px]">
@@ -50,7 +55,7 @@ export function CommitteeView() {
     return (
       <div className="mb-3 flex flex-col gap-3">
         {header}
-        <LiveCommittee />
+        <CommitteeDesk />
         <div className="border border-edge bg-panel">
           <div className={CLS.empty}>{t.committee.empty}</div>
         </div>
@@ -61,12 +66,24 @@ export function CommitteeView() {
   return (
     <div className="mb-3 flex flex-col gap-3">
       {header}
-      {/* Above the archive, because it is the only card on this screen that is
-          not history yet — and it vanishes the moment the judge turns it into
-          one. */}
-      <LiveCommittee />
+      {/* The lead, always. Everything under it has been superseded by it. */}
+      <CommitteeDesk />
 
-      {cards.map((card, index) => (
+      {earlier.length > 0 && (
+        <button
+          onClick={toggleArchive}
+          aria-expanded={archiveOpen}
+          className={cn("flex items-center gap-[7px] border border-line bg-panel px-3 py-[8px]",
+            "font-mono text-[9px] font-bold leading-none tracking-[.12em] text-ink/40",
+            "transition-colors hover:text-ink focus-visible:outline",
+            "focus-visible:outline-1 focus-visible:outline-amber")}>
+          <Icon d={archiveOpen ? ICON.list : ICON.chevron} size={11} stroke="currentColor" />
+          {archiveOpen ? t.committee.desk.archiveHide
+            : t.committee.desk.archiveShow(earlier.length)}
+        </button>
+      )}
+
+      {archiveOpen && earlier.map((card, index) => (
         // Newest first, so index 0 is the one that just happened. Ringed rather than
         // merely labelled: the cards are otherwise identical at a glance, and "which
         // of these is new" was the question being asked.

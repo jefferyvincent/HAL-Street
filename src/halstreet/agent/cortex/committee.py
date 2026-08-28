@@ -84,6 +84,14 @@ from halstreet.marketdata.news import Headline
 #: ceiling set near the median sits inside it. Losing a whole cycle's decision is
 #: worth far more than the tokens a ceiling nobody reaches would cost, since the
 #: budget is only spent when it is used.
+#: How much of a researcher's case the journal keeps.
+#:
+#: Bounded on purpose: two researchers' prose, per underlying, per cycle, appended to
+#: a file that is never rotated. What was wrong was not the bound but its silence —
+#: `[:1200]` cut mid-word and nothing said it had, so the record read as a complete
+#: case that happened to stop strangely. `clip` cuts between words and reports it.
+RECORD_CHARS = 1200
+
 ANALYST_TOKENS = 3000
 DEBATE_TOKENS = 4000
 JUDGE_TOKENS = 32000
@@ -92,6 +100,24 @@ JUDGE_TOKENS = 32000
 #: purpose: the decision is settled and the ask is one paragraph, so a ceiling near
 #: the judge's own would let a cheap correction cost as much as the decision did.
 EXPLAIN_TOKENS = 6000
+
+
+def clip(text: str, limit: int = RECORD_CHARS) -> tuple[str, bool]:
+    """Bound a case for the record, between words, and say whether anything was lost.
+
+    The boolean is the point. A truncated argument and a short one are different
+    facts, and the panel that draws them has no way to tell them apart from the text
+    — the tail is exactly what is missing.
+
+    Falls back to the hard cut when the window holds no space at all, which needs a
+    1200-character word to reach and is here so that the bound is never the thing
+    that fails.
+    """
+    if len(text) <= limit:
+        return text, False
+    head = text[:limit]
+    space = head.rfind(" ")
+    return (head[:space] if space > 0 else head).rstrip(), True
 
 #: Which model runs which stage, and why they are not all the same one.
 #:
@@ -251,10 +277,17 @@ class Session:
             }
 
     def to_journal(self) -> dict[str, Any]:
+        bull, bull_cut = clip(self.bull)
+        bear, bear_cut = clip(self.bear)
         return {
             "catalyst": self.catalyst.to_prompt(),
-            "bull": self.bull[:1200],
-            "bear": self.bear[:1200],
+            "bull": bull,
+            "bear": bear,
+            # Which of them lost their tail, so the panel can say so. The judge heard
+            # both in full; only the record is bounded, and a reader who cannot tell
+            # the two apart is reading a shorter argument than the one that decided.
+            "clipped": [name for name, cut in (("bull", bull_cut), ("bear", bear_cut))
+                        if cut],
             "headlines": self.headlines,
             "feed": self.feed,
             "reflection": self.reflection,

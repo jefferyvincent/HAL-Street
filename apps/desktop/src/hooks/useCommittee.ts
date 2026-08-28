@@ -10,6 +10,8 @@ export interface Side {
   text: string;
   /** Why it did not, when it did not. Drawn instead of the text. */
   absent: string | null;
+  /** The record kept only the first part of it. The judge heard all of it. */
+  clipped: boolean;
 }
 
 export interface StageCost {
@@ -24,6 +26,8 @@ export interface StageCost {
 export interface CommitteeCard {
   key: string;
   underlying: string;
+  /** The raw stamp, kept beside the rendered ones so callers can group by pass. */
+  ts: string;
   headlines: string;
   time: string;
   ago: string;
@@ -88,6 +92,7 @@ export function useCommittee(): CommitteeCard[] {
     return {
       key: `${session.underlying}@${session.ts}`,
       underlying: session.underlying,
+      ts: session.ts,
       headlines: t.committee.headlines(session.headlines),
       // Both, because they answer different questions: "when" and "how long ago". A
       // wall clock alone makes a card from two hours back look as current as one from
@@ -111,8 +116,10 @@ export function useCommittee(): CommitteeCard[] {
           session.catalyst?.confidence?.toFixed(2) ?? t.common.dash),
         note: session.catalyst?.note ?? "",
       },
-      bull: { text: session.bull, absent: session.bull ? null : reason("bull") ?? t.committee.silent },
-      bear: { text: session.bear, absent: session.bear ? null : reason("bear") ?? t.committee.silent },
+      bull: { text: session.bull, clipped: (session.clipped ?? []).includes("bull"),
+              absent: session.bull ? null : reason("bull") ?? t.committee.silent },
+      bear: { text: session.bear, clipped: (session.clipped ?? []).includes("bear"),
+              absent: session.bear ? null : reason("bear") ?? t.committee.silent },
       reflection: session.reflection.map((r) => ({
         key: r.structure,
         text: t.committee.reflectionRow(

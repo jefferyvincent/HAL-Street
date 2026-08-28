@@ -304,6 +304,12 @@ export interface Committee {
   catalyst: Verdict;
   bull: string;
   bear: string;
+  /**
+   * The cases whose tail the record dropped. The judge heard them whole; only
+   * the journal is bounded, and a reader who cannot tell a clipped argument from
+   * a short one is reading a weaker case than the one that decided.
+   */
+  clipped: string[];
   reflection: { structure: string; realized_usd: string | null; outcome: string }[];
   tokens: { in: number; out: number; cache_read: number };
   /**
