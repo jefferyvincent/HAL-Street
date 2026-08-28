@@ -24,7 +24,9 @@ That path is the one used to demonstrate rejections without touching the account
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
@@ -739,7 +741,10 @@ class Agent:
         )
         return picked
 
-    async def run_once(self, universe: list[str]) -> list[CycleResult]:
+    async def run_once(self, universe: list[str], *,
+                       on_start: Callable[[str], None] | None = None,
+                       on_result: Callable[[CycleResult], None] | None = None,
+                       ) -> list[CycleResult]:
         """One full pass: manage what is open, then look for what to open next.
 
         Cycles are independent by design — one bad symbol must not cost the others
@@ -758,10 +763,26 @@ class Agent:
 
         results: list[CycleResult] = []
         for underlying in universe:
+            _report(on_start, underlying)
             try:
-                results.append(await self.run_cycle(underlying))
+                result = await self.run_cycle(underlying)
             except Exception as exc:
                 self.journal.error("cycle", f"{type(exc).__name__}: {exc}")
-                results.append(CycleResult(underlying=underlying,
-                                           error=f"unhandled {type(exc).__name__}: {exc}"))
+                result = CycleResult(underlying=underlying,
+                                     error=f"unhandled {type(exc).__name__}: {exc}")
+            results.append(result)
+            _report(on_result, result)
         return results
+
+
+def _report(hook: Callable[[Any], None] | None, value: Any) -> None:
+    """Call a progress hook, and never let it cost a scan.
+
+    These print. A closed pipe — `./start.sh | head` — or a terminal that went away
+    raises here, and losing the trading because the narration failed is the wrong way
+    round: the results are returned regardless and the journal has them either way.
+    """
+    if hook is None:
+        return
+    with contextlib.suppress(Exception):
+        hook(value)

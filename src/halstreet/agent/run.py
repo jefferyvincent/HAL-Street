@@ -182,15 +182,24 @@ async def main_async(args: argparse.Namespace) -> int:
             log("\n  no symbols to scan "
                 + ("(discovery found none this pass)" if not universe else ""))
             return
-        results = await agent.run_once(names)
         # Wall-clock, for a human watching a terminal — not a market fact, so the
         # host's zone is the right one and DTZ's warning does not apply.
         stamp = datetime.now().astimezone().strftime("%H:%M:%S")
         log(f"\n[{stamp}] scan")
-        for result in results:
+
+        # Printed as the scan reaches each name rather than collected and dumped at
+        # the end. A cycle over six discovered symbols is over a minute of committee
+        # calls, and printing only at the end left the terminal silent for all of it —
+        # which reads as a hang, and was read as one.
+        def started(underlying: str) -> None:
+            log(f"  {underlying} …")
+
+        def finished(result) -> None:
             log(f"  {result.summary()}")
             for note in result.notes:
                 log(f"      note: {note}")
+
+        results = await agent.run_once(names, on_start=started, on_result=finished)
         totals["cycles"] += len(results)
         totals["approved"] += sum(r.approved for r in results)
         totals["submitted"] += sum(r.submitted for r in results)

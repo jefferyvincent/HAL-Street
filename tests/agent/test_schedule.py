@@ -298,3 +298,112 @@ def test_a_scheduler_with_no_journal_still_runs():
     from halstreet.agent.brainstem.schedule import Scheduler
     s = Scheduler(client=None, interval_minutes=30, log=lambda _: None)
     s._note_session(_clock(True))  # must not raise
+
+
+# --- stopping it -------------------------------------------------------------------
+#
+# The first signal is graceful by design: it lets the current cycle finish so a
+# half-placed structure is never left behind. But a cycle over a discovered universe
+# is six committees and took 73 seconds on a live run, and for all of those seconds
+# Ctrl-C looks like it did nothing at all. That is the report — "ctrl c does nothing"
+# — and the answer is not to make the first one abrupt.
+
+def test_the_first_signal_is_still_graceful():
+    """A cycle interrupted mid-submission is the failure this politeness prevents."""
+    s = Scheduler(FakeClient({"is_open": True}), 30, log=lambda *_: None)
+    s.request_stop("SIGINT")
+    assert s.stopping is True
+    assert s.should_exit_now is False
+
+
+def test_a_second_signal_asks_to_stop_now():
+    s = Scheduler(FakeClient({"is_open": True}), 30, log=lambda *_: None)
+    s.request_stop("SIGINT")
+    s.request_stop("SIGINT")
+    assert s.should_exit_now is True
+
+
+def test_the_first_signal_says_how_to_stop_now():
+    """Otherwise the wait is indistinguishable from the signal being ignored.
+
+    Which is exactly how it was read: a minute of silence after Ctrl-C, and nothing
+    on screen saying the request had landed or how to insist.
+    """
+    said = []
+    s = Scheduler(FakeClient({"is_open": True}), 30, log=said.append)
+    s.request_stop("SIGINT")
+    assert any("again" in line.lower() for line in said)
+
+
+def test_the_second_signal_says_it_is_not_waiting():
+    said = []
+    s = Scheduler(FakeClient({"is_open": True}), 30, log=said.append)
+    s.request_stop("SIGINT")
+    s.request_stop("SIGINT")
+    assert any("not waiting" in line.lower() or "now" in line.lower()
+               for line in said[1:])
+
+
+def test_a_third_signal_does_not_start_repeating_itself():
+    said = []
+    s = Scheduler(FakeClient({"is_open": True}), 30, log=said.append)
+    for _ in range(4):
+        s.request_stop("SIGINT")
+    assert len(said) == 2, "one line per state, not one per keypress"
+
+
+def test_stopping_now_ends_the_run_without_another_cycle():
+    ran = []
+
+    async def cycle():
+        ran.append(1)
+        s.request_stop("SIGINT")
+        s.request_stop("SIGINT")
+
+    s = Scheduler(FakeClient({"is_open": True}), 30, log=lambda *_: None)
+    run(s, cycle, max_cycles=5)
+    assert len(ran) == 1
+
+
+def test_a_second_signal_abandons_the_cycle_that_is_running():
+    """The point of the second press, and the only part that needed new machinery.
+
+    The first press already skips the sleep; what it cannot do is shorten the cycle
+    already in flight, which is where all 73 of those seconds are.
+    """
+    reached_the_end = []
+
+    async def slow_cycle():
+        s.request_stop("SIGINT")
+        s.request_stop("SIGINT")
+        await asyncio.sleep(30)          # the committee, in effect
+        reached_the_end.append(1)
+
+    s = Scheduler(FakeClient({"is_open": True}), 30, log=lambda *_: None)
+    run(s, slow_cycle, max_cycles=1)
+    assert reached_the_end == [], "the cycle should have been cut short"
+
+
+def test_a_cancelled_cycle_is_not_counted_as_completed():
+    """It did not finish, and a coverage table that says otherwise is a false record."""
+    async def slow_cycle():
+        s.request_stop("SIGINT")
+        s.request_stop("SIGINT")
+        await asyncio.sleep(30)
+
+    s = Scheduler(FakeClient({"is_open": True}), 30, log=lambda *_: None)
+    assert run(s, slow_cycle, max_cycles=1) == 0
+
+
+def test_one_signal_still_lets_the_cycle_finish():
+    """The graceful path must survive the addition of the abrupt one."""
+    finished = []
+
+    async def cycle():
+        s.request_stop("SIGINT")
+        await asyncio.sleep(0)
+        finished.append(1)
+
+    s = Scheduler(FakeClient({"is_open": True}), 30, log=lambda *_: None)
+    assert run(s, cycle, max_cycles=3) == 1
+    assert finished == [1]

@@ -88,6 +88,11 @@ async def market_clock(client: AlpacaMCP) -> MarketClock:
     return MarketClock.parse(await client.call(TOOL_CLOCK))
 
 
+#: How often the abandon-watcher checks. Short enough that a second Ctrl-C feels
+#: immediate, long enough to be free while a 73-second cycle runs.
+_STOP_POLL_SECONDS = 0.05
+
+
 class Scheduler:
     """Repeats a coroutine on a cadence, only while the market is open."""
 
@@ -109,6 +114,9 @@ class Scheduler:
         # even when the next open is fifteen hours away.
         self.max_sleep = max_sleep_seconds
         self._stop = asyncio.Event()
+        # Set by a second stop request. The first is a request to finish; this one
+        # is a request to stop waiting for that.
+        self._stop_now = False
 
     def _note_session(self, clock: MarketClock) -> None:
         """Journal the bell, once, when the broker's answer changes.
@@ -135,10 +143,37 @@ class Scheduler:
             observed=first,
         )
 
+    @property
+    def stopping(self) -> bool:
+        """A stop has been asked for; the current cycle is being allowed to finish."""
+        return self._stop.is_set()
+
+    @property
+    def should_exit_now(self) -> bool:
+        """Asked twice. Do not start anything further and do not wait."""
+        return self._stop_now
+
     def request_stop(self, reason: str = "signal") -> None:
+        """First call is graceful. Second means now.
+
+        Graceful first, because a cycle interrupted between the gate chain and the
+        broker is how a structure ends up half-placed, and nothing downstream can tell
+        that from a structure that was never placed.
+
+        But a cycle over a discovered universe is six committees — 73 seconds on a
+        live run — and for all of those seconds a polite stop is indistinguishable
+        from a signal nobody received. So the wait is *said*, with the way to insist,
+        and insisting works.
+        """
         if not self._stop.is_set():
-            self.log(f"stop requested ({reason}); finishing the current cycle")
+            self.log(f"stop requested ({reason}); finishing the current cycle "
+                     "— Ctrl-C again to stop now")
             self._stop.set()
+        elif not self._stop_now:
+            self.log("stopping now; not waiting for the cycle to finish")
+            self._stop_now = True
+        # A third and fourth press say nothing. One line per state, not one per
+        # keypress — a wall of repeats is how someone concludes it is wedged.
 
     def install_signal_handlers(self) -> None:
         loop = asyncio.get_running_loop()
@@ -156,6 +191,40 @@ class Scheduler:
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(self._stop.wait(), timeout=chunk)
             remaining -= chunk
+
+    async def _run_cycle(self, cycle: Callable[[], Awaitable[None]]) -> bool:
+        """Run one cycle, abandoning it if a second stop arrives. True if it finished.
+
+        Cancellation lands at the cycle's next `await`, which can be inside an order
+        submission — the exact case the graceful first press exists to protect. That
+        is a real cost and it is accepted here for two reasons: somebody pressing
+        Ctrl-C twice has asked for it plainly, and an agent that cannot be stopped is
+        the worse failure. The safety net is already in place either way — every
+        cycle reconciles the ledger against the broker's own positions before it
+        proposes anything, so an order that landed without being recorded shows up as
+        a divergence on the next run rather than being lost.
+        """
+        task = asyncio.ensure_future(cycle())
+        stop_now = asyncio.ensure_future(self._wait_for_stop_now())
+        try:
+            done, _ = await asyncio.wait({task, stop_now},
+                                         return_when=asyncio.FIRST_COMPLETED)
+            if task in done:
+                task.result()          # re-raise whatever the cycle raised
+                return True
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+            return False
+        finally:
+            stop_now.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await stop_now
+
+    async def _wait_for_stop_now(self) -> None:
+        """Resolve once a second stop request has arrived."""
+        while not self._stop_now:
+            await asyncio.sleep(_STOP_POLL_SECONDS)
 
     async def run(self, cycle: Callable[[], Awaitable[None]], *,
                   max_cycles: int | None = None, until_close: bool = False,
@@ -193,7 +262,10 @@ class Scheduler:
                 continue
 
             started = asyncio.get_running_loop().time()
-            await cycle()
+            if not await self._run_cycle(cycle):
+                # Abandoned by a second stop request. Not counted: it did not finish,
+                # and a coverage table that says otherwise is a false record.
+                break
             completed += 1
             elapsed = asyncio.get_running_loop().time() - started
 
