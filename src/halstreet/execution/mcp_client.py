@@ -33,6 +33,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from halstreet import clock as session_clock
+from halstreet.execution import mcp_noise
 from halstreet.execution.paper_assert import (
     PaperConfig,
     assert_paper_account,
@@ -203,8 +204,19 @@ class AlpacaMCP:
             args=list(self._args),
             env={**os.environ, **mcp_env(self._cfg)},
         )
+        # The server's stderr, filtered rather than silenced. Every call starts a
+        # fresh `uvx alpaca-mcp-server`, and FastMCP prints a fifteen-line banner each
+        # time — a single scan buried the agent's own output entirely. What it does
+        # *not* do is drop the channel: a broker failure arrives here and nowhere
+        # else. See `mcp_noise` for why the bias runs one way only.
+        #
+        # Outside the `try` and closed in `finally`, because it owns a pipe and a
+        # thread. Created inside, a raised `MCPError` would leak both — once per
+        # failed call, on a loop that runs every thirty minutes forever.
+        errlog, close_errlog = mcp_noise.quiet_stderr()
         try:
-            async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+            async with stdio_client(params, errlog=errlog) as (read, write), \
+                    ClientSession(read, write) as session:
                 await session.initialize()
                 result = await asyncio.wait_for(
                     session.call_tool(tool, args or {}), timeout=_CALL_TIMEOUT
@@ -213,6 +225,8 @@ class AlpacaMCP:
             raise MCPError(f"{tool} timed out after {_CALL_TIMEOUT:g}s") from exc
         except Exception as exc:
             raise MCPError(f"{tool} failed: {_describe(exc)}") from exc
+        finally:
+            close_errlog()
 
         if getattr(result, "isError", False):
             raise MCPError(f"{tool} returned an error: {_text(result)}")
