@@ -145,10 +145,10 @@ def test_money_leaves_as_decimal_never_float():
 
 
 def test_it_says_what_it_assumed():
-    """A number without its assumption is the assumption made invisible. This one is
-    priced on realized volatility with no drift, at expiry, ignoring early management."""
+    """A number without its assumption is the assumption made invisible: settled at
+    expiry, on one volatility, ignoring how the book is actually managed."""
     note = run().note.lower()
-    assert "expiry" in note and "vol" in note
+    assert "expiry" in note and "drift" in note
 
 
 # --- reaching the menu ---------------------------------------------------------------
@@ -344,3 +344,18 @@ def test_the_entry_crossing_is_not_charged_twice():
 
     # One crossing, not two: a $6 half-spread sum costs $6 to get out of, not $12.
     assert built(Decimal(6)).ev_usd == built(Decimal(0)).ev_usd - Decimal(6)
+
+
+def test_the_scenario_says_what_friction_it_already_charged():
+    """Otherwise the reader subtracts it again, and a live judge just did.
+
+    Shown an EV of +$13.80 and an `entry_slippage_usd` of $3, it reasoned: "only the $3
+    entry slippage is netted out ... the remaining ~$12 of exit cost takes the
+    realized-vol EV from $13.80 to roughly $2". The exit cost was already in the
+    figure. A number that has had a cost deducted must say so, or the next reader
+    deducts it twice — which is the same mistake this module had made in code an hour
+    earlier, now made in prose.
+    """
+    shape = run(friction_usd=Decimal(6)).to_prompt()
+    assert shape["friction_usd"] == "6"
+    assert "friction" in shape["note"].lower()

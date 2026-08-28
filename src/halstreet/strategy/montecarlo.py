@@ -59,8 +59,8 @@ PATHS = 20_000
 #: would be the most misleading number on the page.
 MAX_LOSS_TOLERANCE = Decimal("0.01")
 
-_NOTE = ("simulated to expiry on realized vol, risk-neutral drift — "
-         "priced against a different volatility from the one that quoted it")
+_NOTE = ("simulated to expiry, risk-neutral drift; friction_usd is already deducted "
+         "from every figure here — do not subtract it again")
 
 
 @dataclass(frozen=True)
@@ -81,6 +81,10 @@ class Scenario:
     best_usd: Decimal
     #: The volatility this was priced on, so a reader can see what it assumed.
     vol: float
+    #: Round-trip cost already deducted from every figure above. Carried because a
+    #: reader who cannot see it deducts it again — a live judge did exactly that,
+    #: taking an EV of $13.80 down to "roughly $2" with a cost already inside it.
+    friction_usd: Decimal = Decimal(0)
     note: str = _NOTE
 
     def to_prompt(self) -> dict:
@@ -94,6 +98,7 @@ class Scenario:
             "p50_usd": str(self.p50_usd),
             "p90_usd": str(self.p90_usd),
             "vol": round(self.vol, 4),
+            "friction_usd": str(self.friction_usd),
             "note": self.note,
         }
 
@@ -149,6 +154,7 @@ def simulate(*, legs: list[PayoffLeg], net: Decimal, spot: Decimal, dte: int,
         worst_usd=_cents(floor),
         best_usd=_cents(results[-1]),
         vol=vol,
+        friction_usd=friction_usd,
     )
 
 
