@@ -1,10 +1,13 @@
 /**
- * How long the journal may go quiet during the session before it is worth saying so.
+ * How long the journal may go quiet before it is worth saying so, when the server has
+ * not said.
  *
- * Longer than any cycle takes. A committee is four model calls and a judge that has
- * spent fourteen thousand output tokens on a hard decision, so a scan is minutes; a
- * quarter of an hour of nothing while the market is open is a stopped process rather
- * than a slow one.
+ * A fallback, not the rule. Between passes the agent writes nothing at all — it logs
+ * to stdout and sleeps — so healthy silence is about one cadence, and a cadence is
+ * configurable. At the thirty-minute default this fixed fifteen minutes announced a
+ * stopped process for roughly half of every cycle, on the one banner whose whole job
+ * is to be believed. The server now derives it from `SCAN_INTERVAL_MINUTES` and sends
+ * it; this stands in only for a snapshot that predates that field.
  */
 export const SILENT_AFTER_S = 900;
 
@@ -19,6 +22,8 @@ export interface PresenceInput {
   inFlight: string | null;
   /** Seconds since anything was written, or null if nothing ever has. */
   quietForS: number | null;
+  /** The server's own threshold, derived from the cadence. Null before it sends one. */
+  silentAfterS?: number | null;
 }
 
 /**
@@ -47,7 +52,8 @@ export function presence(input: PresenceInput): { kind: PresenceKind } {
   if (!input.connected) return { kind: "disconnected" };
   if (input.marketState === "closed") return { kind: "closed" };
   if (input.inFlight) return { kind: "working" };
-  if (input.quietForS !== null && input.quietForS > SILENT_AFTER_S) {
+  const silentAfter = input.silentAfterS ?? SILENT_AFTER_S;
+  if (input.quietForS !== null && input.quietForS > silentAfter) {
     return { kind: "silent" };
   }
   return { kind: "idle" };

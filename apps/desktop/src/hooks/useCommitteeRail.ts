@@ -55,6 +55,7 @@ export function useCommitteeRail(): CommitteeRail {
   const { kind } = usePresence();
   const market = useConnection((s) => s.snapshot?.market ?? null);
   const inFlight = useConnection((s) => s.snapshot?.in_flight ?? null);
+  const cadence = useConnection((s) => s.snapshot?.cadence ?? null);
   const setView = useUI((s) => s.setView);
 
   return useMemo(() => {
@@ -66,7 +67,9 @@ export function useCommitteeRail(): CommitteeRail {
     // quiet afternoon put three deliberations from this scan beside two from
     // eighteen hours ago, same weight, same list. The older ones are counted,
     // not dropped — the tab still has every one of them.
-    const scan = samePass(cards);
+    // The server's window, from the agent's own cadence. Ten minutes is right at
+    // the thirty-minute default and is the whole gap between passes at five.
+    const scan = samePass(cards, (cadence?.pass_window_s ?? 0) * 1000 || undefined);
     const { shown, hidden } = railList(scan.shown, RAIL_ROWS);
 
     const state = kind === "disconnected" ? t.presence.shortDisconnected
@@ -103,5 +106,5 @@ export function useCommitteeRail(): CommitteeRail {
       empty: t.committeeRail.none,
       openArchive: () => setView("committee"),
     };
-  }, [cards, kind, inFlight, market, t, setView]);
+  }, [cards, kind, inFlight, market, cadence, t, setView]);
 }

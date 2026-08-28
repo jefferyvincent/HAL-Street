@@ -39,7 +39,7 @@ export const SCAN_WINDOW_MS = 10 * 60_000;
  * deliberations there have been.
  */
 export function samePass<T extends { ts: string }>(
-  sessions: T[],
+  sessions: T[], windowMs: number = SCAN_WINDOW_MS,
 ): { shown: T[]; hidden: number } {
   if (sessions.length === 0) return { shown: [], hidden: 0 };
   const stamp = (s: T) => Date.parse(s.ts);
@@ -50,7 +50,7 @@ export function samePass<T extends { ts: string }>(
   if (!Number.isFinite(newest)) return { shown: sessions, hidden: 0 };
   const shown = sessions.filter((s) => {
     const at = stamp(s);
-    return Number.isNaN(at) || newest - at <= SCAN_WINDOW_MS;
+    return Number.isNaN(at) || newest - at <= windowMs;
   });
   return { shown, hidden: sessions.length - shown.length };
 }

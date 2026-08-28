@@ -180,6 +180,21 @@ def _strip(node: Any) -> Any:
     return node
 
 
+#: Output ceiling for one proposal, on either path that writes one.
+#:
+#: Raised twice, both times by a live failure. 8,000 became 12,000; a QQQ cycle then
+#: truncated at 12,000 having spent 14,698 output tokens against a 3,200-4,900 typical,
+#: because adaptive thinking has a long tail on a hard call and a ceiling near the
+#: median sits inside it. Losing a cycle's decision is worth far more than a ceiling
+#: nobody reaches costs, since the budget is only billed when it is used.
+#:
+#: One number because there is one proposal. The committee's judge and the single call
+#: produce the same object against the same schema, and they were 32,000 and 8,000 —
+#: so the cheaper path failed on exactly the decisions hard enough to be worth making
+#: well, and reported it as the model's formatting rather than as a budget.
+PROPOSAL_TOKENS = 32_000
+
+
 def response_schema() -> dict[str, Any]:
     """The proposal schema, adjusted for the structured-output API.
 
@@ -228,7 +243,7 @@ class ProposalWriter:
 
     def __init__(self, client: anthropic.Anthropic | None = None, *,
                  model: str = DEFAULT_MODEL, effort: str = DEFAULT_EFFORT,
-                 max_tokens: int = 8000) -> None:
+                 max_tokens: int = PROPOSAL_TOKENS) -> None:
         self._client = client or anthropic.Anthropic()
         self.model = model
         self.effort = effort
@@ -307,6 +322,11 @@ class ProposalWriter:
         first = self.propose(user_turn)
         # A decline is a complete answer, so long as it says why. Retrying an
         # explained one would be arguing with a model that did what it was asked.
+        #
+        # A transport failure, a refusal and a truncation all arrive as `error` and
+        # none of them is a model that misunderstood the format — a response that ran
+        # out of room will run out in the same place for the same price, which the
+        # live failure paid twice to discover.
         if first.ok or first.error is not None:
             return first
         if first.abstained and not first.unexplained_pass:
@@ -409,6 +429,20 @@ class ProposalWriter:
             "output_tokens": getattr(usage, "output_tokens", 0) or 0,
             "cache_read_tokens": getattr(usage, "cache_read_input_tokens", 0) or 0,
         }
+
+        if response.stop_reason == "max_tokens":
+            # Named separately because "the JSON will not parse" is what a truncation
+            # looks like from here, and it sent a live investigation to the wrong
+            # place: an IWM cycle died on `Expecting ',' delimiter at char 22875`,
+            # retried, and died identically. The model had not misunderstood the
+            # format — a constrained decode had run out of budget mid-object.
+            #
+            # Discarded rather than salvaged even when the fragment happens to parse.
+            # A structure whose second leg was cut off is a different and far riskier
+            # structure than the one being proposed, and it would arrive at the gates
+            # looking like a complete answer.
+            return LLMResult(
+                None, error=f"truncated at max_tokens={self.max_tokens}", **counts)
 
         if response.stop_reason == "refusal":
             details = getattr(response, "stop_details", None)

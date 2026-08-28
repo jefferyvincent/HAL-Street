@@ -35,6 +35,7 @@ export function useTape() {
   const f = useFormat();
   const { rows, selected } = useDecisions();
   const snap = useConnection((s) => s.snapshot);
+  const cadence = useConnection((s) => s.snapshot?.cadence ?? null);
   const show = useUI((s) => s.showDecision);
   const chart = useUI((s) => s.chart);
 
@@ -57,7 +58,8 @@ export function useTape() {
   // every decision ever gated, newest first and undivided, so two days of dry-run
   // approvals sat above this afternoon's at the same weight — nine rows deep before
   // anything from the run you are watching.
-  const { shown, hidden } = useMemo(() => samePass(lines), [lines]);
+  const window = (cadence?.pass_window_s ?? 0) * 1000 || undefined;
+  const { shown, hidden } = useMemo(() => samePass(lines, window), [lines, window]);
 
   return {
     lines: shown,

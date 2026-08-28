@@ -121,6 +121,50 @@ def scan_interval_seconds(source: dict[str, str] | None = None) -> int:
     return max(1, minutes) * 60
 
 
+#: How long one pass may take, at most, for the purpose of judging silence.
+#:
+#: Six discovered names is four model calls each and a judge with a long tail; the
+#: longest measured pass was a little over two minutes. Five is generous on purpose —
+#: this is the slack in an alarm, and an alarm that cries wolf is worse than one that
+#: is late.
+PASS_ALLOWANCE_S = 5 * 60
+
+
+def silent_after_seconds(source: dict[str, str] | None = None) -> int:
+    """How quiet the journal may go, mid-session, before something is wrong.
+
+    Derived from the cadence rather than fixed, because the cadence is configurable
+    and this is a claim about it. Between passes the scheduler writes nothing at all —
+    it logs to stdout and sleeps — so a thirty-minute cadence is about twenty-eight
+    minutes of silence from an agent working perfectly. The console called that a
+    stopped process at fifteen minutes: a false alarm for roughly half of every cycle,
+    on the one banner whose entire job is to be believed.
+
+    One interval plus a pass, so a slow afternoon does not read as a dead agent.
+    """
+    return scan_interval_seconds(source) + PASS_ALLOWANCE_S
+
+
+def pass_window_seconds(source: dict[str, str] | None = None) -> int:
+    """How far apart two records can be and still belong to the same scan.
+
+    A pass is minutes; passes are one cadence apart. Half the cadence sits between
+    those with room on both sides — and it has to *be* half the cadence rather than a
+    fixed ten minutes, which is right at thirty and would merge two consecutive passes
+    into one at five.
+
+    Capped at twice the pass allowance, because beyond a pass's own length a wider
+    window only risks catching the pass before it.
+
+    Not floored. A floor at the pass allowance is self-defeating at short cadences —
+    it would make the window as wide as the gap it is supposed to measure. Set a
+    cadence shorter than a pass takes and a slow pass may split across two tables;
+    that is a real consequence of scans overlapping, which the scheduler already
+    refuses to do and says so when a cycle overruns its interval.
+    """
+    return min(scan_interval_seconds(source) // 2, PASS_ALLOWANCE_S * 2)
+
+
 #: 128 + SIGINT, the shell's own convention for a process a signal ended.
 INTERRUPTED = 130
 

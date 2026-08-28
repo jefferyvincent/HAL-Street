@@ -36,12 +36,16 @@ from typing import Any
 from halstreet import clock
 from halstreet.marketdata import occ
 from halstreet.marketdata.chain import daily_volume
-from halstreet.marketdata.occ import Contract, PayoffLeg, Right, parse
+from halstreet.marketdata.occ import (
+    CONTRACT_MULTIPLIER,
+    Contract,
+    PayoffLeg,
+    Right,
+    parse,
+)
 from halstreet.strategy import montecarlo, scoring
 from halstreet.strategy import pop as pop_math
 from halstreet.strategy import profiles as P
-
-CONTRACT_MULTIPLIER = 100
 
 
 def _dec(value: object) -> Decimal | None:

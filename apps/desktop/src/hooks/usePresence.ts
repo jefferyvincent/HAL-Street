@@ -25,6 +25,7 @@ export function usePresence(): Presence {
   const connected = useConnection((s) => s.connected);
   const market = useConnection((s) => s.snapshot?.market ?? null);
   const inFlight = useConnection((s) => s.snapshot?.in_flight ?? null);
+  const cadence = useConnection((s) => s.snapshot?.cadence ?? null);
 
   return useMemo(() => {
     const { kind } = presence({
@@ -32,6 +33,9 @@ export function usePresence(): Presence {
       marketState: market?.state ?? null,
       inFlight: inFlight?.stage ?? null,
       quietForS: market?.quiet_for_s ?? null,
+      // The agent's own cadence decides what counts as too quiet. A fixed threshold
+      // is one that is right at exactly one setting of a configurable interval.
+      silentAfterS: cadence?.silent_after_s ?? null,
     });
 
     if (kind === "disconnected") {
@@ -52,5 +56,5 @@ export function usePresence(): Presence {
       return { kind, message: t.presence.silent, tone: "text-amber" };
     }
     return { kind, message: null, tone: "" };
-  }, [connected, market, inFlight, t]);
+  }, [connected, market, inFlight, cadence, t]);
 }

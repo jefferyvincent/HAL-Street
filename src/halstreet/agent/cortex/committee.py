@@ -61,6 +61,7 @@ import anthropic
 from halstreet.agent.cortex.llm import (
     DEFAULT_EFFORT,
     DEFAULT_MODEL,
+    PROPOSAL_TOKENS,
     LLMResult,
     explain_the_pass,
     parse_proposal,
@@ -94,7 +95,9 @@ RECORD_CHARS = 1200
 
 ANALYST_TOKENS = 3000
 DEBATE_TOKENS = 4000
-JUDGE_TOKENS = 32000
+#: One number, owned by `llm.py`, because both paths write the same proposal
+#: against the same schema. See PROPOSAL_TOKENS for what raised it.
+JUDGE_TOKENS = PROPOSAL_TOKENS
 
 #: The follow-up that asks an unexplained pass for its reasoning. Far smaller on
 #: purpose: the decision is settled and the ask is one paragraph, so a ceiling near

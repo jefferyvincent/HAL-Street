@@ -135,3 +135,42 @@ def test_another_names_events_do_not_land_on_this_row():
                  {"event": "candidates", "ts": at(35), "underlying": "NVDA", "count": 9}])
     assert got["rows"][0]["menu"] is None
     assert got["rows"][1]["menu"] == 9
+
+
+# --- macro odds age out --------------------------------------------------------------
+#
+# `_macro` walked the whole journal for the newest read, so a pass that could not reach
+# the venue showed the *previous* pass's prices. The agent recorded "could not ask" and
+# the panel drew yesterday's numbers beside today's scan — the two surfaces disagreeing
+# about the same fact, which is the complaint this panel keeps earning.
+
+def macro(ago: float) -> dict:
+    return {"event": "macro", "ts": at(ago), "venue": "polymarket",
+            "odds": [{"question": "Fed hike?", "yes_pct": 50.5, "volume_usd": 990_193}]}
+
+
+def test_a_read_from_this_scan_is_the_current_one():
+    from halstreet.telemetry.server import _macro
+
+    assert _macro([macro(60)])["odds"][0]["yes_pct"] == 50.5
+
+
+def test_a_read_from_hours_ago_is_not_this_scan_s():
+    """A prediction market's price this morning is not evidence about this afternoon,
+    and one drawn at full weight beside a live scan claims that it is."""
+    from halstreet.telemetry.server import _macro
+
+    assert _macro([macro(6 * 3600)]) is None
+
+
+def test_a_journal_with_no_macro_read_has_none():
+    from halstreet.telemetry.server import _macro
+
+    assert _macro([{"event": "cycle_start", "ts": at(5), "underlying": "SPY"}]) is None
+
+
+def test_an_unreadable_stamp_is_not_treated_as_current():
+    """Fails toward absent. A read we cannot place in time is not a read from now."""
+    from halstreet.telemetry.server import _macro
+
+    assert _macro([{"event": "macro", "ts": "recently", "odds": []}]) is None

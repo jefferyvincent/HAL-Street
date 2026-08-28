@@ -73,3 +73,33 @@ describe("what it refuses to guess", () => {
     expect(presence({ ...LIVE, quietForS: null }).kind).toBe("idle");
   });
 });
+
+// --- the threshold is the agent's, not ours ------------------------------------------
+//
+// Between passes the agent writes nothing at all — it logs to stdout and sleeps. So a
+// healthy thirty-minute cadence is about twenty-eight minutes of silence, and a fixed
+// fifteen-minute threshold announced a stopped process for roughly half of every cycle,
+// on the one banner whose whole job is to be believed.
+
+describe("how quiet is too quiet", () => {
+  const base = { connected: true, marketState: "open", inFlight: null };
+
+  it("takes the threshold from the agent's own cadence", () => {
+    expect(presence({ ...base, quietForS: 1200, silentAfterS: 2100 }).kind).toBe("idle");
+  });
+
+  it("still notices a genuinely stopped agent", () => {
+    expect(presence({ ...base, quietForS: 4000, silentAfterS: 2100 }).kind).toBe("silent");
+  });
+
+  it("falls back to the fixed threshold for a server that sends none", () => {
+    // An older snapshot, or a build from before the field existed. Falling back keeps
+    // a panel pointed at a stale server readable rather than mute.
+    expect(presence({ ...base, quietForS: 1200, silentAfterS: null }).kind).toBe("silent");
+  });
+
+  it("does not call a shut market a stopped agent, whatever the threshold", () => {
+    expect(presence({ ...base, marketState: "closed", quietForS: 90_000,
+                      silentAfterS: 2100 }).kind).toBe("closed");
+  });
+});

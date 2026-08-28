@@ -474,3 +474,64 @@ def test_the_prompt_names_the_cap_that_bites_a_discovered_universe():
     """
     from halstreet.agent.cortex.llm import SYSTEM_PROMPT
     assert "unclassified" in SYSTEM_PROMPT.lower()
+
+
+# --- truncation, which does not look like truncation ---------------------------------
+#
+# A live IWM cycle died on `JSONDecodeError: Expecting ',' delimiter: line 1 column
+# 22875`, retried, and died identically. That is not malformed JSON — it is a response
+# that ran out of budget partway through a constrained decode, and partial JSON is
+# exactly what that looks like from here.
+#
+# `committee.py` has checked `stop_reason == "max_tokens"` since the judge's ceiling
+# had to be raised twice for the same reason. This path never got the lesson: it checks
+# `refusal` and nothing else, so a truncation arrives as the model's formatting being
+# wrong and burns a full-price retry that will run out of budget at the same place.
+
+TRUNCATED = GOOD_JSON[:120]
+
+
+def test_a_truncated_response_is_named_rather_than_blamed_on_the_model():
+    writer = ProposalWriter(FakeClient(reply(TRUNCATED, stop_reason="max_tokens")))
+    out = writer.propose("menu")
+    assert out.error is not None
+    assert "max_tokens" in out.error
+    assert "json" not in out.error.lower(), "the JSON was fine until the budget ran out"
+
+
+def test_a_truncated_response_carries_no_half_parsed_proposal():
+    """Half a proposal that happens to parse is the dangerous case: a structure whose
+    second leg was cut is a different and far riskier structure than the one intended."""
+    writer = ProposalWriter(FakeClient(reply(TRUNCATED, stop_reason="max_tokens")))
+    assert writer.propose("menu").parsed is None
+
+
+def test_a_truncation_is_not_retried():
+    """The retry exists for a model that misunderstood the format. A model that ran out
+    of room will run out at the same place, for the same price — the live failure was
+    two full-cost calls to reach one error."""
+    client = SequenceClient(reply(TRUNCATED, stop_reason="max_tokens"),
+                            reply(GOOD_JSON))
+    writer = ProposalWriter(client)
+    out = writer.propose_with_retry("menu")
+    assert len(client.turns) == 1, "it should not have asked twice"
+    assert out.ok is False
+
+
+def test_the_tokens_a_truncated_call_burned_are_still_counted():
+    """It cost what it cost. A cycle that spent output tokens and produced nothing must
+    not report as free — the spend table is how the committee's cost is judged."""
+    writer = ProposalWriter(FakeClient(reply(TRUNCATED, stop_reason="max_tokens")))
+    assert writer.propose("menu").output_tokens == 50
+
+
+def test_the_ceiling_matches_the_one_the_judge_needed():
+    """Both paths produce the same proposal against the same schema. The judge's
+    ceiling was raised to 32,000 after a live cycle truncated at 12,000; leaving this
+    path at 8,000 means the cheaper path fails on exactly the decisions that are hard
+    enough to be worth making well."""
+    from halstreet.agent.cortex.committee import JUDGE_TOKENS
+    from halstreet.agent.cortex.llm import PROPOSAL_TOKENS
+
+    assert JUDGE_TOKENS == PROPOSAL_TOKENS, "one proposal, one ceiling"
+    assert ProposalWriter(FakeClient()).max_tokens == PROPOSAL_TOKENS

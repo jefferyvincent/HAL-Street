@@ -37,7 +37,11 @@ from fastapi.staticfiles import StaticFiles
 
 from halstreet import clock, paths
 from halstreet.agent.brainstem.breaker import CircuitState
-from halstreet.agent.brainstem.schedule import scan_interval_seconds
+from halstreet.agent.brainstem.schedule import (
+    pass_window_seconds,
+    scan_interval_seconds,
+    silent_after_seconds,
+)
 from halstreet.agent.cerebellum.manager import (
     CONTRACT_MULTIPLIER,
     ExitPolicy,
@@ -683,10 +687,9 @@ def _crossed(record: dict) -> tuple[str, str] | None:
 
 #: How far apart two `cycle_start` records can be and still belong to one scan.
 #:
-#: A pass over six discovered names is a minute or two of model calls; passes are
-#: `SCAN_INTERVAL_MINUTES` apart, thirty by default. Ten minutes sits in the gap
-#: between those two numbers with room on both sides.
-PASS_GAP_S = 600.0
+#: From the cadence, not a constant. Ten minutes is right at the thirty-minute default
+#: and wrong at five, where it is the whole gap between passes and would merge two of
+#: them into one table. `schedule.pass_window_seconds` owns the rule.
 
 
 def _pass(events: list[dict]) -> dict | None:
@@ -714,7 +717,7 @@ def _pass(events: list[dict]) -> dict | None:
     first = starts[-1]
     for a, b in zip(reversed(starts[:-1]), reversed(starts[1:]), strict=True):
         gap = _gap(events[a].get("ts"), events[b].get("ts"))
-        if gap is None or gap > PASS_GAP_S:
+        if gap is None or gap > pass_window_seconds():
             break
         first = a
 
@@ -796,16 +799,33 @@ def _gap(a: Any, b: Any) -> float | None:
         return None
 
 
-def _macro(events: list[dict]) -> dict | None:
-    """The most recent macro-odds read, or None if no pass has managed one.
+#: How old a macro read may be and still be this scan's.
+#:
+#: One cadence plus a pass's worth of slack. Beyond it the read belongs to a scan that
+#: has already been superseded, and it must not be drawn beside the current one.
+MACRO_FRESH_S = 45 * 60
 
-    Only the latest. A prediction market's price six hours ago is not evidence about
-    now, and a list of them stacked up would read as a history nobody is keeping.
+
+def _macro(events: list[dict]) -> dict | None:
+    """The macro-odds read for the scan in progress, or None if this one has no read.
+
+    Aged out, and that is the whole of it. Walking back to the newest read of any age
+    meant a pass that could not reach the venue drew the *previous* pass's prices: the
+    agent recorded "could not ask" and the panel showed this morning's numbers beside
+    this afternoon's scan. Two surfaces disagreeing about one fact, with the one that
+    can be seen being the one that was wrong.
+
+    A stamp that cannot be read fails toward absent. A price we cannot place in time
+    is not a price from now.
     """
     for event in reversed(events):
-        if event.get("event") == "macro":
-            return {"venue": event.get("venue"), "at": event.get("ts"),
-                    "odds": event.get("odds") or []}
+        if event.get("event") != "macro":
+            continue
+        age = _age(event.get("ts"))
+        if age is None or age > MACRO_FRESH_S:
+            return None
+        return {"venue": event.get("venue"), "at": event.get("ts"),
+                "odds": event.get("odds") or []}
     return None
 
 
@@ -1300,7 +1320,14 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
         # When the next scan is due, so the console can count down to it rather
         # than leaving a reader to work out whether a quiet panel is waiting or
         # stopped. The cadence is the scheduler's own, from one reader.
-        "cadence": {"interval_s": scan_interval_seconds()},
+        "cadence": {
+            "interval_s": scan_interval_seconds(),
+            # How quiet a healthy agent goes between passes. The console had this as
+            # a fixed fifteen minutes against a cadence of thirty, so it announced a
+            # stopped process for about half of every cycle.
+            "silent_after_s": silent_after_seconds(),
+            "pass_window_s": pass_window_seconds(),
+        },
         # What each gate measured last time it ran. The counts say which gates have
         # ever bitten; these say how close the book is to each one now.
         "gate_readings": _gate_readings(events),

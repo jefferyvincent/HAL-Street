@@ -46,16 +46,13 @@ import random
 from dataclasses import dataclass
 from decimal import Decimal
 
-from halstreet.marketdata.occ import PayoffLeg, payoff
+from halstreet.marketdata.occ import CONTRACT_MULTIPLIER, PayoffLeg, payoff
 from halstreet.strategy.blackscholes import DAYS_PER_YEAR, RISK_FREE_RATE
 
 #: Paths per structure. Enough that the second decimal of a probability is stable
 #: across seeds — the test pins that — and cheap enough to run for every candidate on
 #: every menu: a few milliseconds of arithmetic beside two network calls.
 PATHS = 20_000
-
-#: A contract is a hundred shares. Every figure below is dollars per structure.
-MULTIPLIER = 100
 
 #: How close to the worst case counts as *the* worst case. Sampling lands a hair inside
 #: it, and a tail probability of zero for a structure that plainly can lose everything
@@ -133,7 +130,7 @@ def simulate(*, legs: list[PayoffLeg], net: Decimal, spot: Decimal, dte: int,
         terminal = Decimal(str(float(spot) * math.exp(drift + shock * rng.gauss(0, 1))))
         # payoff() is the structure's value at expiry; opening cost is already in
         # `entry`, so what is left is the round trip.
-        results.append((payoff(legs, terminal) + entry) * MULTIPLIER - friction_usd)
+        results.append((payoff(legs, terminal) + entry) * CONTRACT_MULTIPLIER - friction_usd)
 
     results.sort()
     floor = results[0]

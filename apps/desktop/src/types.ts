@@ -567,7 +567,13 @@ export interface Snapshot {
    */
   macro: Macro | null;
   /** The scheduler's cadence, so the console can say when a scan is due. */
-  cadence: { interval_s: number } | null;
+  cadence: {
+    interval_s: number;
+    /** Healthy silence between passes. Derived from the cadence, not fixed. */
+    silent_after_s: number;
+    /** How close two records must be to belong to the same scan. */
+    pass_window_s: number;
+  } | null;
   pnl: Pnl;
   positions: Position[];
   closed: ClosedStructure[];

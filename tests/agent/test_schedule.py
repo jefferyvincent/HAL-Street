@@ -520,3 +520,46 @@ def test_an_unreadable_cadence_falls_back_too(bad):
 def test_a_cadence_of_zero_is_still_a_cadence():
     """Same floor the scheduler itself applies. A zero-second loop is not a schedule."""
     assert schedule.scan_interval_seconds({"SCAN_INTERVAL_MINUTES": "0"}) == 60
+
+
+# --- what a healthy silence looks like ------------------------------------------------
+#
+# Between passes the scheduler writes nothing. It logs to stdout and sleeps; the journal
+# gets a record only when a cycle runs. So a 30-minute cadence is roughly 28 minutes of
+# silence, every half hour, from an agent that is working perfectly.
+#
+# The console called that a stopped process at fifteen minutes — a false alarm for about
+# half of every cycle, on the one banner whose whole job is to be believed.
+
+def test_the_silence_a_healthy_agent_produces_is_about_one_interval():
+    """Derived from the cadence, because the cadence is configurable and this is a
+    claim about it. A fixed threshold is a threshold that is right at one setting."""
+    assert schedule.silent_after_seconds({"SCAN_INTERVAL_MINUTES": "30"}) > 30 * 60
+
+
+def test_a_faster_cadence_notices_a_stopped_agent_sooner():
+    """The point of deriving it. Five-minute scans should not need forty minutes of
+    silence before anyone is told."""
+    fast = schedule.silent_after_seconds({"SCAN_INTERVAL_MINUTES": "5"})
+    slow = schedule.silent_after_seconds({"SCAN_INTERVAL_MINUTES": "30"})
+    assert fast < slow
+
+
+def test_the_allowance_covers_a_slow_pass_rather_than_tripping_on_one():
+    """A pass over six discovered names is four model calls each. The threshold has to
+    clear one interval *plus* the pass that follows it, or a slow afternoon reads as a
+    dead agent."""
+    interval = schedule.scan_interval_seconds({"SCAN_INTERVAL_MINUTES": "30"})
+    assert schedule.silent_after_seconds({"SCAN_INTERVAL_MINUTES": "30"}) >= interval + 300
+
+
+def test_two_scans_a_cadence_apart_are_not_one_pass():
+    """`_pass` groups cycle_starts into a scan by how close together they are. Ten
+    minutes is right at thirty-minute cadence and wrong at five, where it would merge
+    two consecutive passes into one table."""
+    assert schedule.pass_window_seconds({"SCAN_INTERVAL_MINUTES": "5"}) < 5 * 60
+
+
+def test_the_window_still_holds_a_slow_pass_together():
+    """Six names, four model calls each. The window has to be wider than the pass."""
+    assert schedule.pass_window_seconds({"SCAN_INTERVAL_MINUTES": "30"}) >= 300

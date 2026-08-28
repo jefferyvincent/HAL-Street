@@ -219,3 +219,22 @@ def test_the_cycle_hands_the_ranking_the_volatility_it_measured():
     from halstreet.agent.cerebellum import loop
     source = inspect.getsource(loop.Agent.run_cycle)
     assert "realized_vol" in source
+
+
+def test_there_is_one_contract_multiplier_in_the_codebase():
+    """A hundred shares to a contract is a fact about the instrument, and it was
+    written down in three places.
+
+    Not a bug today — it is a hundred everywhere — but it is the shape of one this
+    project has already paid for: `verify_multileg.py` carried its own `parse_occ`
+    with a comment saying the real one should be ported, the port landed, the comment
+    stayed, and the copy went on parsing symbols its own way for months.
+    """
+    import re
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[2] / "src" / "halstreet"
+    owners = [p for p in src.rglob("*.py")
+              if re.search(r"^[A-Z_]*MULTIPLIER\s*=", p.read_text(), re.MULTILINE)]
+    assert [p.name for p in owners] == ["occ.py"], \
+        f"the multiplier is defined in more than one place: {[p.name for p in owners]}"
