@@ -5,6 +5,7 @@ import { ActivityFeed } from "@/components/ActivityFeed";
 import { EquityChart } from "@/components/EquityChart";
 import { Scoreboard } from "@/components/Scoreboard";
 import { Holding } from "@/components/Holding";
+import { Periods } from "@/components/Periods";
 import { Spend } from "@/components/Spend";
 import { GateLedger } from "@/components/GateLedger";
 import { Cross, Icon, Note, Tick } from "@/components/Icon";
@@ -43,6 +44,7 @@ export function ConsoleView() {
   const run = (
     <>
       <Scoreboard />
+      <Periods />
       {snap && <EquityChart curve={snap.equity_curve} pnl={snap.pnl} />}
       <Holding />
       <Spend />

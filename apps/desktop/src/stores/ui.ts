@@ -55,6 +55,16 @@ interface UI {
   chartTimeframe: string | null;
   setTimeframe: (timeframe: string | null) => void;
   /**
+   * Which P&L window the console shows, or null before anyone has chosen.
+   *
+   * Here rather than in the view so it survives switching tabs and coming back — a
+   * trader who set the console to MONTH did not mean "until I look at the book".
+   * Which window is actually shown is `lib/periods.chosenPeriod`, because a stored
+   * key can outlive the server's offer of it.
+   */
+  pnlPeriod: string | null;
+  setPnlPeriod: (period: string) => void;
+  /**
    * Select a decision *and* show it.
    *
    * `select` alone stopped being enough the moment the record became collapsible:
@@ -107,6 +117,8 @@ export const useUI = create<UI>((set) => ({
   chartFit: "working",
   chartTimeframe: null,
   setTimeframe: (chartTimeframe) => set({ chartTimeframe }),
+  pnlPeriod: null,
+  setPnlPeriod: (pnlPeriod) => set({ pnlPeriod }),
   toggleFit: () => set((s) => ({ chartFit: s.chartFit === "working" ? "levels" : "working" })),
   toggleDecision: () => set((s) => ({ decisionOpen: !s.decisionOpen })),
   showDecision: (selected) => set({ selected, decisionOpen: true, view: "console" }),
