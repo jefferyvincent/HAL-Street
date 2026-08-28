@@ -45,6 +45,7 @@ from halstreet.agent.manager import (
 )
 from halstreet.gates import ALL_GATES
 from halstreet.gates.base import FAMILIES, Limits, family_of
+from halstreet.marketdata.discovery import MAX_TAGS_PER_HEADLINE
 from halstreet.strategy.exposure import agrees, exposure_of
 from halstreet.telemetry import pnl, pricing, structure_chart
 from halstreet.telemetry.journal import Journal
@@ -786,11 +787,35 @@ def _headlines(events: list[dict]) -> list[dict]:
         for item in feed:
             _add(item, root)
 
+    # Roundups off the strip. Benzinga slices one pre-market story by sector and files
+    # it four times — "12 Consumer Discretionary Stocks Moving", "12 Health Care
+    # Stocks Moving" — twelve tickers each, and four near-identical headlines in a row
+    # is a sixth of the strip saying one thing. That is the repetition widening the
+    # source was meant to cure, arriving by another door.
+    #
+    # Deliberately `discovery.MAX_TAGS_PER_HEADLINE` and not a second number: it is
+    # the same judgement the tally already makes — past this many tags an article is
+    # macro noise rather than company news — and two constants meaning that would
+    # drift until the map and the strip disagreed about the same morning.
+    #
+    # A preference, not a boundary, so it never empties the strip. On a thin
+    # pre-market the census can be roundups end to end, and a blank strip there reads
+    # as a broken panel rather than a quiet tape. They are real articles: worth less
+    # than company news, worth more than nothing.
+    rows = list(seen.values())
+    def _tags(row: dict) -> int:
+        # `len` of a string is a number too, and a bare `len(...)` here would grade a
+        # malformed record on its character count. Anything that is not a list has no
+        # tags as far as this question goes.
+        tags = row.get("symbols")
+        return len(tags) if isinstance(tags, list) else 0
+
+    news = [r for r in rows if _tags(r) <= MAX_TAGS_PER_HEADLINE]
     # By recency, and unreadable timestamps last rather than first — an article whose
     # `ts` we could not parse is not breaking news, and `age_hours` is already None
     # for it everywhere else.
     ordered = sorted(
-        seen.values(),
+        news or rows,
         key=lambda r: (r.get("age_hours") is None, r.get("age_hours") or 0.0),
     )
     for row in ordered:

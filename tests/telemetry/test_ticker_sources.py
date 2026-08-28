@@ -182,3 +182,80 @@ def test_a_malformed_census_feed_costs_the_census_not_the_strip(tmp_path, feed):
 def test_a_census_from_before_feeds_were_journalled_is_not_an_error(tmp_path):
     snap = _run(tmp_path, [("discovery", {"headlines": 9, "symbols": 3, "tally": []})])
     assert snap["headlines"] == []
+
+
+# --- roundups ------------------------------------------------------------------------
+#
+# Benzinga slices one pre-market story by sector and files it four times: "12 Consumer
+# Discretionary Stocks Moving...", "12 Health Care Stocks Moving...", and so on. Each
+# carries twelve tickers, each is a different article, and four of them in a row is a
+# sixth of the strip saying the same thing — which is the complaint that widening the
+# source was meant to answer, arriving by a different route.
+#
+# `discovery.MAX_TAGS_PER_HEADLINE` already draws this line for the tally: past six
+# tags an article is a market roundup rather than company news. Same judgement, same
+# threshold, deliberately the same constant — two numbers meaning "this is a roundup"
+# would drift, and the day they disagree the map and the strip disagree about what the
+# tape said.
+
+from halstreet.marketdata.discovery import MAX_TAGS_PER_HEADLINE as CAP  # noqa: E402
+
+
+def _tagged(headline, n, age=1.0):
+    return _article(headline, *[f"S{i}" for i in range(n)], age=age)
+
+
+def test_a_roundup_tagged_with_the_whole_market_stays_off_the_strip(tmp_path):
+    snap = _run(tmp_path, [_census(_tagged("12 Industrials Stocks Moving", CAP + 1),
+                                   _article("Nvidia beats", "NVDA"))])
+    assert [h["headline"] for h in snap["headlines"]] == ["Nvidia beats"]
+
+
+def test_an_article_at_the_limit_is_still_news(tmp_path):
+    """A real merger story legitimately tags both sides and their sector peers."""
+    snap = _run(tmp_path, [_census(_tagged("A real story", CAP))])
+    assert [h["headline"] for h in snap["headlines"]] == ["A real story"]
+
+
+def test_a_roundup_the_catalyst_read_is_dropped_too(tmp_path):
+    """One rule, both sources.
+
+    The catalyst genuinely read it, which is an argument for showing it — and it is
+    still four near-identical headlines taking a sixth of a strip a person reads
+    sideways. The claim being made here is about the article, not about who saw it.
+    """
+    snap = _run(tmp_path, [_committee("SPY", _tagged("12 Stocks Moving", CAP + 1),
+                                      _article("Fed holds", "SPY"))])
+    assert [h["headline"] for h in snap["headlines"]] == ["Fed holds"]
+
+
+def test_the_filter_never_empties_the_strip(tmp_path):
+    """A preference, not a boundary.
+
+    On a thin pre-market the census can be roundups end to end. A blank strip there
+    reads as a broken panel rather than as a quiet tape, and the roundups are real
+    articles — worth less than company news, worth more than nothing.
+    """
+    snap = _run(tmp_path, [_census(_tagged("12 Stocks Moving", CAP + 1),
+                                   _tagged("12 More Stocks Moving", CAP + 1))])
+    assert len(snap["headlines"]) == 2
+
+
+def test_the_fallback_does_not_fire_while_anything_survives(tmp_path):
+    """One real story is enough. The fallback is for nothing at all, not for thin."""
+    snap = _run(tmp_path, [_census(_tagged("12 Stocks Moving", CAP + 1),
+                                   _article("Nvidia beats", "NVDA"))])
+    assert [h["headline"] for h in snap["headlines"]] == ["Nvidia beats"]
+
+
+def test_an_article_with_no_tags_at_all_is_not_a_roundup(tmp_path):
+    """Zero is not "more than six". An untagged story is the opposite of macro noise."""
+    snap = _run(tmp_path, [_census(_article("Untagged story"))])
+    assert [h["headline"] for h in snap["headlines"]] == ["Untagged story"]
+
+
+@pytest.mark.parametrize("symbols", [None, "NVDA", 7, {"a": 1}])
+def test_a_malformed_tag_list_does_not_decide_the_question_by_crashing(tmp_path, symbols):
+    row = {**_article("Odd one"), "symbols": symbols}
+    snap = _run(tmp_path, [_census(row), _committee("SPY", _article("Fed holds", "SPY"))])
+    assert "Fed holds" in _by_headline(snap)
