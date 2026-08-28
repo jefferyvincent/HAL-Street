@@ -29,6 +29,7 @@ from halstreet.agent.ledger import Ledger
 from halstreet.agent.loop import Agent
 from halstreet.agent.manager import ExitPolicy
 from halstreet.gates.base import Limits
+from halstreet.marketdata import discovery
 from halstreet.marketdata.news import Headline
 from halstreet.telemetry.journal import Journal
 
@@ -221,3 +222,61 @@ async def test_a_lookup_that_exploded_is_recorded_as_refused_not_as_unseen(build
     await agent.discover(limit=5)
     row = next(r for r in _tally(journal) if r["symbol"] == "BOOM")
     assert row["status"] == "refused" and "lookup failed" in row["reason"]
+
+
+# --- the census as a feed ------------------------------------------------------------
+#
+# The tally keeps a symbol, a count and one headline string — enough to draw a heat
+# map, and not enough to be a news item. No timestamp means no age and no ordering; no
+# URL means nothing to click. So the census journals the articles themselves as well,
+# in the same shape a committee read does, and the ticker draws from both.
+
+@pytest.mark.asyncio
+async def test_the_census_journals_the_articles_not_only_the_counts(build):
+    agent, journal = build(_Broker([_h("NVDA", headline="Nvidia beats")]))
+    await agent.discover(limit=5)
+    feed = _event(journal, "discovery")["feed"]
+    assert feed[0]["headline"] == "Nvidia beats"
+
+
+@pytest.mark.asyncio
+async def test_a_census_article_carries_what_a_ticker_item_needs(build):
+    """Age and a link are the two the tally cannot supply, and both are load-bearing:
+    the strip is ordered by recency and every item is meant to be clickable."""
+    agent, journal = build(_Broker([_h("NVDA")]))
+    await agent.discover(limit=5)
+    assert set(_event(journal, "discovery")["feed"][0]) >= {
+        "ts", "age_hours", "source", "headline", "symbols", "url"}
+
+
+@pytest.mark.asyncio
+async def test_the_feed_is_bounded_so_a_loud_morning_does_not_bloat_the_journal(build):
+    """A census reads a hundred headlines a pass, every pass, all day.
+
+    The ticker shows a couple of dozen and orders by recency, so everything past the
+    newest slice is written and never read. The census stays a hundred — the *count*
+    is what ranks the map — but the journal keeps only what can surface.
+    """
+    agent, journal = build(_Broker([_h(f"S{i}") for i in range(80)]))
+    await agent.discover(limit=2)
+    event = _event(journal, "discovery")
+    assert event["headlines"] == 80, "the census itself must not shrink"
+    assert len(event["feed"]) == discovery.FEED_KEPT
+
+
+@pytest.mark.asyncio
+async def test_the_feed_keeps_the_newest_because_that_is_what_the_strip_shows(build):
+    """The broker returns newest-first, so the slice is the head, not a sample."""
+    old = _h("OLD", headline="From yesterday")
+    new = [_h(f"N{i}", headline=f"Fresh {i}") for i in range(discovery.FEED_KEPT)]
+    agent, journal = build(_Broker([*new, old]))
+    await agent.discover(limit=1)
+    texts = [a["headline"] for a in _event(journal, "discovery")["feed"]]
+    assert "From yesterday" not in texts
+
+
+@pytest.mark.asyncio
+async def test_a_dead_feed_journals_nothing_rather_than_a_broken_event(build):
+    agent, journal = build(_Broker(news_raises=True))
+    await agent.discover(limit=5)
+    assert _event(journal, "discovery") is None

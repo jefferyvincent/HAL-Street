@@ -66,6 +66,14 @@ MAX_TAGS_PER_HEADLINE = 6
 #: size multiplies the model spend of a cycle directly.
 DEFAULT_SHORTLIST = 6
 
+#: Census articles kept in the journal, newest first.
+#:
+#: The census reads a hundred headlines a pass, every pass, all day, and the ticker
+#: shows a couple of dozen ordered by recency — so everything past the newest slice is
+#: written to disk and never read by anything. The *count* still runs over all hundred,
+#: because that is what ranks the map; this bounds only what is kept to be re-read.
+FEED_KEPT = 30
+
 #: Alpaca's asset class for the only thing this agent can build a structure on.
 EQUITY = "us_equity"
 

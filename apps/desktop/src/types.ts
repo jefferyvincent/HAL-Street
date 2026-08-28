@@ -377,8 +377,14 @@ export interface NewsItem {
   headline: string;
   /** Every symbol the publisher tagged. */
   symbols: string[];
-  /** Which of our own underlyings' reads picked it up. */
+  /** Which of our own underlyings' reads picked it up. Empty for a census sighting. */
   roots: string[];
+  /**
+   * Whether a catalyst actually had this in front of it before deciding, as opposed
+   * to it merely going past in the market-wide census. Two different claims, and the
+   * strip may only make the first about an article that earned it.
+   */
+  read: boolean;
   /**
    * The publisher's page. Empty unless it passed the server's scheme allowlist —
    * this is the one piece of untrusted input a browser will *execute* rather than

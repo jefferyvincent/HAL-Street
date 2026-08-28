@@ -4,11 +4,16 @@ import { useNewsTape } from "@/hooks/useNewsTape";
 import { useStrings } from "@/hooks/useStrings";
 
 /**
- * What the agent has been reading, scrolling under the chrome.
+ * What the agent is watching, scrolling under the chrome.
  *
  * The news is the one input to a cycle that does not come from arithmetic. Everything
  * else on this screen is a number the desk computed; this is the part that came from
  * outside, and until now the panel said only how many there were.
+ *
+ * Two sources, and an item's tooltip says which it came from — the catalyst read it
+ * before deciding, or the market-wide census merely saw it go past. Both belong on a
+ * strip labelled "what it is watching"; only one of them belongs on a claim that the
+ * desk read it.
  *
  * A strip below the tab bar rather than inside it: the chrome row is already six
  * status chips wide and wraps at narrow widths, and a marquee competing with the
@@ -38,10 +43,12 @@ export function NewsTicker() {
         <div className="ticker-track flex w-max items-center gap-[26px] group-hover:[animation-play-state:paused]">
           {track.map((h) => (
             <Item key={h.key} url={h.url} title={h.title}>
-              {/* Which of the three reads picked it up. A macro story tagged with all
-                  of them is a different kind of story from one about a single name,
-                  and that is visible here before the words are. */}
-              {h.roots.map((root) => <Ticker key={root} symbol={root} />)}
+              {/* Which of our own reads picked it up, or — for a story the census
+                  saw and no catalyst read — what the publisher tagged. A macro story
+                  carrying several is a different kind of story from one about a
+                  single name, and that is visible here before the words are.
+                  `useNewsTape` decides which list this is; see `lib/newsChips`. */}
+              {h.chips.map((chip) => <Ticker key={chip} symbol={chip} />)}
               <span className={cn("text-ink/70", h.url && "group-hover/item:text-ink group-hover/item:underline")}>
                 {h.headline}
               </span>

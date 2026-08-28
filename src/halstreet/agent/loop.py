@@ -727,6 +727,15 @@ class Agent:
         self.journal.write(
             "discovery",
             headlines=len(headlines), symbols=len(ranked), tally=tally,
+            # The articles themselves, not only the counts over them. The tally holds
+            # a symbol, a count and one headline string — enough to draw a heat map,
+            # and short of a news item by exactly the two fields that matter to one:
+            # no timestamp is no ordering, and no link is nothing to click. Same shape
+            # a committee read journals, so the ticker can merge the two.
+            #
+            # Untrusted publisher text, as everywhere it appears. It is stored as text
+            # and rendered as text; `to_ticker` is where that contract is written down.
+            feed=[h.to_ticker() for h in headlines[:discovery.FEED_KEPT]],
         )
         return picked
 

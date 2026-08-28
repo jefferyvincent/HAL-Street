@@ -702,12 +702,28 @@ def _int(value: Any) -> int:
 
 
 def _headlines(events: list[dict]) -> list[dict]:
-    """What the agent has been reading, newest first, one entry per article.
+    """What the agent is watching, newest first, one entry per article.
+
+    **Two sources.** The catalyst's per-underlying reads, and discovery's market-wide
+    census. For a long time it was only the first, which made the strip narrower than
+    it looked: a per-symbol feed can only ever carry news about symbols the agent is
+    already scanning, so a pinned universe of three tickers scrolled the same handful
+    of stories all day. Measured on a real soak — twelve of fourteen items carried
+    SPY, because `get_news(SPY)` returns twelve a cycle and `get_news(IWM)` returns
+    two. The census was already being fetched every pass to rank the universe and was
+    simply not being read here.
+
+    **Provenance travels with the article.** `read` says a catalyst actually had this
+    in front of it before deciding; a census sighting sets it false and leaves `roots`
+    empty, because `roots` means "which of our underlyings' reads picked this up" and
+    the answer for a census article is none of them. Filling that field with the
+    publisher's tags would convert a fact about the desk into a fact about the
+    publisher, and the strip makes the first claim in its own tooltip.
 
     The latest read per underlying rather than every read ever taken: the catalyst
     fetches the same 48-hour window each cycle, so a day of scanning journals the same
     article twenty times and a ticker built from all of them would scroll one story
-    over and over.
+    over and over. The census follows the same rule for the same reason.
 
     Deduplicated across underlyings too, and this is the more interesting half. A
     macro story is tagged with SPY, QQQ and IWM at once and arrives three times from
@@ -721,29 +737,54 @@ def _headlines(events: list[dict]) -> list[dict]:
     as an instruction, and the panel renders it as text rather than as markup.
     """
     latest: dict[str, list[dict]] = {}
+    census: list[dict] = []
     for event in events:
-        if event.get("event") == "committee" and isinstance(event.get("feed"), list):
+        kind = event.get("event")
+        if kind == "committee" and isinstance(event.get("feed"), list):
             latest[str(event.get("underlying") or "")] = event["feed"]
+        elif kind == "discovery":
+            # The latest census only, like the heat map — and reset even when this
+            # event carries no feed, so a pass that read nothing clears the last one
+            # rather than leaving yesterday's tape on the strip.
+            feed = event.get("feed")
+            census = feed if isinstance(feed, list) else []
 
     seen: dict[str, dict] = {}
+
+    def _add(item: Any, root: str) -> None:
+        """One article, from either source. `root` is "" for a census sighting."""
+        if not isinstance(item, dict):
+            return
+        text = str(item.get("headline") or "").strip()
+        if not text:
+            return
+        row = seen.setdefault(text, {
+            **item, "headline": text, "roots": [],
+            # Whether a catalyst actually read this before deciding, as opposed to it
+            # merely going past in the census. The strip says the desk read these, and
+            # for a census article that is not true — so the claim travels with the
+            # article rather than being assumed of the whole list.
+            "read": False,
+            # Normalised rather than passed through. A record written before the
+            # link was kept has no `url` key at all, and the panel's type says
+            # `string` — an absent key reaches it as `undefined` and a null as
+            # `null`, neither of which that type admits. Both mean the same thing
+            # here, so both become the empty string and the type stays true.
+            "url": str(item.get("url") or ""),
+        })
+        if root:
+            row["read"] = True
+            if root not in row["roots"]:
+                row["roots"].append(root)
+
+    # The census first, so a story in both sources is upgraded to "read" by the
+    # committee pass rather than the other way round. `_add` only ever sets `read`
+    # true, so the order cannot decide the answer — this is belt to that braces.
+    for item in census:
+        _add(item, "")
     for root, feed in latest.items():
         for item in feed:
-            if not isinstance(item, dict):
-                continue
-            text = str(item.get("headline") or "").strip()
-            if not text:
-                continue
-            row = seen.setdefault(text, {
-                **item, "headline": text, "roots": [],
-                # Normalised rather than passed through. A record written before the
-                # link was kept has no `url` key at all, and the panel's type says
-                # `string` — an absent key reaches it as `undefined` and a null as
-                # `null`, neither of which that type admits. Both mean the same thing
-                # here, so both become the empty string and the type stays true.
-                "url": str(item.get("url") or ""),
-            })
-            if root and root not in row["roots"]:
-                row["roots"].append(root)
+            _add(item, root)
 
     # By recency, and unreadable timestamps last rather than first — an article whose
     # `ts` we could not parse is not breaking news, and `age_hours` is already None

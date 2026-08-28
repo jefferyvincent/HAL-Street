@@ -281,8 +281,10 @@
   "news": {
     "label": "TAPE",
     "age": "{{n}}h",
-    "title": "Headlines the catalyst read this cycle, newest first. Untrusted publisher text — it reaches the model inside an explicit fence and nothing downstream treats it as an instruction. Hover to pause, click to read at the source.",
-    "read": "Read it at {{source}} — opens in a new tab"
+    "title": "What the agent is watching: the headlines its catalyst read this cycle, plus the market-wide census it ranks its universe from. Newest first. Untrusted publisher text — it reaches the model inside an explicit fence and nothing downstream treats it as an instruction. Hover to pause, click to read at the source.",
+    "read": "Read it at {{source}} — opens in a new tab",
+    "wasRead": "The catalyst read this before deciding on {{roots}}. Opens at {{source}}.",
+    "fromCensus": "Seen in the market-wide census, not read by the catalyst. Opens at {{source}}."
   },
   "spend": {
     "title": "MODEL SPEND",

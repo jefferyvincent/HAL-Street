@@ -150,6 +150,8 @@ export function makeStrings(t: Translate) {
       title: t("news.title"),
       age: (n: number) => t("news.age", { n }),
       read: (source: string) => t("news.read", { source }),
+      wasRead: (roots: string, source: string) => t("news.wasRead", { roots, source }),
+      fromCensus: (source: string) => t("news.fromCensus", { source }),
     },
 
     tabs: {
