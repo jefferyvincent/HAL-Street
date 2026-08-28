@@ -35,7 +35,8 @@
     "gates": "GATES",
     "book": "BOOK",
     "committee": "COMMITTEE",
-    "discovery": "DISCOVERY"
+    "discovery": "DISCOVERY",
+    "agent": "AGENT"
   },
   "families": {
     "contract": "contract",
@@ -422,5 +423,35 @@
     "mentions": "{{n}}",
     "cut": "{{n}} scanned",
     "hottest": "hottest {{n}}"
+  },
+  "agent": {
+    "title": "THIS SCAN",
+    "meta": "{{done}} of {{count}} name(s)",
+    "empty": "Nothing has scanned yet. The table fills in a name at a time as the pass runs.",
+    "started": "began {{ago}}",
+    "spot": "at {{price}}",
+    "menuBuilt": "{{count}} built",
+    "menuNone": "nothing built",
+    "rejectedBy": "refused by {{gates}}",
+    "outcome": {
+      "running": "WORKING",
+      "no menu": "NO MENU",
+      "passed": "PASSED",
+      "proposed": "PROPOSED",
+      "approved": "APPROVED",
+      "rejected": "REJECTED",
+      "submitted": "SUBMITTED",
+      "error": "ERROR",
+      "unfinished": "UNFINISHED"
+    },
+    "pulse": "JOURNAL PULSE",
+    "pulseNote": "Every record the agent has written, newest last. This is the raw feed the rest of the panel is derived from.",
+    "step": {
+      "tape": "TAPE",
+      "menu": "MENU",
+      "desk": "DESK",
+      "gates": "GATES",
+      "order": "ORDER"
+    }
   }
 }

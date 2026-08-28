@@ -18,6 +18,20 @@
 
 import { FAMILY_KEYS } from "@/locales";
 
+/**
+ * Every outcome `_pass` can reach for one name in a scan.
+ *
+ * Listed here rather than read off the payload so a state the server grows and this
+ * build has never heard of falls back to its raw key instead of rendering blank —
+ * `undefined` in a table cell is indistinguishable from a row that has not got there
+ * yet, which is the one distinction this table exists to draw.
+ */
+/** The cycle's steps, mirroring `lib/pipeline`. */
+export const STEP_KEYS = ["tape", "menu", "desk", "gates", "order"] as const;
+
+export const OUTCOME_KEYS = ["running", "no menu", "passed", "proposed", "approved",
+                             "rejected", "submitted", "error", "unfinished"] as const;
+
 /** i18next's `t`, narrowed to what this file uses: a key, some named variables, a string back. */
 export type Translate = (key: string, vars?: Record<string, unknown>) => string;
 
@@ -163,6 +177,7 @@ export function makeStrings(t: Translate) {
       discovery: t("tabs.discovery"),
       gates: t("tabs.gates"),
       committee: t("tabs.committee"),
+      agent: t("tabs.agent"),
       book: t("tabs.book"),
     },
 
@@ -280,6 +295,27 @@ export function makeStrings(t: Translate) {
       none: t("committeeRail.none"),
       elsewhere: (underlying: string, stage: string) =>
         t("committeeRail.elsewhere", { underlying, stage }),
+    },
+
+    agent: {
+      title: t("agent.title"),
+      meta: (done: number, count: number) => t("agent.meta", { done, count }),
+      empty: t("agent.empty"),
+      started: (ago: string) => t("agent.started", { ago }),
+      spot: (price: string) => t("agent.spot", { price }),
+      menuBuilt: (count: number) => t("agent.menuBuilt", { count }),
+      menuNone: t("agent.menuNone"),
+      rejectedBy: (gates: string) => t("agent.rejectedBy", { gates }),
+      step: STEP_KEYS.reduce<Record<string, string>>((all, key) => {
+        all[key] = t(`agent.step.${key}`);
+        return all;
+      }, {}),
+      outcome: OUTCOME_KEYS.reduce<Record<string, string>>((all, key) => {
+        all[key] = t(`agent.outcome.${key}`);
+        return all;
+      }, {}),
+      pulse: t("agent.pulse"),
+      pulseNote: t("agent.pulseNote"),
     },
 
     committee: {

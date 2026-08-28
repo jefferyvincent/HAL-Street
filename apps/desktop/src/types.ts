@@ -522,6 +522,8 @@ export interface Snapshot {
   periods: Period[];
   headlines: NewsItem[];
   discovery: Discovery;
+  /** Null until a scan has started. See `PassRow`. */
+  pass: Pass | null;
   pnl: Pnl;
   positions: Position[];
   closed: ClosedStructure[];
@@ -578,3 +580,29 @@ export type Push = Snapshot | Heartbeat;
 
 export const isHeartbeat = (m: Push): m is Heartbeat =>
   (m as Heartbeat).heartbeat === true;
+
+
+/** One name in a scan, and how far it got. Derived by `_pass` on the server. */
+export interface PassRow {
+  underlying: string;
+  at: string;
+  spot: string | null;
+  /** Structures built, 0 for a chain that yielded none, null before it was tried. */
+  menu: number | null;
+  committee: string | null;
+  proposal: "passed" | "proposed" | "failed" | null;
+  gates: "approved" | "rejected" | null;
+  rejected_by: string[];
+  /** "submitted" for a real order, "held" for a rehearsal that stopped short. */
+  order: "submitted" | "held" | null;
+  error: string | null;
+  outcome: string;
+  /** True for the one name the agent is working on, and only while it is. */
+  running: boolean;
+}
+
+/** The scan the agent is on, in the order it works the names. */
+export interface Pass {
+  at: string;
+  rows: PassRow[];
+}

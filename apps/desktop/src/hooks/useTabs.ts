@@ -18,6 +18,8 @@ export function useTabs(): { tabs: Tab[]; go: (v: View) => void } {
 
   const counts: Record<View, number | null> = {
     console: null,
+    // Names in the scan being worked, which is what the tab opens on.
+    agent: snap?.pass?.rows.length ?? null,
     journal: snap?.decisions.length ?? null,
     // The census size, not the shortlist: the tab counts what the map draws.
     // Optional through `discovery` as well as `snap`: during a restart the panel can
@@ -34,6 +36,7 @@ export function useTabs(): { tabs: Tab[]; go: (v: View) => void } {
   const tabs: Tab[] = (
     [
       ["console", ICON.grid],
+      ["agent", ICON.pulse],
       ["journal", ICON.list],
       ["discovery", ICON.heat],
       ["gates", ICON.chain],

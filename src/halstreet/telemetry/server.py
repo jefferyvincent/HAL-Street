@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import itertools
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -679,6 +680,116 @@ def _crossed(record: dict) -> tuple[str, str] | None:
     return state, raw
 
 
+#: How far apart two `cycle_start` records can be and still belong to one scan.
+#:
+#: A pass over six discovered names is a minute or two of model calls; passes are
+#: `SCAN_INTERVAL_MINUTES` apart, thirty by default. Ten minutes sits in the gap
+#: between those two numbers with room on both sides.
+PASS_GAP_S = 600.0
+
+
+def _pass(events: list[dict]) -> dict | None:
+    """The scan the agent is on, symbol by symbol, in the order it works them.
+
+    The panel could say what the agent was doing *right now* and what it had decided
+    *eventually*, with nothing in between. A pass is a minute or two in which four
+    names are already settled and one is mid-committee, and none of that shape was
+    anywhere — so watching the agent meant watching one amber word.
+
+    Segmented on `cycle_start`, which the loop writes once per underlying. Everything
+    between one and the next belongs to that name, and events are matched on the
+    underlying as well: one journal is worked one name at a time, and a row that
+    collected the next symbol's menu would be a table that lies while looking right.
+
+    The last row is the live one, if anything is. Nothing here decides *whether* the
+    agent is running — `_in_flight` owns that, from the same records — this only says
+    which row it would be on.
+    """
+    starts = [i for i, e in enumerate(events) if e.get("event") == "cycle_start"]
+    if not starts:
+        return None
+
+    # The trailing run of scans close enough together to be one pass.
+    first = starts[-1]
+    for a, b in zip(reversed(starts[:-1]), reversed(starts[1:]), strict=True):
+        gap = _gap(events[a].get("ts"), events[b].get("ts"))
+        if gap is None or gap > PASS_GAP_S:
+            break
+        first = a
+
+    live = _in_flight(events) is not None
+    bounds = [i for i in starts if i >= first] + [len(events)]
+    rows = [_pass_row(events[a:b], last=(b == len(events)) and live)
+            for a, b in itertools.pairwise(bounds)]
+    return {"at": events[first].get("ts"), "rows": rows}
+
+
+def _pass_row(segment: list[dict], *, last: bool) -> dict:
+    """One name's journey through the cycle, from its own records only."""
+    head = segment[0]
+    name = head.get("underlying")
+    mine = [e for e in segment if e.get("underlying") in (name, None)]
+
+    def latest(kind: str) -> dict | None:
+        return next((e for e in reversed(mine) if e.get("event") == kind), None)
+
+    menu, proposal = latest("candidates"), latest("proposal")
+    gates, order, failed = latest("gate_decision"), latest("order"), latest("error")
+
+    verdict = None
+    if gates is not None:
+        verdict = "approved" if gates.get("approved") else "rejected"
+
+    # Order last, and only a *submitted* one counts as the end of the line. A dry run
+    # gates and journals exactly as a live cycle does and stops before submission;
+    # reporting it as submitted is the failure the dry-run label exists to prevent.
+    if failed is not None:
+        outcome = "error"
+    elif order is not None and order.get("submitted"):
+        outcome = "submitted"
+    elif verdict is not None:
+        outcome = verdict
+    elif proposal is not None and proposal.get("passed"):
+        outcome = "passed"
+    elif proposal is not None and not proposal.get("ok"):
+        outcome = "error"
+    elif menu is not None and not (menu.get("count") or 0):
+        outcome = "no menu"
+    elif last:
+        outcome = "running"
+    else:
+        # Started, wrote nothing else, and the agent has moved on. Not an outcome we
+        # can name — and naming one anyway is how a table invents a decision.
+        outcome = "unfinished"
+
+    return {
+        "underlying": name,
+        "at": head.get("ts"),
+        "spot": head.get("spot"),
+        "menu": None if menu is None else (menu.get("count") or 0),
+        "committee": None if latest("committee") is None else "sat",
+        "proposal": None if proposal is None
+                    else ("passed" if proposal.get("passed")
+                          else "proposed" if proposal.get("ok") else "failed"),
+        "gates": verdict,
+        "rejected_by": (gates or {}).get("rejected_by") or [],
+        "order": None if order is None
+                 else ("submitted" if order.get("submitted") else "held"),
+        "error": None if failed is None else str(failed.get("detail") or failed.get("error") or ""),
+        "outcome": outcome,
+        "running": last and outcome == "running",
+    }
+
+
+def _gap(a: Any, b: Any) -> float | None:
+    """Seconds between two journal stamps, or None if either cannot be read."""
+    try:
+        return abs((datetime.fromisoformat(str(b)) - datetime.fromisoformat(str(a)))
+                   .total_seconds())
+    except (TypeError, ValueError):
+        return None
+
+
 def _boundary_passed(market: dict | None, since: datetime) -> bool:
     """A published session boundary has come and gone since we last said anything.
 
@@ -1161,6 +1272,7 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
         "market": _last_session(events),
         # What it is doing, as opposed to what it decided. See `_activity`.
         "activity": _activity(events),
+        "pass": _pass(events),
         # What each gate measured last time it ran. The counts say which gates have
         # ever bitten; these say how close the book is to each one now.
         "gate_readings": _gate_readings(events),

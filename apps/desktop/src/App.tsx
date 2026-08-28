@@ -14,10 +14,11 @@ import { useGateFamilies } from "@/hooks/useGateFamilies";
 import { useShortcuts } from "@/hooks/useShortcuts";
 import { useStrings } from "@/hooks/useStrings";
 import { useConnection } from "@/stores/connection";
-import { BookView, CommitteeView, ConsoleView, DiscoveryView, GatesView, JournalView } from "@/views";
+import { AgentView, BookView, CommitteeView, ConsoleView, DiscoveryView, GatesView, JournalView } from "@/views";
 
 const VIEWS = {
   console: ConsoleView,
+  agent: AgentView,
   journal: JournalView,
   discovery: DiscoveryView,
   gates: GatesView,

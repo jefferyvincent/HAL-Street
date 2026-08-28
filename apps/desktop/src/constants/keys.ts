@@ -21,9 +21,10 @@ export const KEY = {
 /** Digit to view, in the order the tabs sit in. */
 export const VIEW_KEYS: Record<string, View> = {
   "1": "console",
-  "2": "journal",
-  "3": "discovery",
-  "4": "gates",
-  "5": "committee",
-  "6": "book",
+  "2": "agent",
+  "3": "journal",
+  "4": "discovery",
+  "5": "gates",
+  "6": "committee",
+  "7": "book",
 };
