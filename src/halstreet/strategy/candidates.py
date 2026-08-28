@@ -542,9 +542,16 @@ def scenario_for(candidate: Candidate, *, spot: Decimal | None,
     Seeded from the structure's own name, so the same chain always produces the same
     figures: these are journalled, and a record nobody can reproduce is not a record.
 
-    Friction is the entry slippage doubled — one crossing to open and one to close.
-    That is the number the desk keeps declining trades over, and it was being reasoned
-    about in prose while the arithmetic sat one multiplication away.
+    Friction is **one** crossing, not two, and the missing half is already paid.
+    `credit = short.bid - long.ask` — the worst of both touches — so what a candidate
+    carries as `net` is the money that actually arrives after getting in. Charging
+    `slippage_usd` again on entry deducted it twice and made every structure on every
+    menu look worse than it is, in the one direction that stops an agent trading.
+
+    What remains owed is the exit. The simulation settles at expiry, where there is no
+    exit trade at all; the book does not hold to expiry — the manager takes profit at
+    50% and force-closes at 5 DTE — so one crossing out is the honest charge and the
+    expiry model is the reason it has to be added by hand.
     """
     legs = payoff_legs(candidate)
     if not legs or spot is None:
@@ -553,7 +560,7 @@ def scenario_for(candidate: Candidate, *, spot: Decimal | None,
     out = montecarlo.outlook(
         legs=legs, net=candidate.net, spot=spot, dte=candidate.dte,
         vol_realized=vol, vol_implied=short_iv(candidate),
-        friction_usd=slip * 2, seed=zlib.crc32(candidate.name.encode()),
+        friction_usd=slip, seed=zlib.crc32(candidate.name.encode()),
     )
     return out if (out.at_implied or out.at_realized) else None
 

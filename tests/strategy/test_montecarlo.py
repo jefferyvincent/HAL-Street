@@ -169,23 +169,6 @@ def test_the_menu_carries_each_structures_scenario_to_the_model():
     assert shape["at_realized"]["ev_usd"] == str(c.scenario.at_realized.ev_usd)
 
 
-def test_the_round_trip_is_priced_not_just_the_entry():
-    """Entry slippage is one crossing. Getting out is the other, and it is the half the
-    desk keeps declining trades over."""
-    from halstreet.strategy.candidates import Candidate, scenario_for
-
-    def built(slip: Decimal):
-        c = Candidate(name="SPY 2026-10-16 737/733 put credit spread",
-                      kind="put_credit_spread",
-                      legs=[{"symbol": "SPY261016P00737000", "side": "sell", "ratio_qty": 1},
-                            {"symbol": "SPY261016P00733000", "side": "buy", "ratio_qty": 1}],
-                      net=Decimal("-0.41"), max_loss_usd=Decimal(359),
-                      max_gain_usd=Decimal(41), dte=49, slippage_usd=slip)
-        return scenario_for(c, spot=SPOT, vol=0.18).at_realized
-
-    assert built(Decimal(6)).ev_usd == built(Decimal(0)).ev_usd - Decimal(12)
-
-
 def test_a_leg_that_cannot_be_parsed_stops_the_simulation_rather_than_shrinking_it():
     """A structure sampled with a wing missing is not a conservative estimate of that
     structure. It is a confident estimate of a different and far riskier one."""
@@ -334,3 +317,30 @@ def test_the_proposal_prompt_says_how_to_read_two_disagreeing_volatilities():
     text = SYSTEM_PROMPT.lower()
     assert "at_implied" in text and "at_realized" in text
     assert "forecast" in text
+
+
+def test_the_entry_crossing_is_not_charged_twice():
+    """`net` is already `short.bid - long.ask` — the worst of both touches.
+
+    The credit a candidate carries is what you actually receive after crossing the
+    spread to get in, so the entry cost is *inside* `net`. Charging `slippage_usd`
+    again on entry deducted it twice and made every structure on every menu look worse
+    than it is, in the one direction that stops an agent trading.
+
+    What is still owed is the exit. The simulation settles at expiry where there is no
+    exit trade at all, but the book does not hold to expiry — the manager takes profit
+    at 50% and force-closes at 5 DTE — so one crossing out is the honest charge.
+    """
+    from halstreet.strategy.candidates import Candidate, scenario_for
+
+    def built(slip: Decimal):
+        c = Candidate(name="SPY 2026-10-16 737/733 put credit spread",
+                      kind="put_credit_spread",
+                      legs=[{"symbol": "SPY261016P00737000", "side": "sell", "ratio_qty": 1},
+                            {"symbol": "SPY261016P00733000", "side": "buy", "ratio_qty": 1}],
+                      net=Decimal("-0.41"), max_loss_usd=Decimal(359),
+                      max_gain_usd=Decimal(41), dte=49, slippage_usd=slip)
+        return scenario_for(c, spot=SPOT, vol=0.18).at_realized
+
+    # One crossing, not two: a $6 half-spread sum costs $6 to get out of, not $12.
+    assert built(Decimal(6)).ev_usd == built(Decimal(0)).ev_usd - Decimal(6)
