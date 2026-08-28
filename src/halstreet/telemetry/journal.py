@@ -90,7 +90,8 @@ class Journal:
                     regime: str, iv_rank: float | None, realized_vol: float | None,
                     event_risk: str, profile: str,
                     events: list[dict] | None = None,
-                    patterns: list[dict] | None = None) -> dict:
+                    patterns: list[dict] | None = None,
+                    persistence: dict | None = None) -> dict:
         """What the ranking believed about the tape before it ranked anything.
 
         Recorded per cycle because the menu cannot be reconstructed without it: the
@@ -115,6 +116,10 @@ class Journal:
             # the same reason as the events and read by nothing that decides: the
             # ranking, the gates and the exit policy never see them.
             patterns=patterns or [],
+            # Whether direction on this name is sticky, and how far that read reaches.
+            # None where the history could not carry a chain — which is not the same
+            # as a chain that found nothing, and the panel says which.
+            persistence=persistence,
         )
 
     def candidates(self, underlying: str, candidates: list[dict]) -> dict:

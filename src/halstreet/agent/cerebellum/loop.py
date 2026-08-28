@@ -57,6 +57,7 @@ from halstreet.marketdata import patterns as patterns_mod
 from halstreet.marketdata.chain import enrich
 from halstreet.strategy import bias as bias_mod
 from halstreet.strategy import burn, scoring
+from halstreet.strategy import markov as markov_mod
 from halstreet.strategy import profiles as P
 from halstreet.strategy import regime as regime_mod
 from halstreet.strategy.candidates import generate
@@ -389,6 +390,14 @@ class Agent:
         # asserts as much. A chart heuristic that can size or close a position is a
         # much bigger decision than a badge, and this is a badge.
         view_patterns = patterns_mod.detect(bars)
+        # Whether direction on this name is sticky, off the same closes. Free for the
+        # same reason the patterns are, and it answers the one thing neither the bias
+        # nor the regime does: the bias says which way the tape leans, the regime says
+        # how violently it moves, and this says whether either tends to continue.
+        #
+        # Usually it says no, and that is the finding. `holds_for` is how anything
+        # quoting it checks that the chain reaches as far as the structure does.
+        view_persistence = markov_mod.build(closes)
 
         chain = (await self.client.get_option_chain(
             underlying, expiry_from=f"{lo}", expiry_to=f"{hi}"
@@ -413,6 +422,7 @@ class Agent:
             "bias": view_bias,
             "regime": view_regime,
             "patterns": view_patterns,
+            "persistence": view_persistence,
             "events": scoring.EventWindow(
                 known=window is not None,
                 days_out=tuple((e.on - asof).days for e in (window or [])),
@@ -477,6 +487,8 @@ class Agent:
             event_risk=events_mod.describe(state.get("events_detail")),
             events=[e.to_prompt() for e in (state.get("events_detail") or [])],
             patterns=[p.to_prompt() for p in state.get("patterns") or []],
+            persistence=(None if state.get("persistence") is None
+                         else state["persistence"].to_prompt()),
             profile=self.profile.name,
         )
 
@@ -582,6 +594,11 @@ class Agent:
             "bias_reasons": state["bias"].reasons,
             "vol_regime": state["regime"].label,
             "hv_rank": state["regime"].rank,
+            # Qualifies the bias rather than adding to it, and carries its own reach:
+            # a structure held longer than `informative_for_days` cannot be argued on
+            # this, and the note beside it says so.
+            "persistence": (None if state.get("persistence") is None
+                            else state["persistence"].to_prompt()),
             "note": "hv_rank is a realized-volatility proxy, not IV rank",
         }
         session.catalyst, counts = await asyncio.to_thread(
