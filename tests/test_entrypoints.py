@@ -265,3 +265,52 @@ def test_colour_is_dropped_when_asked_but_the_art_is_kept():
     text = out.stdout + out.stderr
     assert "█" in text
     assert "\033[" not in text
+
+
+# --- `watch`: the loop and the panel together -----------------------------------------
+#
+# `./start.sh` is the trading loop and serves nothing, so "the browser did not open"
+# was asked three times about a command that has no page to open. The panel is a
+# separate process on purpose — read-only, restartable mid-run, and unable to reach
+# the broker — and that separation is worth keeping, so this starts both rather than
+# folding a server into the trading process.
+
+def test_watch_is_advertised_and_dispatchable():
+    text = START.read_text()
+    assert re.search(r"^#\s+\./start\.sh watch", text, re.MULTILINE), \
+        "a mode nobody is told about is a mode nobody uses"
+    body = text[text.index('case "$MODE" in'):]
+    assert re.search(r"^\s{2}watch\)", body, re.MULTILINE)
+
+
+def test_watch_starts_both_the_panel_and_the_agent():
+    branch = _mode_branch("watch")
+    assert "panel" in branch, "the panel is the half that has a browser to open"
+    assert "halstreet.agent.run" in branch, "and the agent is the half that trades"
+
+
+def test_watch_stops_the_panel_when_the_agent_stops():
+    """Two processes, one Ctrl-C.
+
+    A panel left running after the loop exits holds :8787 and quietly serves a
+    journal nothing is writing to — which is the state six abandoned panels were
+    already found in, holding the port for a day and a half and blocking the
+    installer.
+    """
+    branch = _mode_branch("watch")
+    assert "trap" in branch, "the panel must not outlive the run that started it"
+
+
+def test_watch_is_the_only_mode_that_starts_a_second_process():
+    """`loop` stays a pure trading process, which is the point of adding a mode
+    rather than changing the one that exists: it still runs headless with no server
+    attached, on a box with no display and nobody watching."""
+    assert "panel" not in _mode_branch("loop")
+
+
+def _mode_branch(mode: str) -> str:
+    text = START.read_text()
+    body = text[text.index('case "$MODE" in'):]
+    start = re.search(rf"^\s{{2}}{mode}\)", body, re.MULTILINE)
+    assert start, f"no {mode}) branch"
+    return body[start.end():body.index(";;", start.end())]

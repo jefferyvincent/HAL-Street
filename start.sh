@@ -18,6 +18,7 @@
 #   ./start.sh report -- --export out/
 #   ./start.sh panel            read-only dashboard on http://127.0.0.1:8787
 #                               (build it once: cd apps/desktop && npm run build)
+#   ./start.sh watch            the loop and the panel together, browser opened
 #   ./start.sh --env comp ...   use the judged account (COMP_* keys in .env)
 #
 set -euo pipefail
@@ -91,7 +92,7 @@ ARGS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    verify|preflight|test|loop|report|panel|soak) MODE="$1"; shift ;;
+    verify|preflight|test|loop|report|panel|soak|watch) MODE="$1"; shift ;;
     -h|--help) usage; exit 0 ;;
     --env) ENV_NAME="${2:?--env needs dev or comp}"; shift 2 ;;
     --) shift; ARGS+=("$@"); break ;;
@@ -185,6 +186,25 @@ case "$MODE" in
     run .venv/bin/python -m halstreet.cli.panel "${ARGS[@]}"
     ;;
   loop)
+    run .venv/bin/python -m halstreet.agent.run --env "$ENV_NAME" "${ARGS[@]}"
+    ;;
+  watch)
+    # The loop and the panel together, because "run it and watch it" is the common
+    # case and it was two terminals. A separate mode rather than a change to `loop`:
+    # the trading process stays able to run headless with no server attached, on a
+    # box with no display and nobody looking at it.
+    #
+    # Two processes, not a server thread inside the agent. The panel is read-only,
+    # restartable mid-run and cannot reach the broker, and folding it into the
+    # trading process would trade all three of those for one fewer pid.
+    say "panel: http://127.0.0.1:8787"
+    .venv/bin/python -m halstreet.cli.panel --env "$ENV_NAME" >>"$LOG" 2>&1 &
+    PANEL_PID=$!
+    # The panel must not outlive the run that started it. Six abandoned panels were
+    # found holding ports for a day and a half, serving a journal nothing was writing
+    # to and blocking the installer — that is what an untrapped background job
+    # becomes. EXIT covers the ordinary end; INT and TERM cover Ctrl-C and a kill.
+    trap 'kill "$PANEL_PID" 2>/dev/null || true' EXIT INT TERM
     run .venv/bin/python -m halstreet.agent.run --env "$ENV_NAME" "${ARGS[@]}"
     ;;
 esac
