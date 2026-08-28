@@ -381,7 +381,8 @@ def test_the_prompt_states_every_limit_the_gates_enforce_on_a_proposal():
     for avoidable in ("max_loss_per_position_usd", "max_portfolio_risk_pct", "min_dte",
                       "min_open_interest", "min_daily_volume", "max_bid_ask_width_pct",
                       "max_legs", "max_positions_per_underlying",
-                      "max_correlated_positions", "max_open_positions", "max_qty"):
+                      "max_correlated_positions", "max_unclassified_positions",
+                      "max_open_positions", "max_qty"):
         assert avoidable in shown, f"the model is judged on {avoidable} and never told"
 
 
@@ -460,3 +461,16 @@ def test_the_single_call_path_streams_too():
     client = FakeClient(reply(GOOD_JSON))
     result = ProposalWriter(client).propose("turn")
     assert result.ok, "the call was made, it streamed, and it parsed"
+
+
+def test_the_prompt_names_the_cap_that_bites_a_discovered_universe():
+    """The unclassified cap is the one the model meets most, and it was never told.
+
+    `correlated-exposure` is described to the model with SPY/QQQ/IWM as the example,
+    which was the whole story while a person picked the universe from a map of sixty
+    names. Under discovery the common case is a name in *no* group, bounded by a
+    second, looser cap — so the paragraph the model reads to avoid a rejection
+    described the half of the gate it now meets least.
+    """
+    from halstreet.agent.llm import SYSTEM_PROMPT
+    assert "unclassified" in SYSTEM_PROMPT.lower()

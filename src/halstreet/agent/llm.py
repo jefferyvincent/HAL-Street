@@ -142,7 +142,10 @@ pay for an exit.
 together. SPY, QQQ and IWM are one bet in three tickers; the per-underlying cap above \
 counts them as three separate names, and this one does not. If the book already holds \
 a directional position on one of them, another on a correlated name is size, not \
-diversification.
+diversification. A name in none of the known baskets is not waved through: it falls \
+into an `unclassified` bucket with its own, looser cap, which bounds how much of the \
+book may sit in names whose correlation nobody has checked. Most single names are in \
+that bucket, so on a discovered universe this is the form of the gate you will meet.
   - `daily-loss-halt` — latched off for the rest of the session once equity has \
 fallen past the day's floor. It does not reset when the tape bounces.
   - `entry-rate-throttle` — entries per rolling hour. A runaway guard; in normal \
@@ -511,6 +514,7 @@ def _limits_view(limits: Limits, *, underlying: str = "",
         "max_legs": 4,
         "max_positions_per_underlying": limits.max_positions_per_underlying,
         "max_correlated_positions": limits.max_correlated_positions,
+        "max_unclassified_positions": limits.max_unclassified_positions,
         "max_open_positions": limits.max_open_positions,
     }
     if underlying:
