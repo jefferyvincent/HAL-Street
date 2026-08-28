@@ -91,7 +91,8 @@ class Journal:
                     event_risk: str, profile: str,
                     events: list[dict] | None = None,
                     patterns: list[dict] | None = None,
-                    persistence: dict | None = None) -> dict:
+                    persistence: dict | None = None,
+                    structure: dict | None = None) -> dict:
         """What the ranking believed about the tape before it ranked anything.
 
         Recorded per cycle because the menu cannot be reconstructed without it: the
@@ -120,6 +121,10 @@ class Journal:
             # None where the history could not carry a chain — which is not the same
             # as a chain that found nothing, and the panel says which.
             persistence=persistence,
+            # Where price last broke a confirmed swing. Unlike the patterns above,
+            # this one votes — see `strategy.bias` — so it is recorded as an input to
+            # the decision rather than as an annotation beside it.
+            structure=structure,
         )
 
     def candidates(self, underlying: str, candidates: list[dict]) -> dict:

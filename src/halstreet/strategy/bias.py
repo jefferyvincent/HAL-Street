@@ -24,6 +24,7 @@ control — which is the correct place to put a signal this noisy.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from halstreet.strategy.indicators import Macd, ema, macd, rsi, sma
 
@@ -46,10 +47,19 @@ class Snapshot:
     ema50: float | None = None
     rsi14: float | None = None
     macd: Macd | None = None
+    #: Where price last broke a confirmed swing, from `marketdata.smc`. The only
+    #: reading here that is about a level rather than an average of closes.
+    structure: Any = None
 
     @property
     def coverage(self) -> int:
-        """How many of the five indicators actually resolved."""
+        """How many of the five indicators actually resolved.
+
+        Structure is deliberately not counted. Coverage answers "how much of the
+        indicator set resolved", the set has always been five, and quietly making it
+        six would move every historical coverage figure without anything having
+        changed about the history.
+        """
         return sum(x is not None for x in
                    (self.sma50, self.ema20, self.ema50, self.rsi14, self.macd))
 
@@ -71,7 +81,8 @@ class Bias:
                 f"indicators): " + "; ".join(self.reasons))
 
 
-def snapshot(symbol: str, spot: float, closes: list[float]) -> Snapshot:
+def snapshot(symbol: str, spot: float, closes: list[float], *,
+             structure: Any = None) -> Snapshot:
     """Compute every indicator that the available history supports."""
     return Snapshot(
         symbol=symbol.upper(),
@@ -81,6 +92,7 @@ def snapshot(symbol: str, spot: float, closes: list[float]) -> Snapshot:
         ema50=ema(closes, 50),
         rsi14=rsi(closes, 14),
         macd=macd(closes),
+        structure=structure,
     )
 
 
@@ -147,6 +159,19 @@ def derive(snap: Snapshot) -> Bias:
         else:
             reasons.append("MACD mixed (no signal)")
 
+    # Market structure, when there is a read. One vote, weighted like the moving
+    # averages rather than above them: it is better evidence in the sense that it is
+    # about a specific level rather than an average of closes, and it is one opinion
+    # among several either way. A read that found no break casts nothing — a level
+    # that held is not a signal about anything.
+    if snap.structure is not None and snap.structure.event is not None:
+        if snap.structure.direction == BULLISH:
+            bullish += 1
+            reasons.append(f"structure {snap.structure.event}: {snap.structure.note}")
+        elif snap.structure.direction == BEARISH:
+            bearish += 1
+            reasons.append(f"structure {snap.structure.event}: {snap.structure.note}")
+
     margin = bullish - bearish
     if margin >= DECISION_MARGIN:
         direction = BULLISH
@@ -159,5 +184,12 @@ def derive(snap: Snapshot) -> Bias:
                 reasons=reasons, coverage=snap.coverage)
 
 
-def for_symbol(symbol: str, spot: float, closes: list[float]) -> Bias:
-    return derive(snapshot(symbol, spot, closes))
+def for_symbol(symbol: str, spot: float, closes: list[float], *,
+               structure: Any = None) -> Bias:
+    """The tape's direction, from the indicators and — where one was read — structure.
+
+    `structure` is typed loosely on purpose. `strategy/` holds no I/O and imports no
+    `marketdata` reader; taking the read as a value keeps that true, and keeps this
+    module testable without a bar series.
+    """
+    return derive(snapshot(symbol, spot, closes, structure=structure))

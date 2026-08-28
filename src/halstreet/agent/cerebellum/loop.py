@@ -54,6 +54,7 @@ from halstreet.gates.contract import leg_signature
 from halstreet.marketdata import discovery
 from halstreet.marketdata import events as events_mod
 from halstreet.marketdata import patterns as patterns_mod
+from halstreet.marketdata import smc as smc_mod
 from halstreet.marketdata.chain import enrich
 from halstreet.strategy import bias as bias_mod
 from halstreet.strategy import burn, scoring
@@ -380,7 +381,13 @@ class Agent:
             self.journal.error("bars", f"{underlying}: {type(exc).__name__}: {exc}")
             bars = []
         closes = [float(b["c"]) for b in bars]
-        view_bias = bias_mod.for_symbol(underlying, float(spot), closes)
+        # Where price last broke a confirmed swing. Read before the bias, because the
+        # bias votes on it: it is the one reading in that set about a level rather
+        # than an average of closes, and it disagrees with the moving averages often
+        # enough to be worth a vote. Off the same bars, so it costs nothing.
+        view_structure = smc_mod.read(bars)
+        view_bias = bias_mod.for_symbol(underlying, float(spot), closes,
+                                        structure=view_structure)
         view_regime = regime_mod.build(closes)
         # Confirmed chart patterns on the same bars. Free: they were fetched for the
         # bias and the regime already, and the highs and lows were being discarded.
@@ -423,6 +430,7 @@ class Agent:
             "regime": view_regime,
             "patterns": view_patterns,
             "persistence": view_persistence,
+            "structure": view_structure,
             "events": scoring.EventWindow(
                 known=window is not None,
                 days_out=tuple((e.on - asof).days for e in (window or [])),
@@ -489,6 +497,8 @@ class Agent:
             patterns=[p.to_prompt() for p in state.get("patterns") or []],
             persistence=(None if state.get("persistence") is None
                          else state["persistence"].to_prompt()),
+            structure=(None if state.get("structure") is None
+                       else state["structure"].to_prompt()),
             profile=self.profile.name,
         )
 
@@ -599,6 +609,10 @@ class Agent:
             # this, and the note beside it says so.
             "persistence": (None if state.get("persistence") is None
                             else state["persistence"].to_prompt()),
+            # The level, not another average. A catalyst arguing direction should see
+            # what price actually did at a price somebody can point to.
+            "structure": (None if state.get("structure") is None
+                          else state["structure"].to_prompt()),
             "note": "hv_rank is a realized-volatility proxy, not IV rank",
         }
         session.catalyst, counts = await asyncio.to_thread(

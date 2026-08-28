@@ -10,6 +10,15 @@ things would trade that guarantee for a signal nobody has measured.
 Structural rather than behavioural: the exit path must not be *able* to read
 patterns, so this walks imports and call graphs instead of asserting an outcome.
 An outcome test would pass right up until someone wired it in.
+
+**`marketdata/smc.py` is a different module under a different rule, deliberately.**
+Market structure — where price broke a confirmed swing — *does* vote, through
+`strategy.bias`, alongside the moving averages and subject to the same margin. That is
+a narrower permission than it sounds: it changes what reaches the menu, not what gets
+closed, and `tests/marketdata/test_smc.py` walks the same imports to keep the exit path
+blind to it. The classical patterns here stay out of the vote entirely, which the last
+test below pins — they are named shapes on a chart, not a level somebody can point at,
+and nobody has measured what they are worth to a ranking.
 """
 
 from __future__ import annotations
@@ -136,3 +145,18 @@ def test_a_neutral_position_is_never_told_a_pattern_runs_against_it():
     assert read["exposure"] == "neutral"
     assert read["against"] == [] and read["confirming"] == []
     assert len(read["patterns"]) == 1, "still shown, just not scored against"
+
+
+def test_the_bias_vote_is_not_open_to_chart_patterns():
+    """Market structure joined the vote; the named shapes did not, and the difference
+    is the point.
+
+    A break of structure is a claim about one price having been exceeded, checkable
+    against a chart and disagreeing with the moving averages often enough to be worth
+    an opinion. "Head and shoulders" is a shape somebody recognised. The first is
+    evidence of the kind the bias already votes on; the second is a badge, and it stays
+    one until someone measures what it is worth.
+    """
+    bias = SRC / "strategy" / "bias.py"
+    leaked = {m for m in _imports(bias) if "patterns" in m}
+    assert not leaked, f"bias.py imports the pattern reader: {leaked}"
