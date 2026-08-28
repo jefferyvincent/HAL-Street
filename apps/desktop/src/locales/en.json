@@ -70,7 +70,9 @@
     "factNet": "net",
     "factQty": "qty",
     "factLegs": "legs",
-    "qty": "×{{qty}}"
+    "qty": "×{{qty}}",
+    "open": "OPEN",
+    "openTitle": "Still on. Everything in this list is a position the agent is currently carrying."
   },
   "ledger": {
     "allRan": "ALL {{n}} GATES RAN"

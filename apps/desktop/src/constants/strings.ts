@@ -165,6 +165,8 @@ export function makeStrings(t: Translate) {
     console: {
       activity: t("console.activity"),
       holding: t("console.holding"),
+      open: t("console.open"),
+      openTitle: t("console.openTitle"),
       expand: t("console.expand"),
       collapse: t("console.collapse"),
       openTrade: t("console.openTrade"),
