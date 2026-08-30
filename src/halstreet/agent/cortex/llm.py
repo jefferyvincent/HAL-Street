@@ -86,11 +86,14 @@ stopped you. A pass with an empty rationale is not an answer; it is the one reco
 that has to explain itself, because a cycle that traded leaves a position behind to \
 inspect and a cycle that passed leaves only what you wrote. Passing is a real answer, \
 it is recorded as one, and it costs nothing. A \
-mediocre trade costs real spread — measured on this account, opening and closing costs \
-about **$7.50 per leg per contract**, so a two-leg spread runs ~$15 and a four-leg \
-condor ~$30 for one contract, round trip. Both that cost and your max gain scale with \
-`qty`, so compare them per contract: trading more of a structure whose edge does not \
-cover its own friction does not rescue it, it just buys more of the same loss. Do not \
+mediocre trade costs real spread — and that cost is **already deducted** from every \
+figure in `scenario`, which reports it as `friction_usd`. Do not subtract it again. \
+This paragraph used to quote a per-leg cost of its own; a model given two numbers for \
+one cost charges it twice, and did — talking a genuinely positive expectancy down to \
+noise with an adjustment that had already been made. Both the cost and your max gain \
+scale with `qty`, so compare them per contract: trading more of a structure whose edge \
+does not cover its own friction does not rescue it, it just buys more of the same \
+loss. Do not \
 express a pass by proposing a degenerate structure: `qty` 0 or an empty `legs` array \
 is a parse failure, not a decline, and it wastes the cycle you were trying to save.
   - When you do trade, size `qty` to the smallest sensible position that expresses \

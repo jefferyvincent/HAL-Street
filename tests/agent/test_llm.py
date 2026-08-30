@@ -535,3 +535,43 @@ def test_the_ceiling_matches_the_one_the_judge_needed():
 
     assert JUDGE_TOKENS == PROPOSAL_TOKENS, "one proposal, one ceiling"
     assert ProposalWriter(FakeClient()).max_tokens == PROPOSAL_TOKENS
+
+
+# --- friction, charged once ----------------------------------------------------------
+#
+# The prompt told the model that opening and closing costs "about $7.50 per leg per
+# contract, measured on this account". Two problems, and together they cost every trade
+# this agent might have taken.
+#
+# The scenario engine already deducts friction and says how much. A model given both
+# subtracts it again — and did, out loud: "its scenario deducts only $3.00 of friction,
+# but measured round-trip cost is ~$15 ... re-deducting the true figure turns +$10.56
+# EV into roughly -$1". A positive-expectancy trade talked down to noise by an
+# adjustment already made.
+#
+# And the measurement does not exist. The ledger's one completed round trip realized
+# -$9.00 on a $160 credit. Whatever $7.50 a leg came from, "measured on this account"
+# is a claim the account does not support, asserted to a model that reasons from it.
+
+def test_the_prompt_does_not_hand_the_model_a_second_friction_figure():
+    """Two numbers for one cost is one of them being subtracted twice."""
+    from halstreet.agent.cortex.llm import SYSTEM_PROMPT
+
+    assert "$7.50" not in SYSTEM_PROMPT
+    assert "$15" not in SYSTEM_PROMPT
+
+
+def test_the_prompt_says_the_scenario_has_already_charged_it():
+    from halstreet.agent.cortex.llm import SYSTEM_PROMPT
+
+    text = SYSTEM_PROMPT.lower()
+    assert "friction_usd" in text
+    assert "again" in text or "twice" in text
+
+
+def test_the_prompt_keeps_the_part_that_is_true():
+    """Cost and max gain both scale with qty, so size never rescues a thin edge. That
+    was the useful half of the paragraph and it survives."""
+    from halstreet.agent.cortex.llm import SYSTEM_PROMPT
+
+    assert "per contract" in SYSTEM_PROMPT.lower()
