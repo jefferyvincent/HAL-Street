@@ -425,11 +425,17 @@ class Agent:
         # go through MCP — see marketdata/events.py for why that exception is narrow.
         window = await asyncio.to_thread(
             events_mod.events_between, underlying, asof, hi)
+        # Topped up with whatever the book is already carrying, because the greek gate
+        # measures the *portfolio* and this chain is one underlying's. See
+        # `chain_with_held` for the record of what that cost.
+        priced = await chain_with_held(
+            self.client, enrich(chain, contracts),
+            [str(p.get("symbol") or "") for p in positions if p.get("symbol")])
         return {
             "account": account,
             "positions": positions,
             "spot": spot,
-            "chain": enrich(chain, contracts),
+            "chain": priced,
             "bias": view_bias,
             "regime": view_regime,
             "patterns": view_patterns,
@@ -909,6 +915,41 @@ def _report(hook: Callable[[Any], None] | None, value: Any) -> None:
         return
     with contextlib.suppress(Exception):
         hook(value)
+
+
+async def chain_with_held(client, chain: dict[str, dict],
+                          held: list[str]) -> dict[str, dict]:
+    """The scan chain, topped up with the contracts the book is already carrying.
+
+    `portfolio-greek-bounds` reads greeks out of this and fails closed on a missing
+    one, which is right — a book you cannot measure is a book you must not add to. But
+    the chain is fetched for the underlying being *scanned*, and a position held in any
+    other name is simply not in it. So from the moment the agent held a QQQ spread,
+    every SPY proposal was rejected: not because the exposure was too large, but
+    because two QQQ contracts had no greeks in a SPY chain nobody had asked to include
+    them in. Fifteen gates passing and that one failing, on a record of one position
+    since 27 August and no second name ever opened.
+
+    The fail-closed instinct stays. What was wrong was the input.
+
+    One extra call, for the symbols the chain does not already have — the scanned
+    name's own held legs are already priced, and asking twice is a round trip to learn
+    nothing. The scan chain wins any collision: it was fetched for this cycle with this
+    cycle's window, and a top-up must not overwrite it with a second opinion.
+
+    A failed top-up leaves the scan chain alone. The gate then fails closed on what is
+    genuinely missing, which is the right outcome for the right reason; emptying the
+    chain would turn one unmeasurable position into an unmeasurable cycle.
+    """
+    wanted = [s for s in dict.fromkeys(held) if s not in chain]
+    if not wanted:
+        return chain
+    try:
+        payload = await client.get_option_snapshot(wanted)
+    except (MCPError, KeyError, TypeError):
+        return chain
+    extra = payload.get("snapshots", payload) if isinstance(payload, dict) else {}
+    return {**(extra if isinstance(extra, dict) else {}), **chain}
 
 
 def buildable(chain: dict, limits, profile, target_dte: int, asof) -> int:
