@@ -580,3 +580,103 @@ def test_the_drawn_target_scales_with_quantity():
     policy = ExitPolicy(take_profit_pct=Decimal(50), take_profit_usd=Decimal(100))
     target = exit_levels(Decimal("-0.50"), policy, qty=3).target
     assert target == Decimal("-0.1666666666666666666666666667")
+
+
+# --- keeping what was already made ----------------------------------------------------
+#
+# A position up $120 that drifts back to $30 and then to a loss made every dollar of that
+# gain and kept none of it. The target rules cannot help: they only ever fire on the way
+# up, and this is a failure on the way down.
+#
+# So the ledger remembers the best each position has been, and the policy will not let a
+# gain of consequence evaporate. Two things stop that becoming a hair trigger: the peak
+# is a *previous* cycle's reading, never the current one — a new high is not a giveback —
+# and the ratchet does not arm until the peak clears what the round trip costs, or every
+# position closes on the first tick of noise.
+
+def _ratchet(tmp_path, entry, mark, *, peak=None, qty=1, giveback=50):
+    policy = ExitPolicy(take_profit_pct=Decimal(50), take_profit_usd=Decimal(100),
+                        giveback_pct=Decimal(giveback))
+    led = Ledger(path=tmp_path / "r.json")
+    led.record_open(vertical("Oct spread", P755, P760, qty=qty), "SPY",
+                    structure_id="r1", entry_price=Decimal(entry))
+    led.record_fill("r1", Decimal(entry))
+    s = led.open_structures[0]
+    if peak is not None:
+        s.peak_usd = Decimal(peak)
+    base = Decimal("20.00")
+    chain = {P760: {"latestQuote": {"bp": str(base), "ap": str(base)}},
+             P755: {"latestQuote": {"bp": str(base + Decimal(mark)),
+                                    "ap": str(base + Decimal(mark))}}}
+    return evaluate_exit(s, chain, policy, asof=date(2026, 9, 1))
+
+
+def test_a_gain_that_has_given_back_half_is_taken(tmp_path):
+    """Up $120 at its best, now $55. The trade was right and the exit is late; taking
+    $55 beats watching it become nothing."""
+    d = _ratchet(tmp_path, "-1.51", "-0.96", peak="120")
+    assert d.action is Action.TAKE_PROFIT
+    assert "$120" in d.reason and "gave back" in d.reason
+
+
+def test_a_position_at_a_new_high_is_not_giving_anything_back(tmp_path):
+    d = _ratchet(tmp_path, "-1.51", "-0.31", peak="100")
+    assert d.action is not Action.TAKE_PROFIT or "gave back" not in d.reason
+
+
+def test_noise_below_the_cost_of_the_round_trip_does_not_arm_it(tmp_path):
+    """A peak of $8 on a two-leg structure is inside the spread. Closing on that pays
+    $15 of friction to protect $8, which is not protection."""
+    d = _ratchet(tmp_path, "-1.51", "-1.49", peak="8")
+    assert d.action is Action.HOLD
+
+
+def test_a_position_that_has_never_been_up_is_left_to_its_stop(tmp_path):
+    """No peak, nothing to protect. The stop is the rule that governs a losing position
+    and the ratchet must not quietly become a tighter one."""
+    d = _ratchet(tmp_path, "-1.51", "-1.60", peak=None)
+    assert d.action is Action.HOLD
+
+
+def test_the_ratchet_never_closes_a_position_that_is_down(tmp_path):
+    """Giving back a gain and taking a loss are different acts. Closing here would book
+    a real loss under a rule whose whole purpose is protecting a profit."""
+    d = _ratchet(tmp_path, "-1.51", "-1.80", peak="120")
+    assert d.action is not Action.TAKE_PROFIT
+
+
+def test_no_giveback_configured_changes_nothing(tmp_path):
+    policy = ExitPolicy(take_profit_usd=Decimal(100), giveback_pct=None)
+    led = Ledger(path=tmp_path / "n.json")
+    led.record_open(vertical("Oct spread", P755, P760), "SPY",
+                    structure_id="n1", entry_price=Decimal("-1.51"))
+    led.record_fill("n1", Decimal("-1.51"))
+    s = led.open_structures[0]
+    s.peak_usd = Decimal(120)
+    chain = {P760: {"latestQuote": {"bp": "20.00", "ap": "20.00"}},
+             P755: {"latestQuote": {"bp": "19.04", "ap": "19.04"}}}
+    assert evaluate_exit(s, chain, policy, asof=date(2026, 9, 1)).action is Action.HOLD
+
+
+def test_the_peak_is_remembered_across_cycles(tmp_path):
+    """The ledger is the only thing that survives a restart, so the high-water mark has
+    to live there — held in memory it resets every time the agent is bounced, which is
+    exactly when a position is most likely to be sitting on an unprotected gain."""
+    led = Ledger(path=tmp_path / "p.json")
+    led.record_open(vertical("Oct spread", P755, P760), "SPY",
+                    structure_id="p1", entry_price=Decimal("-1.51"))
+    led.record_fill("p1", Decimal("-1.51"))
+    assert led.record_peak("p1", Decimal(80)) is True
+    assert Ledger.load(str(led.path)).open_structures[0].peak_usd == Decimal(80)
+
+
+def test_a_lower_reading_never_lowers_the_peak(tmp_path):
+    """It is a high-water mark. A ratchet that ratchets both ways is a moving average
+    with extra steps, and it would never trigger."""
+    led = Ledger(path=tmp_path / "q.json")
+    led.record_open(vertical("Oct spread", P755, P760), "SPY",
+                    structure_id="q1", entry_price=Decimal("-1.51"))
+    led.record_fill("q1", Decimal("-1.51"))
+    led.record_peak("q1", Decimal(80))
+    assert led.record_peak("q1", Decimal(30)) is False
+    assert Ledger.load(str(led.path)).open_structures[0].peak_usd == Decimal(80)

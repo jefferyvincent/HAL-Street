@@ -154,7 +154,9 @@ async def main_async(args: argparse.Namespace) -> int:
                              if use_committee else "single call"))
     log(f"feed={client.option_feed}  journal={args.journal}  ledger={args.ledger}")
     banked = ("" if policy.take_profit_usd is None
-              else f" / bank at ${policy.take_profit_usd:,.0f}")
+              else f" / hold for ${policy.take_profit_usd:,.0f} where reachable")
+    banked += ("" if policy.giveback_pct is None
+               else f" / close on giving back {policy.giveback_pct:g}% of a peak")
     log(f"exits: take {policy.take_profit_pct:g}% / stop {policy.stop_loss_pct:g}% / "
         f"force close at {policy.force_close_dte} DTE{banked}")
     log(f"profile={profile.name}  deltas={'/'.join(f'{d:g}' for d in profile.short_deltas)}  "

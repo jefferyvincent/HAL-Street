@@ -97,6 +97,12 @@ class OpenStructure:
     #: When the limit was last moved. The grace before the next move is
     #: measured from here, not from when the order was first written.
     repriced_at: str | None = None
+    #: The most unrealized profit this position has ever shown, in dollars.
+    #:
+    #: Here rather than in memory because the ledger is the only thing that survives a
+    #: restart, and a bounce is exactly when a position is most likely to be sitting on
+    #: an unprotected gain.
+    peak_usd: Decimal | None = None
     exit_filled: bool = False
     #: What each leg filled at, per contract, positive on both sides — the broker's
     #: own `legs` array off the order. See `execution.fills.leg_fills`.
@@ -174,6 +180,7 @@ class Ledger:
                         **row,
                         "entry_price": _num(row.get("entry_price")),
                         "exit_price": _num(row.get("exit_price")),
+                        "peak_usd": _num(row.get("peak_usd")),
                         "entry_legs": _prices(row.get("entry_legs")),
                         "exit_legs": _prices(row.get("exit_legs")),
                     }
@@ -189,6 +196,7 @@ class Ledger:
             row = asdict(s)
             row["entry_price"] = None if s.entry_price is None else str(s.entry_price)
             row["exit_price"] = None if s.exit_price is None else str(s.exit_price)
+            row["peak_usd"] = None if s.peak_usd is None else str(s.peak_usd)
             row["entry_legs"] = _plain_prices(s.entry_legs)
             row["exit_legs"] = _plain_prices(s.exit_legs)
             rows.append(row)
@@ -260,6 +268,22 @@ class Ledger:
             s.entry_price, s.order_id = limit, order_id
             s.reprices += 1
             s.repriced_at = datetime.now(UTC).isoformat()
+            self.save()
+            return True
+        return False
+
+    def record_peak(self, structure_id: str, unrealized: Decimal) -> bool:
+        """Raise a position's high-water mark. True when it actually moved.
+
+        A high-water mark only. A ratchet that ratchets both ways is a moving average
+        with extra steps and would never trigger.
+        """
+        for s in self.structures:
+            if s.structure_id != structure_id or not s.entry_filled:
+                continue
+            if s.peak_usd is not None and unrealized <= s.peak_usd:
+                return False
+            s.peak_usd = unrealized
             self.save()
             return True
         return False

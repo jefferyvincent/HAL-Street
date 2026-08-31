@@ -129,6 +129,20 @@ class ExitPolicy:
     #: keeps that too, for the same reason the figure exists at all.
     take_profit_usd: Decimal | None = None
 
+    #: Close once a position has given back this much of its best-ever gain. `None`
+    #: disables it.
+    #:
+    #: The target rules only ever fire on the way up. A position up $120 that drifts
+    #: back to $30 and then into a loss made every dollar of that gain and kept none of
+    #: it, and nothing in a profit target or a stop was ever going to catch it — the
+    #: stop is measured from the entry, not from the high.
+    #:
+    #: Two things keep it from being a hair trigger. The peak is a previous cycle's
+    #: reading rather than the current one, so a new high is never a giveback; and it
+    #: does not arm until the peak clears what the round trip costs, because closing to
+    #: protect $8 while paying $15 to do it is not protection.
+    giveback_pct: Decimal | None = None
+
     @classmethod
     def from_env(cls, source: dict[str, str] | None = None) -> ExitPolicy:
         src = os.environ if source is None else source
@@ -147,6 +161,7 @@ class ExitPolicy:
 
         return cls(
             take_profit_usd=opt("TAKE_PROFIT_USD"),
+            giveback_pct=opt("GIVEBACK_PCT"),
             take_profit_pct=dec("TAKE_PROFIT_PCT", cls.take_profit_pct),
             stop_loss_pct=dec("STOP_LOSS_PCT", cls.stop_loss_pct),
             force_close_dte=integer("FORCE_CLOSE_DTE", cls.force_close_dte),
@@ -231,6 +246,31 @@ class Levels:
         return {"entry": str(self.entry), "target": str(self.target),
                 "stop": str(self.stop), "credit": self.credit,
                 "stop_reachable": self.stop_reachable}
+
+
+def _giveback(structure: OpenStructure, policy: ExitPolicy,
+              unrealized: Decimal) -> str | None:
+    """Why this position should be closed to protect what it already made, or None.
+
+    Silent on a position that is down. Giving back a gain and taking a loss are
+    different acts, and closing here would book a real loss under a rule whose whole
+    purpose is protecting a profit — the stop owns that case and is measured from the
+    entry, which is the right place to measure a loss from.
+    """
+    peak = structure.peak_usd
+    if policy.giveback_pct is None or peak is None or unrealized <= 0:
+        return None
+    # Noise below the cost of the round trip is not a gain to protect.
+    floor = round_trip_cost(len(structure.legs), structure.qty)
+    if peak <= floor:
+        return None
+    kept = peak * (100 - policy.giveback_pct) / 100
+    if unrealized > kept:
+        return None
+    return (f"up ${unrealized:,.2f}, gave back ${peak - unrealized:,.2f} of a "
+            f"${peak:,.2f} peak ({(peak - unrealized) / peak * 100:.0f}%, limit "
+            f"{policy.giveback_pct:g}%) — the trade was right and this keeps what it "
+            "made rather than watching it become nothing")
 
 
 def _target_note(policy: ExitPolicy, max_gain_usd: Decimal) -> str:
@@ -499,6 +539,15 @@ def evaluate_exit(structure: OpenStructure, chain: dict[str, dict], policy: Exit
     # not the same thing.)
     unrealized = (mark.value - structure.entry_price) * CONTRACT_MULTIPLIER * structure.qty
     entry_credit = -structure.entry_price * CONTRACT_MULTIPLIER * structure.qty
+
+    # Protecting a gain comes before the targets, because it is the only rule here that
+    # looks at where the position has *been*. The targets fire on the way up and this is
+    # a failure on the way down; checked after them it would be unreachable on exactly
+    # the positions that need it, the ones that peaked below their target.
+    given_back = _giveback(structure, policy, unrealized)
+    if given_back is not None:
+        return ExitDecision(structure, Action.TAKE_PROFIT, given_back,
+                            unrealized, mark.value)
 
     if entry_credit > 0:
         # Credit structure: max gain is the credit taken.

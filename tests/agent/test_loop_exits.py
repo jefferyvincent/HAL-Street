@@ -566,3 +566,25 @@ def test_the_between_scan_job_runs_often_enough_to_meet_the_deadline():
     from halstreet.agent.brainstem.schedule import BETWEEN_SECONDS
     from halstreet.agent.cerebellum.loop import Agent
     assert BETWEEN_SECONDS <= Agent.CHASE_AFTER_SECONDS
+
+
+def test_the_loop_raises_the_high_water_mark_each_cycle(tmp_path, journal):
+    """The ratchet is only as good as the record behind it. Nothing else writes the
+    peak, so a loop that forgets leaves every position looking like it has never been
+    up — and the protection silently never fires."""
+    from halstreet.execution.structures import vertical
+    led = Ledger(path=tmp_path / "pk.json")
+    led.record_open(vertical("Oct spread", P755, P760), "SPY",
+                    structure_id="k1", entry_price=Decimal("-1.51"))
+    led.record_fill("k1", Decimal("-1.51"))
+
+    class _Quotes(_Orders):
+        async def get_option_snapshot(self, symbols, **kw):
+            return {"snapshots": {
+                P760: {"latestQuote": {"bp": "20.00", "ap": "20.00"}},
+                P755: {"latestQuote": {"bp": "19.20", "ap": "19.20"}}}}
+
+    agent = agent_for(_Quotes({}), led, journal, dry_run=False)
+    asyncio.run(agent.manage_exits())
+    peak = Ledger.load(str(led.path)).open_structures[0].peak_usd
+    assert peak == Decimal("71.00")

@@ -423,6 +423,13 @@ class Agent:
         await self.refresh_leg_fills()
         decisions = review(self.ledger, chain, self.policy, asof=clock.today())
         for decision in decisions:
+            # After the decision, never before it. The ratchet compares against where
+            # the position has *been*, so folding this reading into the peak first
+            # would have every position permanently at its own high-water mark and the
+            # rule could never fire.
+            if decision.unrealized_usd is not None:
+                self.ledger.record_peak(decision.structure.structure_id,
+                                        _dec(decision.unrealized_usd) or Decimal(0))
             self.journal.write(
                 "exit_decision",
                 structure=decision.structure.name,
