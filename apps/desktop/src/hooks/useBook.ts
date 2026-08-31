@@ -13,6 +13,11 @@ export interface BookRow {
   underlying: string;
   qty: number;
   open: boolean;
+  /**
+   * False while the broker has not filled it. Only meaningful on an open row — a
+   * closed structure filled by definition, or it could not have been closed.
+   */
+  filled: boolean;
   openedAt: string;
   closedAt: string | null;
   entry: string | null;
@@ -45,6 +50,9 @@ export function useBook(): { rows: BookRow[]; open: number; closed: number } {
       underlying: p.underlying,
       qty: p.qty,
       open: true,
+      // The ledger books on acceptance, so this list carries live orders as well as
+      // held positions. The table said OPEN to both.
+      filled: p.entry_filled,
       openedAt: p.opened_at,
       closedAt: null,
       entry: p.entry_price,
@@ -60,6 +68,8 @@ export function useBook(): { rows: BookRow[]; open: number; closed: number } {
       underlying: c.underlying,
       qty: c.qty,
       open: false,
+      // A closed structure filled, or there would have been nothing to close.
+      filled: true,
       openedAt: c.opened_at,
       closedAt: c.closed_at,
       entry: c.entry_price,

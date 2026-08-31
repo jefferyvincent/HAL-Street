@@ -478,6 +478,7 @@ export function makeStrings(t: Translate) {
         realized: t("book.columns.realized"),
       },
       open: t("book.open"),
+      working: t("book.working"),
       closed: t("book.closed"),
       unrealizedTag: t("book.unrealizedTag"),
       unpriced: t("book.unpriced"),

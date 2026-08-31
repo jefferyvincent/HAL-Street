@@ -49,7 +49,11 @@ export function useBookTable() {
 
     return {
       ...row,
-      status: row.open ? t.book.open : t.book.closed,
+      // Three states, not two. An accepted order the broker has not filled is
+      // neither open nor closed, and calling it OPEN put a position in the book that
+      // the account did not hold.
+      status: !row.open ? t.book.closed
+        : row.filled ? t.book.open : t.book.working,
       openedOn: f.day(row.openedAt),
       entryText: row.entry ? f.premium(row.entry) : t.common.dash,
       exitText: row.exit ? f.premium(row.exit) : t.common.dash,

@@ -89,7 +89,8 @@ export function BookView() {
                       className="cursor-pointer hover:bg-panel">
                     <td className={CLS.td}>
                       <span className={cn("whitespace-nowrap font-mono text-[10px] font-bold leading-none tracking-[.08em]",
-                        r.open ? "text-amber" : "text-ink/45")}>
+                        r.open && r.filled ? "text-amber"
+                          : r.open ? "text-amber/60" : "text-ink/45")}>
                         {r.status}
                       </span>
                     </td>
