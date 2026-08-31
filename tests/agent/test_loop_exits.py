@@ -217,13 +217,15 @@ class _Orders(FakeClient):
         return {"id": order_id, "status": "canceled"}
 
 
-def _working(tmp_path, *, order_id="ord-9", age_minutes=45):
+def _working(tmp_path, *, order_id="ord-9", age_minutes=45, age_seconds=None):
     """A ledger holding one accepted-but-unfilled structure."""
     from datetime import UTC, datetime, timedelta
     led = Ledger(path=tmp_path / "w.json")
     led.record_open(iron_condor("Oct condor", P755, P760, C770, C775), "SPY",
                     structure_id="w1", entry_price=Decimal("-4.04"), order_id=order_id)
-    when = datetime.now(UTC) - timedelta(minutes=age_minutes)
+    when = datetime.now(UTC) - (timedelta(seconds=age_seconds)
+                                if age_seconds is not None
+                                else timedelta(minutes=age_minutes))
     led.structures[-1].opened_at = when.isoformat()
     led.save()
     return led
@@ -265,7 +267,7 @@ def test_a_stale_working_order_is_cancelled(tmp_path, journal):
 
 def test_a_fresh_working_order_is_left_alone(tmp_path, journal):
     """One cycle's grace. Cancelling an order placed ninety seconds ago is churn."""
-    ledger = _working(tmp_path, age_minutes=1)
+    ledger = _working(tmp_path, age_seconds=2)
     client = _Orders({"ord-9": {"status": "new", "filled_qty": "0"}})
     _work(client, ledger, journal)
     assert client.cancelled == []
@@ -361,7 +363,8 @@ def _book(short_bid, long_ask):
             P755: {"latestQuote": {"bp": str(long_ask - 0.02), "ap": str(long_ask)}}}
 
 
-def _spread(tmp_path, *, limit="-1.00", order_id="ord-9", age=45, reprices=0):
+def _spread(tmp_path, *, limit="-1.00", order_id="ord-9", age=45, age_s=None,
+            reprices=0):
     from datetime import UTC, datetime, timedelta
 
     from halstreet.execution.structures import vertical
@@ -369,7 +372,9 @@ def _spread(tmp_path, *, limit="-1.00", order_id="ord-9", age=45, reprices=0):
     led.record_open(vertical("Oct spread", P755, P760), "SPY",
                     structure_id="c1", entry_price=Decimal(limit), order_id=order_id)
     s = led.structures[-1]
-    s.opened_at = (datetime.now(UTC) - timedelta(minutes=age)).isoformat()
+    old = (timedelta(seconds=age_s) if age_s is not None
+           else timedelta(minutes=age))
+    s.opened_at = (datetime.now(UTC) - old).isoformat()
     s.reprices = reprices
     led.save()
     return led
@@ -413,7 +418,7 @@ def test_it_will_not_chase_below_the_credit_the_trade_was_scored_on(tmp_path, jo
     """The expectancy that justified this was computed at the original credit. Halve
     that and the trade is a different one nobody assessed — so it is withdrawn instead,
     and the next scan may propose it again at a price it can defend."""
-    ledger = _spread(tmp_path, limit="-1.00", age=5)
+    ledger = _spread(tmp_path, limit="-1.00", age_s=30)
     client = _Chaser({"ord-9": {"status": "new"}}, _book(5.10, 5.03))   # 0.07 credit
     _chase(client, ledger, journal)
     assert client.replaced == []
@@ -423,7 +428,7 @@ def test_it_will_not_chase_below_the_credit_the_trade_was_scored_on(tmp_path, jo
 def test_it_will_not_chase_a_credit_that_no_longer_clears_its_own_exit(tmp_path, journal):
     """Max gain has to stay worth more than getting out costs. Below that the position
     is friction with a lottery ticket attached, whatever the reward/risk says."""
-    ledger = _spread(tmp_path, limit="-0.40", age=5)
+    ledger = _spread(tmp_path, limit="-0.40", age_s=30)
     # 0.30 of credit — which is above half the scored credit, so the credit floor is
     # satisfied — but each leg is 0.30 wide, so getting out costs $30 against a $30
     # max gain.
@@ -469,7 +474,7 @@ def test_a_freshly_walked_limit_gets_its_own_grace(tmp_path, journal):
     minute, walks the limit its whole allowance inside three of them — spending every
     step before the book has had a chance to come back."""
     from datetime import UTC, datetime
-    ledger = _spread(tmp_path, limit="-0.34", age=45)
+    ledger = _spread(tmp_path, limit="-0.34", age_s=300)
     ledger.structures[-1].repriced_at = datetime.now(UTC).isoformat()
     ledger.save()
     client = _Chaser({"ord-9": {"status": "new"}}, _book(5.30, 5.03))
@@ -481,7 +486,7 @@ def test_a_floor_holds_the_order_rather_than_pulling_it(tmp_path, journal):
     """The distinction the first draft of this missed. A floor answers "should the limit
     move", and the answer being no is not an argument for cancelling — at a three-minute
     grace that would pull orders the thirty-five-minute rule would have left to fill."""
-    ledger = _spread(tmp_path, limit="-0.34", age=5)
+    ledger = _spread(tmp_path, limit="-0.34", age_s=30)
     client = _Chaser({"ord-9": {"status": "new"}}, _book(5.10, 5.05))   # 0.05 credit
     _chase(client, ledger, journal)
     assert client.replaced == [] and client.cancelled == []
@@ -500,10 +505,64 @@ def test_the_backstop_is_measured_from_when_the_order_was_written(tmp_path, jour
     keeps just barely qualifying never reaches it — the exact shape of a stale order the
     thirty-five-minute rule exists to catch."""
     from datetime import UTC, datetime, timedelta
-    ledger = _spread(tmp_path, limit="-0.34", age=90)
+    ledger = _spread(tmp_path, limit="-0.34", age_s=300)
     ledger.structures[-1].repriced_at = (datetime.now(UTC)
-                                         - timedelta(minutes=5)).isoformat()
+                                         - timedelta(seconds=30)).isoformat()
     ledger.save()
     client = _Chaser({"ord-9": {"status": "new"}}, _book(5.10, 5.05))
     _chase(client, ledger, journal)
     assert client.cancelled == ["ord-9"]
+
+
+# --- nothing rests untouched for a minute -------------------------------------------
+#
+# The 795/796 call spread sat working while the loop held it, correctly, and did so
+# every minute for as long as its backstop allowed. Correct is not the same as
+# acceptable: an order the desk is not willing to move is an order the desk should not
+# be showing, and thirty-five minutes of it is thirty-five minutes of capital committed
+# to a price nobody will pay.
+#
+# So the clock shrinks to seconds. Inside one minute every working order is filled,
+# moved toward the book, or withdrawn — never simply left.
+
+def test_an_order_is_touched_within_the_first_minute(tmp_path, journal):
+    ledger = _spread(tmp_path, limit="-0.34", age_s=25)
+    client = _Chaser({"ord-9": {"status": "new"}}, _book(5.30, 5.03))
+    _chase(client, ledger, journal)
+    assert client.replaced == [("ord-9", Decimal("-0.27"))]
+
+
+def test_an_order_that_cannot_be_moved_is_gone_inside_a_minute(tmp_path, journal):
+    """The 795/796 case. Holding it was the right answer to "should the limit move" and
+    the wrong answer to "should this still be working"."""
+    ledger = _spread(tmp_path, limit="-0.34", age_s=61)
+    client = _Chaser({"ord-9": {"status": "new"}}, _book(5.10, 5.05))   # 0.05 credit
+    _chase(client, ledger, journal)
+    assert client.replaced == []
+    assert client.cancelled == ["ord-9"]
+
+
+def test_a_brand_new_order_is_given_a_moment(tmp_path, journal):
+    """Not zero. A limit submitted two seconds ago has not been refused yet, and a
+    chase that starts instantly pays the spread for its own impatience."""
+    ledger = _spread(tmp_path, limit="-0.34", age_s=2)
+    client = _Chaser({"ord-9": {"status": "new"}}, _book(5.30, 5.03))
+    _chase(client, ledger, journal)
+    assert client.replaced == [] and client.cancelled == []
+
+
+def test_the_whole_chase_fits_inside_the_minute():
+    """Three moves, each after its own grace, and the backstop underneath them. If the
+    steps outlasted the backstop the last ones could never run — the bound and the
+    deadline have to be consistent or one of them is decoration."""
+    from halstreet.agent.cerebellum.loop import Agent
+    assert (Agent.MAX_REPRICES * Agent.CHASE_AFTER_SECONDS
+            <= Agent.STALE_ORDER_SECONDS)
+
+
+def test_the_between_scan_job_runs_often_enough_to_meet_the_deadline():
+    """A deadline measured in seconds is a fiction if the only thing that can act on it
+    wakes once a minute."""
+    from halstreet.agent.brainstem.schedule import BETWEEN_SECONDS
+    from halstreet.agent.cerebellum.loop import Agent
+    assert BETWEEN_SECONDS <= Agent.CHASE_AFTER_SECONDS

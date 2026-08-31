@@ -157,20 +157,27 @@ class Agent:
     #: order ninety seconds old has not had its chance — and longer is the behaviour
     #: this replaces, where a spread sat from 14:15 to the close while the agent placed
     #: another on top of it.
-    #: How long an order rests before it is withdrawn outright.
+    #: How long an order may exist before it is filled, moved, or withdrawn.
     #:
-    #: The backstop under the chase, and the older of the two rules. Past it the
-    #: structure goes back to the ordinary path, where the next scan prices it off fresh
-    #: quotes through the whole scenario and gate chain.
-    STALE_ORDER_MINUTES = 35
+    #: One minute. It was thirty-five, which is the interval a scan-driven loop can
+    #: manage rather than any judgement about how long a price stays good — and the
+    #: 795/796 spread spent all of it working at a limit the desk had already decided
+    #: not to move. An order nobody is willing to re-price is an order nobody should be
+    #: showing: it commits margin, counts against the position caps, and advertises a
+    #: price the account does not actually want.
+    #:
+    #: Past it the structure goes back to the ordinary path, where the next scan prices
+    #: it off fresh quotes through the whole scenario and gate chain.
+    STALE_ORDER_SECONDS = 60
 
     #: How long a limit rests untouched before it is walked toward the book.
     #:
-    #: Short, because the between-scan job runs each minute and the point of it is that
-    #: an unfilled order loses value while it sits. Not zero, because a limit that has
-    #: only just gone on has not yet been refused — a book two cents away often comes
-    #: back on its own, and a chase that starts immediately pays for impatience.
-    CHASE_AFTER_MINUTES = 3
+    #: Not zero: a limit submitted two seconds ago has not been refused yet, a book two
+    #: cents away often comes back on its own, and a chase that starts instantly pays
+    #: the spread for its own impatience. Twenty seconds buys that chance and still
+    #: leaves room for `MAX_REPRICES` moves inside `STALE_ORDER_SECONDS` — a step bound
+    #: that outlasted the deadline would have steps that could never run.
+    CHASE_AFTER_SECONDS = 20
 
     #: How far the entry limit may be walked toward the book, in steps.
     #:
@@ -238,7 +245,7 @@ class Agent:
             # resting order, because a submission may still be in flight and dropping
             # it the same second it was written would race the code that wrote it.
             if not structure.order_id:
-                if _age_minutes(structure.opened_at) < self.STALE_ORDER_MINUTES:
+                if _age_seconds(structure.opened_at) < self.STALE_ORDER_SECONDS:
                     continue
                 self.ledger.forget(structure.structure_id)
                 self.journal.write("working_order",
@@ -284,7 +291,7 @@ class Agent:
         # From the last move, not from when the order was written: otherwise a job
         # that runs every minute spends the whole allowance in three of them.
         since = structure.repriced_at or structure.opened_at
-        if _age_minutes(since) < self.CHASE_AFTER_MINUTES:
+        if _age_seconds(since) < self.CHASE_AFTER_SECONDS:
             return "waiting"
 
         return await self._chase_or_drop(structure)
@@ -302,7 +309,7 @@ class Agent:
         the answer being no is not an argument for cancelling — the first draft of this
         conflated them, and at a three-minute grace that pulls orders the thirty-five
         minute rule would have left alone. So a floor **holds**; only
-        `STALE_ORDER_MINUTES`, measured from when the order was written, withdraws.
+        `STALE_ORDER_SECONDS`, measured from when the order was written, withdraws.
 
         What it must not do is chase anywhere. Two floors, and the stricter wins:
 
@@ -363,9 +370,9 @@ class Agent:
         The backstop is measured from when the order was written, never from the last
         move — otherwise each chase resets it and a limit that keeps just barely
         qualifying never reaches it, which is the exact shape of stale order the
-        thirty-five-minute rule exists to catch.
+        deadline exists to catch.
         """
-        if _age_minutes(structure.opened_at) < self.STALE_ORDER_MINUTES:
+        if _age_seconds(structure.opened_at) < self.STALE_ORDER_SECONDS:
             return f"held: {why}"
         return await self._withdraw(structure, why)
 
@@ -1203,8 +1210,8 @@ def _dec(value: object) -> Decimal | None:
         return None
 
 
-def _age_minutes(opened_at: str | None) -> float:
-    """Minutes since a journal stamp. Unreadable reads as brand new.
+def _age_seconds(opened_at: str | None) -> float:
+    """Seconds since a journal stamp. Unreadable reads as brand new.
 
     Failing toward *young* is the safe direction: the consequence is an order left
     resting one more cycle, where the other way is cancelling something on a timestamp
@@ -1214,7 +1221,7 @@ def _age_minutes(opened_at: str | None) -> float:
         began = datetime.fromisoformat(str(opened_at))
     except (TypeError, ValueError):
         return 0.0
-    return max(0.0, (datetime.now(UTC) - began).total_seconds() / 60)
+    return max(0.0, (datetime.now(UTC) - began).total_seconds())
 
 
 def marketable_net(structure, chain: dict[str, dict]) -> Decimal | None:

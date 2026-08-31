@@ -131,11 +131,12 @@ PASS_ALLOWANCE_S = 5 * 60
 
 #: How often the between-scan job runs while the scheduler waits.
 #:
-#: One minute, because it exists to chase a fill and a limit the book has
-#: moved away from is worth less every minute it rests. Short enough to be
-#: prompt; long enough that a whole interval of them is a handful of quote
-#: requests, not a poll.
-BETWEEN_SECONDS = 60.0
+#: Fifteen seconds. It exists to chase a fill, and the deadline it serves is measured
+#: in seconds — a rule saying no order rests untouched for a minute is a fiction if
+#: the only thing that can act on it wakes once a minute. Four ticks a minute is a
+#: handful of quote requests, which is cheap next to an order resting at a price
+#: nobody will pay.
+BETWEEN_SECONDS = 15.0
 
 
 def silent_after_seconds(source: dict[str, str] | None = None) -> int:
