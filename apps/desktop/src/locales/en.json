@@ -75,7 +75,9 @@
     "factLegs": "legs",
     "qty": "×{{qty}}",
     "open": "OPEN",
-    "openTitle": "Still on. Everything in this list is a position the agent is currently carrying."
+    "openTitle": "Still on. Everything in this list is a position the agent is currently carrying.",
+    "working": "WORKING",
+    "workingTitle": "A live order the broker has not filled. The account does not hold this yet — the agent records an accepted order because it may end up holding it."
   },
   "ledger": {
     "allRan": "ALL {{n}} GATES RAN"
@@ -172,7 +174,8 @@
     "unpriced": "—",
     "againstMany": "{{count}} chart patterns point the other way",
     "confirmingMany": "{{count}} chart patterns agree",
-    "patternLine": "{{name}} — {{note}}"
+    "patternLine": "{{name}} — {{note}}",
+    "working": "WORKING"
   },
   "chart": {
     "back": "BOOK",

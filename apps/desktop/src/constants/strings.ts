@@ -223,6 +223,8 @@ export function makeStrings(t: Translate) {
       holding: t("console.holding"),
       open: t("console.open"),
       openTitle: t("console.openTitle"),
+      working: t("console.working"),
+      workingTitle: t("console.workingTitle"),
       expand: t("console.expand"),
       collapse: t("console.collapse"),
       openTrade: t("console.openTrade"),

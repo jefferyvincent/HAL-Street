@@ -10,6 +10,8 @@ import type { Position } from "@/types";
 
 export interface HoldingRow {
   id: string;
+  /** False while the order is still working. Not a held position yet. */
+  filled: boolean;
   position: Position;
   symbol: string;
   /** The name with the root taken off, since the chip beside it already says it. */
@@ -60,6 +62,10 @@ export function useHolding() {
     return {
       id: p.structure_id,
       position: p,
+      // A live order the broker has not filled is not a held position. The ledger
+      // books on acceptance, so this list carries both and the card said OPEN to
+      // each — a spread resting at its limit read as money already at work.
+      filled: p.entry_filled,
       symbol: p.underlying,
       name: stripRoot(p.name, p.underlying),
       qty: p.qty,

@@ -53,14 +53,19 @@ export function Holding() {
                 onClick={() => open(r.id)}
                 className="cursor-pointer border-b border-line px-3 py-[9px] hover:bg-sunk">
               <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                {/* Every row here is a position the agent is still carrying — the
-                    snapshot builds this list from the ledger's open structures — so
-                    the badge is a constant, not a verdict, and needs nothing from the
-                    hook. `self-center` because the row aligns on the baseline and a
-                    bordered chip has none worth aligning to. */}
-                <span className="self-center border border-pass/50 px-[5px] py-[2px] font-mono text-[8.5px] font-bold leading-none tracking-[.1em] text-pass"
-                      title={t.console.openTitle}>
-                  {t.console.open}
+                {/* Not a constant, which it used to be. The snapshot builds this
+                    list from the ledger's open structures and the ledger books on
+                    *acceptance*, so a row here may be an order still resting at its
+                    limit rather than a position the account holds. One badge for both
+                    had a live SPY spread reading as money already at work for ten
+                    minutes while the broker had nothing.
+
+                    `self-center` because the row aligns on the baseline and a bordered
+                    chip has none worth aligning to. */}
+                <span className={cn("self-center border px-[5px] py-[2px] font-mono text-[8.5px] font-bold leading-none tracking-[.1em]",
+                  r.filled ? "border-pass/50 text-pass" : "border-amber/50 text-amber")}
+                      title={r.filled ? t.console.openTitle : t.console.workingTitle}>
+                  {r.filled ? t.console.open : t.console.working}
                 </span>
                 {/* The root, always, from the position's own field rather than
                     from its name. Structures opened before the name carried a

@@ -1395,6 +1395,14 @@ def snapshot(*, journal_path: str, ledger_path: str, breaker_path: str) -> dict:
                 "underlying": s.underlying, "qty": s.qty,
                 "opened_at": s.opened_at, "rationale": s.rationale,
                 "legs": s.legs, "entry_price": s.entry_price,
+                # Whether the broker has actually filled it. The ledger records on
+                # acceptance — an accepted order is a position you may hold — so this
+                # list contains things the account does not own yet, and the console
+                # drew them all as OPEN. A spread resting unfilled at its limit for ten
+                # minutes showed as held, with "not recorded" legs and a divergence
+                # line every cycle: three correct statements adding up to a position
+                # that did not exist.
+                "entry_filled": bool(getattr(s, "entry_filled", False)),
                 # Which way this structure wants the underlying to go, and what the
                 # chart is doing about it. Read from the latest market view rather
                 # than computed here: the agent has the bars, this process must not

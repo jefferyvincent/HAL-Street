@@ -108,6 +108,12 @@ export interface Position {
   legs: Record<string, number>;
   entry_price: string | null;
   /**
+   * Whether the broker has filled it. False means a live working order, not a held
+   * position: the ledger records on acceptance, so this list carries things the
+   * account does not own yet.
+   */
+  entry_filled: boolean;
+  /**
    * Which way this structure wants the underlying to go. A property of the whole
    * spread, not of a leg: a put credit spread is short a put and long a further
    * put, reads "bearish" leg by leg, and is bullish.
