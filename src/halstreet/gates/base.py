@@ -76,6 +76,16 @@ class GateContext:
     # menu gate compares against this; empty means the caller did not wire it, and the
     # gate fails closed rather than waving every structure through.
     menu: frozenset[frozenset[tuple[str, int]]] = frozenset()
+    # Contracts ordered but not yet booked by the broker, in the same shape as
+    # `positions`. A resting limit order is exposure — the commitment is real from the
+    # moment it is accepted — and counting only what the broker has filled let the
+    # agent place a second SPY spread while the first was still working, every half
+    # hour, until the entry throttle stopped it.
+    #
+    # Separate from `positions` rather than merged into it, because the other gates
+    # read that list too: the greek bounds want contracts it can price, and a
+    # committed-but-unfilled leg would fail closed there for the wrong reason.
+    pending: list[dict] = field(default_factory=list)
 
     @property
     def equity(self) -> Decimal | None:

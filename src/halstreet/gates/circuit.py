@@ -150,7 +150,12 @@ def correlated_exposure(proposal: Proposal, ctx: GateContext) -> GateResult:
     if cap_positions <= 0:
         return allow(CORRELATED, "disabled" if not unmapped else "unclassified cap disabled")
 
+    # Booked and ordered together, for the same reason the per-name cap counts both:
+    # a resting order is a commitment the basket can end up carrying, and a gate that
+    # sees only fills lets the size problem relocate to the group.
     held = _gross_by_root(ctx.positions)
+    for root_, qty in _gross_by_root(ctx.pending).items():
+        held[root_] = held.get(root_, Decimal(0)) + qty
     adding = sum(leg.ratio_qty for leg in proposal.structure.legs) * proposal.structure.qty
     # One "position" is one structure's worth of legs, so the contract cap scales with
     # the structure proposed rather than assuming everything is a two-leg spread.

@@ -262,6 +262,28 @@ class Ledger:
             return changed
         return False
 
+    def forget(self, structure_id: str) -> bool:
+        """Remove a structure that never became a position. True if one went.
+
+        Not `record_close`: closing writes an exit price and a realized figure into the
+        record, and there is nothing to realize — the order was cancelled, expired or
+        rejected, and the account never held it. A cancelled entry left in the book is
+        what produced a divergence every cycle that nobody could act on.
+
+        Refuses anything that filled. Deleting a real position from the ledger would
+        leave the account holding something the agent has forgotten about, which is the
+        worst state in this system.
+        """
+        for i, s in enumerate(self.structures):
+            if s.structure_id != structure_id:
+                continue
+            if s.entry_filled:
+                return False
+            del self.structures[i]
+            self.save()
+            return True
+        return False
+
     def record_close(self, structure_id: str, exit_price: Decimal | None = None,
                      *, exit_order_id: str | None = None) -> None:
         for s in self.structures:

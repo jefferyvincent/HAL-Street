@@ -68,9 +68,18 @@ def underlying_concentration(proposal: Proposal, ctx: GateContext) -> GateResult
     root = proposal.underlying.upper()
     # Gross rather than net: a long call and a short put on the same name are two
     # bets in the same direction, and netting them to zero would hide that.
+    #
+    # Booked and ordered together. A working order is a commitment the account can end
+    # up holding, and counting only what the broker has filled is what let a second SPY
+    # spread through while the first was still resting.
     held = sum(
         abs(qty)
         for symbol_root, qty in _gross_by_root(ctx.positions).items()
+        if symbol_root == root
+    )
+    working = sum(
+        abs(qty)
+        for symbol_root, qty in _gross_by_root(ctx.pending).items()
         if symbol_root == root
     )
     adding = sum(leg.ratio_qty for leg in proposal.structure.legs) * proposal.structure.qty
@@ -84,17 +93,20 @@ def underlying_concentration(proposal: Proposal, ctx: GateContext) -> GateResult
     # contracts passed. Backwards for a concentration limit. Legs stay in, so a
     # four-leg condor is not judged against a two-leg spread's allowance.
     cap_contracts = cap_positions * len(proposal.structure.legs)
-    total = held + adding
+    total = held + working + adding
+    ordered = f" + {working:.0f} on working orders" if working else ""
 
     if total > cap_contracts:
         return reject(
             CONCENTRATION,
-            f"{root} would hold {total:.0f} contracts ({held:.0f} open + {adding} new), "
-            f"over the {cap_contracts} implied by max {cap_positions} position(s) per "
-            "underlying. Legs net across structures at the broker, so this counts "
-            "contracts, not structures.",
+            f"{root} would hold {total:.0f} contracts ({held:.0f} open{ordered} + "
+            f"{adding} new), over the {cap_contracts} implied by max {cap_positions} "
+            "position(s) per underlying. Legs net across structures at the broker, so "
+            "this counts contracts, not structures; contracts on an accepted order "
+            "count from acceptance, because that is when the commitment is made.",
         )
-    return allow(CONCENTRATION, f"{root} {total:.0f}/{cap_contracts} contracts")
+    return allow(CONCENTRATION,
+                 f"{root} {total:.0f}/{cap_contracts} contracts{ordered}")
 
 
 def _gross_by_root(positions: list[dict]) -> dict[str, Decimal]:

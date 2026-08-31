@@ -192,3 +192,153 @@ def test_an_acknowledged_order_is_booked_exactly_as_before(tmp_path, journal):
     _submit_with(Nameless({"id": "abc-123", "status": "new"}), ledger, journal)
     assert len(ledger.open_structures) == 1
     assert ledger.open_structures[0].order_id == "abc-123"
+
+
+# --- the working-order loop ------------------------------------------------------------
+#
+# The agent had an entry path and an exit path and nothing in between. It submitted a
+# `day` limit and forgot the order existed: never asked whether it filled, never
+# re-priced, never cancelled. A SPY spread sat unfilled from 14:15 to the close while a
+# second went on top of it, and the ledger carried both as positions.
+
+class _Orders(FakeClient):
+    """A broker with an order book we can script."""
+
+    def __init__(self, statuses: dict[str, dict]):
+        super().__init__()
+        self.statuses = statuses
+        self.cancelled: list[str] = []
+
+    async def get_order(self, order_id):
+        return self.statuses[order_id]
+
+    async def cancel_order(self, order_id):
+        self.cancelled.append(order_id)
+        return {"id": order_id, "status": "canceled"}
+
+
+def _working(tmp_path, *, order_id="ord-9", age_minutes=45):
+    """A ledger holding one accepted-but-unfilled structure."""
+    from datetime import UTC, datetime, timedelta
+    led = Ledger(path=tmp_path / "w.json")
+    led.record_open(iron_condor("Oct condor", P755, P760, C770, C775), "SPY",
+                    structure_id="w1", entry_price=Decimal("-4.04"), order_id=order_id)
+    when = datetime.now(UTC) - timedelta(minutes=age_minutes)
+    led.structures[-1].opened_at = when.isoformat()
+    led.save()
+    return led
+
+
+def _work(client, ledger, journal):
+    return asyncio.run(agent_for(client, ledger, journal, dry_run=False).work_orders())
+
+
+def test_a_filled_order_is_recorded_rather_than_cancelled(tmp_path, journal):
+    ledger = _working(tmp_path)
+    client = _Orders({"ord-9": {"status": "filled", "filled_avg_price": "-4.10"}})
+    _work(client, ledger, journal)
+    assert client.cancelled == []
+    assert ledger.open_structures[0].entry_filled is True
+    assert ledger.open_structures[0].entry_price == Decimal("-4.10")
+
+
+def test_an_order_that_died_is_dropped_from_the_book(tmp_path, journal):
+    """Cancelled, expired or rejected — it never became a position, and leaving it in
+    the ledger is what produced a divergence nobody could act on."""
+    for status in ("canceled", "expired", "rejected"):
+        ledger = _working(tmp_path)
+        _work(_Orders({"ord-9": {"status": status}}), ledger, journal)
+        assert ledger.open_structures == [], status
+
+
+def test_a_stale_working_order_is_cancelled(tmp_path, journal):
+    """Not re-priced here. Cancelling returns it to the normal path, where the next
+    cycle prices it off fresh quotes and puts it through the whole EV and gate chain
+    again — which is a better price than any bespoke chase, and needs no second
+    definition of what a trade is worth."""
+    ledger = _working(tmp_path, age_minutes=45)
+    client = _Orders({"ord-9": {"status": "new", "filled_qty": "0"}})
+    _work(client, ledger, journal)
+    assert client.cancelled == ["ord-9"]
+    assert ledger.open_structures == []
+
+
+def test_a_fresh_working_order_is_left_alone(tmp_path, journal):
+    """One cycle's grace. Cancelling an order placed ninety seconds ago is churn."""
+    ledger = _working(tmp_path, age_minutes=1)
+    client = _Orders({"ord-9": {"status": "new", "filled_qty": "0"}})
+    _work(client, ledger, journal)
+    assert client.cancelled == []
+    assert len(ledger.open_structures) == 1
+
+
+def test_a_partial_fill_is_never_cancelled(tmp_path, journal):
+    """Half a spread is a position, and an unbalanced one. Cancelling the remainder
+    leaves naked legs — the one outcome the defined-risk gate exists to prevent."""
+    ledger = _working(tmp_path, age_minutes=45)
+    client = _Orders({"ord-9": {"status": "partially_filled", "filled_qty": "1"}})
+    _work(client, ledger, journal)
+    assert client.cancelled == []
+
+
+def test_a_broker_that_will_not_answer_changes_nothing(tmp_path, journal):
+    """Not knowing is not a reason to cancel. The order stays and we ask again."""
+    class Mute(_Orders):
+        async def get_order(self, order_id):
+            raise MCPError("order lookup failed")
+
+    ledger = _working(tmp_path, age_minutes=45)
+    client = Mute({})
+    _work(client, ledger, journal)
+    assert client.cancelled == []
+    assert len(ledger.open_structures) == 1
+
+
+def test_a_filled_structure_is_never_looked_at(tmp_path, journal):
+    """This manages orders, not positions. The exit path owns what filled."""
+    ledger = _working(tmp_path)
+    ledger.record_fill("w1", Decimal("-4.04"))
+    client = _Orders({})
+    _work(client, ledger, journal)
+    assert client.cancelled == []
+
+
+def test_every_decision_is_journalled(tmp_path, journal):
+    ledger = _working(tmp_path, age_minutes=45)
+    _work(_Orders({"ord-9": {"status": "new"}}), ledger, journal)
+    kinds = [e["event"] for e in journal.read()]
+    assert "working_order" in kinds
+
+
+def test_an_unfilled_structure_with_no_order_id_is_dropped(tmp_path, journal):
+    """It cannot be looked up, re-priced or cancelled — there is nothing to name.
+
+    `_submit` refuses to create these now, but one exists in the live book from before
+    that guard: the broker returned no id on 2026-08-31 at 14:45, the ledger booked it
+    anyway, and every cycle since has logged a divergence about contracts nobody can
+    act on. Left to `work_orders` alone it would sit there forever, because the loop
+    only walks orders it can ask about.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    led = Ledger(path=tmp_path / "o.json")
+    led.record_open(iron_condor("Oct condor", P755, P760, C770, C775), "SPY",
+                    structure_id="o1", entry_price=Decimal("-4.04"))
+    led.structures[-1].opened_at = (datetime.now(UTC) - timedelta(minutes=45)).isoformat()
+    led.save()
+    assert led.open_structures[0].order_id is None
+
+    _work(_Orders({}), led, journal)
+    assert led.open_structures == []
+    note = next(e for e in journal.read() if e["event"] == "working_order")
+    assert note["action"] == "unnameable"
+
+
+def test_a_fresh_structure_with_no_order_id_is_given_its_moment(tmp_path, journal):
+    """The submission may still be in flight. Dropping it the same second it was
+    written would race the code that wrote it."""
+    led = Ledger(path=tmp_path / "o.json")
+    led.record_open(iron_condor("Oct condor", P755, P760, C770, C775), "SPY",
+                    structure_id="o1", entry_price=Decimal("-4.04"))
+    _work(_Orders({}), led, journal)
+    assert len(led.open_structures) == 1

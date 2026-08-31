@@ -28,7 +28,7 @@ import contextlib
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -149,6 +149,113 @@ class Agent:
             return {}
         payload = await self.client.get_option_snapshot(symbols)
         return payload.get("snapshots", payload) if isinstance(payload, dict) else {}
+
+    #: How long an order may rest before it is withdrawn, in minutes.
+    #:
+    #: One scan interval plus room for the cycle that placed it. Shorter is churn — an
+    #: order ninety seconds old has not had its chance — and longer is the behaviour
+    #: this replaces, where a spread sat from 14:15 to the close while the agent placed
+    #: another on top of it.
+    STALE_ORDER_MINUTES = 35
+
+    async def work_orders(self) -> list[str]:
+        """Look at every order the broker has not filled, and settle it.
+
+        The agent had an entry path and an exit path and nothing between them. It
+        submitted a `day` limit and forgot the order existed — never asked whether it
+        filled, never re-priced, never withdrew it. On 2026-08-31 a SPY spread rested
+        unfilled from 14:15 while a second went on top of it, and the ledger carried
+        both as though the account held them.
+
+        Three outcomes and no fourth:
+
+        **Filled** — recorded, at the price it actually filled at rather than the limit
+        we asked for. The exit path owns it from here.
+
+        **Dead** — cancelled, expired or rejected. It never became a position, so the
+        structure is forgotten rather than closed: closing writes an exit price and a
+        realized figure, and there is nothing to realize.
+
+        **Still working** — left alone inside its grace period, withdrawn past it.
+        Withdrawn rather than re-priced, deliberately. Cancelling returns the structure
+        to the ordinary path, where the next cycle prices it off fresh quotes and puts
+        it through the whole scenario and gate chain again. A bespoke re-pricing loop
+        would need its own answer to "what is this worth now", and a second definition
+        of that is how two numbers start disagreeing.
+
+        A partial fill is never withdrawn. Half a spread is a position and an
+        unbalanced one; cancelling the remainder leaves naked legs, which is the single
+        outcome the defined-risk gate exists to prevent.
+
+        A broker that will not answer changes nothing. Not knowing is not a reason to
+        cancel, and the order is asked about again next cycle.
+        """
+        working = [s for s in self.ledger.open_structures if not s.entry_filled]
+        if not working:
+            return []
+
+        settled: list[str] = []
+        for structure in working:
+            # No id, nothing to ask about. `_submit` refuses to create these now, but
+            # one is in the live book from before that guard — the broker returned no
+            # id and the ledger booked it anyway, and every cycle since has logged a
+            # divergence about contracts nobody can act on. Given the same grace as a
+            # resting order, because a submission may still be in flight and dropping
+            # it the same second it was written would race the code that wrote it.
+            if not structure.order_id:
+                if _age_minutes(structure.opened_at) < self.STALE_ORDER_MINUTES:
+                    continue
+                self.ledger.forget(structure.structure_id)
+                self.journal.write("working_order",
+                                   structure_id=structure.structure_id, order_id=None,
+                                   action="unnameable", structure=structure.name,
+                                   detail="the broker acknowledged no order id")
+                settled.append("unnameable")
+                continue
+            try:
+                order = await self.client.get_order(structure.order_id)
+            except (MCPError, KeyError, TypeError) as exc:
+                self.journal.write("working_order", structure_id=structure.structure_id,
+                                   order_id=structure.order_id, action="unknown",
+                                   detail=f"{type(exc).__name__}: {exc}")
+                continue
+
+            action = await self._settle_order(structure, order or {})
+            self.journal.write("working_order", structure_id=structure.structure_id,
+                               order_id=structure.order_id, action=action,
+                               status=(order or {}).get("status"),
+                               structure=structure.name)
+            settled.append(action)
+        return settled
+
+    async def _settle_order(self, structure, order: dict) -> str:
+        """What to do about one working order, and doing it."""
+        status = str(order.get("status") or "").lower()
+
+        if status == "filled":
+            price = _dec(order.get("filled_avg_price"))
+            if price is not None:
+                self.ledger.record_fill(structure.structure_id, price)
+            return "filled"
+
+        if status in _DEAD_ORDER_STATES:
+            self.ledger.forget(structure.structure_id)
+            return "dropped"
+
+        # A partial fill is a position. It is not this method's to unwind.
+        if _dec(order.get("filled_qty")) not in (None, Decimal(0)):
+            return "partial"
+
+        if _age_minutes(structure.opened_at) < self.STALE_ORDER_MINUTES:
+            return "waiting"
+
+        try:
+            await self.client.cancel_order(structure.order_id)
+        except (MCPError, KeyError, TypeError) as exc:
+            self.journal.error("cancel_order", f"{structure.order_id}: {exc}")
+            return "cancel-failed"
+        self.ledger.forget(structure.structure_id)
+        return "cancelled"
 
     async def manage_exits(self, positions: list[dict] | None = None) -> list[ExitDecision]:
         """Review every open structure and close the ones that qualify.
@@ -569,6 +676,13 @@ class Agent:
             account=state["account"], positions=state["positions"], chain=state["chain"],
             limits=self.limits, asof=clock.today(), spot=state["spot"],
             breaker=self.breaker,
+            # Contracts ordered but not yet booked. A resting order is a commitment the
+            # account can end up holding, and counting only fills is what let a second
+            # SPY spread through while the first was still working.
+            pending=[{"symbol": sym, "qty": qty}
+                     for s_ in self.ledger.open_structures if not s_.entry_filled
+                     for sym, signed in s_.legs.items()
+                     for qty in [signed * s_.qty]],
             # The menu exactly as the model saw it. Built here from the candidate
             # objects rather than re-derived later, so the gate compares against what
             # was actually offered on this cycle and not a reconstruction of it.
@@ -886,7 +1000,15 @@ class Agent:
         Cycles are independent by design — one bad symbol must not cost the others
         their scan, and a failure anywhere in the entry path must not prevent exits.
         """
-        # Exits first, once for the whole book — held structures are not per-symbol
+        # Working orders first of all. An order settled here — filled, dead, or
+        # withdrawn — is one this cycle can reason about honestly, and one that no
+        # longer blocks the name it is on.
+        try:
+            await self.work_orders()
+        except Exception as exc:
+            self.journal.error("work_orders", f"{type(exc).__name__}: {exc}")
+
+        # Exits next, once for the whole book — held structures are not per-symbol
         # work and must not be repeated inside the per-underlying loop.
         try:
             exits = await self.manage_exits()
@@ -931,6 +1053,39 @@ def _report(hook: Callable[[Any], None] | None, value: Any) -> None:
         return
     with contextlib.suppress(Exception):
         hook(value)
+
+
+#: Order states meaning the broker will never fill it. It never became a position.
+_DEAD_ORDER_STATES = frozenset({
+    "canceled", "cancelled", "expired", "rejected", "done_for_day", "replaced",
+    "suspended", "stopped",
+})
+
+
+def _dec(value: object) -> Decimal | None:
+    """A broker field as money, or None when it is not a number.
+
+    None rather than zero, and it matters twice below: a `filled_qty` we cannot read
+    must not look like "nothing filled" on a decision that then cancels the remainder.
+    """
+    try:
+        return Decimal(str(value))
+    except (TypeError, ValueError, InvalidOperation):
+        return None
+
+
+def _age_minutes(opened_at: str | None) -> float:
+    """Minutes since a journal stamp. Unreadable reads as brand new.
+
+    Failing toward *young* is the safe direction: the consequence is an order left
+    resting one more cycle, where the other way is cancelling something on a timestamp
+    nobody could parse.
+    """
+    try:
+        began = datetime.fromisoformat(str(opened_at))
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, (datetime.now(UTC) - began).total_seconds() / 60)
 
 
 async def chain_with_held(client, chain: dict[str, dict],

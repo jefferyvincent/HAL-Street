@@ -134,6 +134,7 @@ TOOL_OPTION_BARS = "get_option_bars"
 TOOL_CLOSE_POSITION = "close_position"
 TOOL_CLOSE_ALL_POSITIONS = "close_all_positions"
 TOOL_CANCEL_ALL_ORDERS = "cancel_all_orders"
+TOOL_CANCEL_ORDER = "cancel_order_by_id"
 
 # `indicative` is Alpaca's free options feed and the default. `opra` is the official
 # consolidated feed and needs a paid market-data agreement on the account — without
@@ -417,6 +418,16 @@ class AlpacaMCP:
         payload = await self.call(TOOL_OPTION_BARS, args)
         bars = (payload or {}).get("bars") if isinstance(payload, dict) else None
         return bars if isinstance(bars, dict) else {}
+
+    async def cancel_order(self, order_id: str) -> dict:
+        """Withdraw one working order.
+
+        By id, never `cancel_all_orders`: this account may carry orders this agent did
+        not place, and a blunt cancel is the one broker call whose blast radius is
+        everything somebody else was doing.
+        """
+        out = await self.call(TOOL_CANCEL_ORDER, {"order_id": order_id})
+        return out if isinstance(out, dict) else {}
 
     async def get_positions(self) -> list[dict]:
         return _rows(await self.call(TOOL_POSITIONS))
