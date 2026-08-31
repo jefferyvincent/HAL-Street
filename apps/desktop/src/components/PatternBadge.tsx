@@ -30,8 +30,17 @@ export function PatternBadge({ position }: { position: Position }) {
         {against === 0 && confirming > 0 && (
           <span className="text-pass">{t.book.confirming(confirming)}</span>
         )}
-        {read.quiet && <span className="text-muted">{t.book.patternsNone}</span>}
       </div>
+      {/* The chart read goes underneath, always — including when it found nothing.
+          These are two independent facts: what the position needs the tape to do, and
+          whether any confirmed pattern is on the chart. Run together on one line they
+          read as a single garbled sentence: "WANTS THE MARKET UP no pattern on the
+          chart", which is how it was reported. */}
+      {read.quiet && (
+        <span className="font-mono text-[10px] leading-none text-muted">
+          {t.book.patternsNone}
+        </span>
+      )}
       {read.lines.length > 0 && (
         <ul className="flex flex-col gap-[2px]">
           {read.lines.map((l) => (
