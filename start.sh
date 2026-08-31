@@ -15,6 +15,7 @@
 #   ./start.sh preflight        check the competition account is clean
 #   ./start.sh test             the test suite
 #   ./start.sh report           P&L, gate counts, drawdown
+#   ./start.sh scorecard        mark the strategy engines against the tape
 #   ./start.sh report -- --export out/
 #   ./start.sh panel            read-only dashboard on http://127.0.0.1:8787
 #                               (build it once: cd apps/desktop && npm run build)
@@ -93,7 +94,7 @@ ARGS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    verify|preflight|test|loop|report|panel|soak|watch|stop) MODE="$1"; shift ;;
+    verify|preflight|test|loop|report|scorecard|panel|soak|watch|stop) MODE="$1"; shift ;;
     -h|--help) usage; exit 0 ;;
     --env) ENV_NAME="${2:?--env needs dev or comp}"; shift 2 ;;
     --) shift; ARGS+=("$@"); break ;;
@@ -208,6 +209,12 @@ case "$MODE" in
     ;;
   report)
     run .venv/bin/python -m halstreet.cli.report --env "$ENV_NAME" "${ARGS[@]}"
+    ;;
+  scorecard)
+    # Marks the strategy engines against what the tape did next. Reads the journal
+    # only — both halves of the measurement are already written there, so this
+    # never reaches the broker.
+    run .venv/bin/python -m halstreet.cli.scorecard --env "$ENV_NAME" "${ARGS[@]}"
     ;;
   soak)
     # A whole session, then a report of which lifecycle events the run actually

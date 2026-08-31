@@ -391,3 +391,19 @@ def test_stop_names_what_it_killed_rather_than_working_silently():
     source = START.read_text()
     stop = source[source.index('if [ "$MODE" = "stop" ]'):]
     assert "say" in stop[:stop.index("\nfi\n")]
+
+
+def test_the_scorecard_script_only_delegates():
+    """Rule 1: scripts/ parses argv and nothing else. The scoring rules belong where a
+    test can reach them without a subprocess."""
+    body = (ROOT / "scripts" / "scorecard.py").read_text()
+    assert "from halstreet.cli.scorecard import main" in body
+    assert "def " not in body
+
+
+def test_start_sh_offers_the_scorecard():
+    """A mode the shell will not dispatch is a mode nobody can run. The case list and
+    the argument allowlist are two places and both have to know."""
+    body = (ROOT / "start.sh").read_text()
+    assert "|scorecard|" in body or "|scorecard)" in body
+    assert "halstreet.cli.scorecard" in body
