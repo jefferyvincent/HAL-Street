@@ -563,3 +563,63 @@ def test_two_scans_a_cadence_apart_are_not_one_pass():
 def test_the_window_still_holds_a_slow_pass_together():
     """Six names, four model calls each. The window has to be wider than the pass."""
     assert schedule.pass_window_seconds({"SCAN_INTERVAL_MINUTES": "30"}) >= 300
+
+
+# --- the wait is not dead time -----------------------------------------------------
+#
+# A working order sits at a price the book has moved away from. Checking it once every
+# thirty minutes means half an hour of a limit nobody will fill, and the whole reason
+# it was submitted is that the structure was judged worth having. So the scheduler
+# offers the interval back: a short job that runs between scans.
+#
+# It is deliberately not a second cycle. It may not scan, propose, or open anything —
+# it tends what is already at the broker. Anything it raises is logged and swallowed,
+# because a failure minding an order must not take down the loop that would have
+# opened the next one.
+
+def _between_sched(**kw):
+    return Scheduler(FakeClient({"is_open": True}), 30, log=lambda *_: None,
+                     max_sleep_seconds=0.01, **kw)
+
+
+def test_the_between_job_runs_while_the_scheduler_waits():
+    ticks = []
+
+    async def tend():
+        ticks.append(1)
+
+    s = _between_sched()
+    asyncio.run(s._wait(0.05, tend, every=0.01))
+    assert ticks, "the interval passed with nothing minding the working orders"
+
+
+def test_a_stop_request_ends_the_wait_without_another_tick():
+    """Ctrl-C during the wait means stop, not one more round trip to the broker."""
+    ticks = []
+
+    async def tend():
+        ticks.append(1)
+        s.request_stop("SIGINT")
+
+    s = _between_sched()
+    asyncio.run(s._wait(10.0, tend, every=0.01))
+    assert len(ticks) == 1
+
+
+def test_a_failure_in_the_between_job_does_not_stop_the_loop():
+    """Minding an order is the lesser job. It may not take down the one that opens
+    positions."""
+    ticks = []
+
+    async def tend():
+        ticks.append(1)
+        raise RuntimeError("broker said no")
+
+    s = _between_sched()
+    asyncio.run(s._wait(0.05, tend, every=0.01))
+    assert len(ticks) > 1, "one failure ended the between-scan work for the whole wait"
+
+
+def test_no_between_job_is_an_ordinary_wait():
+    s = _between_sched()
+    asyncio.run(s._wait(0.02, None, every=0.01))

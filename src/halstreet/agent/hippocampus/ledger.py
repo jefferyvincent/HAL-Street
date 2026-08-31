@@ -90,6 +90,13 @@ class OpenStructure:
     #: is still something to correct. Without them a fill that happens to equal its
     #: limit is indistinguishable from one that was never looked up at all.
     entry_filled: bool = False
+    #: How many times the entry limit has been walked toward the book. Bounded,
+    #: because a drifting market drags a limit to nothing one defensible tick at
+    #: a time and the sum of those steps is not defensible.
+    reprices: int = 0
+    #: When the limit was last moved. The grace before the next move is
+    #: measured from here, not from when the order was first written.
+    repriced_at: str | None = None
     exit_filled: bool = False
     #: What each leg filled at, per contract, positive on both sides — the broker's
     #: own `legs` array off the order. See `execution.fills.leg_fills`.
@@ -237,6 +244,24 @@ class Ledger:
             s.entry_price, s.entry_filled = fill_price, True
             self.save()
             return changed
+        return False
+
+    def record_reprice(self, structure_id: str, limit: Decimal, order_id: str) -> bool:
+        """A working order moved to a new limit, and became a new order doing it.
+
+        Both halves matter. The price is what the structure will fill at, so a P&L
+        computed against the old one is computed against a number nobody traded; and
+        the id is how the next cycle finds it at all, so keeping the replaced one
+        leaves the agent asking about an order that no longer exists.
+        """
+        for s in self.structures:
+            if s.structure_id != structure_id or s.entry_filled:
+                continue
+            s.entry_price, s.order_id = limit, order_id
+            s.reprices += 1
+            s.repriced_at = datetime.now(UTC).isoformat()
+            self.save()
+            return True
         return False
 
     def record_exit_fill(self, structure_id: str, fill_price: Decimal) -> bool:

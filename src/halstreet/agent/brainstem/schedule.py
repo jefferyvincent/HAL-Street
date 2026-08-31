@@ -129,6 +129,14 @@ def scan_interval_seconds(source: dict[str, str] | None = None) -> int:
 #: is late.
 PASS_ALLOWANCE_S = 5 * 60
 
+#: How often the between-scan job runs while the scheduler waits.
+#:
+#: One minute, because it exists to chase a fill and a limit the book has
+#: moved away from is worth less every minute it rests. Short enough to be
+#: prompt; long enough that a whole interval of them is a handful of quote
+#: requests, not a poll.
+BETWEEN_SECONDS = 60.0
+
 
 def silent_after_seconds(source: dict[str, str] | None = None) -> int:
     """How quiet the journal may go, mid-session, before something is wrong.
@@ -311,6 +319,36 @@ class Scheduler:
                 await asyncio.wait_for(self._stop.wait(), timeout=chunk)
             remaining -= chunk
 
+    async def _wait(self, seconds: float,
+                    between: Callable[[], Awaitable[None]] | None,
+                    every: float = BETWEEN_SECONDS) -> None:
+        """Sleep, minding the working orders as it goes.
+
+        A limit the book has moved away from is not something to discover half an hour
+        later — the whole reason the order exists is that the structure was judged
+        worth having, and the interval it spends unfilled is the interval in which that
+        judgement decays.
+
+        `between` is deliberately the lesser job: it tends what is already at the
+        broker and may not scan, propose or open anything. So its failures are logged
+        and swallowed. A round trip that errors while minding an order must not take
+        down the loop that would have opened the next one.
+        """
+        if between is None:
+            await self._sleep(seconds)
+            return
+        remaining = seconds
+        while remaining > 0 and not self._stop.is_set():
+            chunk = min(remaining, every)
+            await self._sleep(chunk)
+            remaining -= chunk
+            if self._stop.is_set():
+                return
+            try:
+                await between()
+            except Exception as exc:
+                self.log(f"between scans: {type(exc).__name__}: {exc}")
+
     async def run_cycle(self, cycle: Callable[[], Awaitable[None]]) -> bool:
         """Run one cycle, abandoning it if a second stop arrives. True if it finished.
 
@@ -346,6 +384,7 @@ class Scheduler:
             await asyncio.sleep(_STOP_POLL_SECONDS)
 
     async def run(self, cycle: Callable[[], Awaitable[None]], *,
+                  between: Callable[[], Awaitable[None]] | None = None,
                   max_cycles: int | None = None, until_close: bool = False,
                   wait_for_open: bool = True) -> int:
         """Run `cycle` on the interval. Returns how many cycles actually ran."""
@@ -401,6 +440,6 @@ class Scheduler:
             wait = max(0.0, self.interval - elapsed)
             if wait and not self._stop.is_set():
                 self.log(f"cycle took {elapsed:.0f}s; next scan in {wait / 60:.0f}m")
-            await self._sleep(wait)
+            await self._wait(wait, between)
 
         return completed

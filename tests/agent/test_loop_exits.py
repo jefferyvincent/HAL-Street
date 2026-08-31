@@ -342,3 +342,168 @@ def test_a_fresh_structure_with_no_order_id_is_given_its_moment(tmp_path, journa
                     structure_id="o1", entry_price=Decimal("-4.04"))
     _work(_Orders({}), led, journal)
     assert len(led.open_structures) == 1
+
+
+# --- chasing the fill --------------------------------------------------------------
+#
+# Withdrawing a working order returns it to the next scan, which is correct and slow.
+# The live case: a SPY spread priced at 0.34 credit against a book paying 0.27 — seven
+# cents out, drifting in and out of reach all afternoon. Cancelling that throws away a
+# trade the desk wanted over a price difference smaller than one tick of the underlying.
+#
+# So it walks the limit toward the book. What it must never do is walk it anywhere: the
+# expectancy that justified the trade was computed at the credit it was scored on, and a
+# chase with no floor turns a considered position into whatever the market will pay.
+
+def _book(short_bid, long_ask):
+    """Quotes where selling P760 and buying P755 nets `short_bid - long_ask` of credit."""
+    return {P760: {"latestQuote": {"bp": str(short_bid), "ap": str(short_bid + 0.02)}},
+            P755: {"latestQuote": {"bp": str(long_ask - 0.02), "ap": str(long_ask)}}}
+
+
+def _spread(tmp_path, *, limit="-1.00", order_id="ord-9", age=45, reprices=0):
+    from datetime import UTC, datetime, timedelta
+
+    from halstreet.execution.structures import vertical
+    led = Ledger(path=tmp_path / "c.json")
+    led.record_open(vertical("Oct spread", P755, P760), "SPY",
+                    structure_id="c1", entry_price=Decimal(limit), order_id=order_id)
+    s = led.structures[-1]
+    s.opened_at = (datetime.now(UTC) - timedelta(minutes=age)).isoformat()
+    s.reprices = reprices
+    led.save()
+    return led
+
+
+class _Chaser(_Orders):
+    def __init__(self, statuses, book):
+        super().__init__(statuses)
+        self.book, self.replaced = book, []
+
+    async def get_option_snapshot(self, symbols, **kw):
+        return {"snapshots": self.book}
+
+    async def replace_order(self, order_id, limit_price):
+        self.replaced.append((order_id, limit_price))
+        return {"id": "ord-10", "status": "new"}
+
+
+def _chase(client, ledger, journal):
+    return asyncio.run(agent_for(client, ledger, journal, dry_run=False).work_orders())
+
+
+def test_a_limit_asking_more_than_the_book_pays_is_walked_to_the_book(tmp_path, journal):
+    ledger = _spread(tmp_path, limit="-0.34")
+    client = _Chaser({"ord-9": {"status": "new"}}, _book(5.30, 5.03))
+    _chase(client, ledger, journal)
+    assert client.replaced == [("ord-9", Decimal("-0.27"))]
+    assert client.cancelled == []
+
+
+def test_an_already_marketable_limit_is_left_to_fill(tmp_path, journal):
+    """Asking less credit than the book pays. Moving it would give away money for a
+    fill that is already coming."""
+    ledger = _spread(tmp_path, limit="-0.10")
+    client = _Chaser({"ord-9": {"status": "new"}}, _book(5.30, 5.03))
+    _chase(client, ledger, journal)
+    assert client.replaced == [] and client.cancelled == []
+
+
+def test_it_will_not_chase_below_the_credit_the_trade_was_scored_on(tmp_path, journal):
+    """The expectancy that justified this was computed at the original credit. Halve
+    that and the trade is a different one nobody assessed — so it is withdrawn instead,
+    and the next scan may propose it again at a price it can defend."""
+    ledger = _spread(tmp_path, limit="-1.00", age=5)
+    client = _Chaser({"ord-9": {"status": "new"}}, _book(5.10, 5.03))   # 0.07 credit
+    _chase(client, ledger, journal)
+    assert client.replaced == []
+    assert client.cancelled == [], "a floor says do not move it, not pull it"
+
+
+def test_it_will_not_chase_a_credit_that_no_longer_clears_its_own_exit(tmp_path, journal):
+    """Max gain has to stay worth more than getting out costs. Below that the position
+    is friction with a lottery ticket attached, whatever the reward/risk says."""
+    ledger = _spread(tmp_path, limit="-0.40", age=5)
+    # 0.30 of credit — which is above half the scored credit, so the credit floor is
+    # satisfied — but each leg is 0.30 wide, so getting out costs $30 against a $30
+    # max gain.
+    wide = {P760: {"latestQuote": {"bp": "5.40", "ap": "5.70"}},
+            P755: {"latestQuote": {"bp": "4.80", "ap": "5.10"}}}
+    client = _Chaser({"ord-9": {"status": "new"}}, wide)
+    _chase(client, ledger, journal)
+    assert client.replaced == []
+    assert client.cancelled == []
+
+
+def test_the_chase_is_bounded(tmp_path, journal):
+    """A limit that has already been walked its allowance is withdrawn rather than
+    followed further down. Otherwise a drifting book drags it to nothing one tick at a
+    time, each step defensible and the sum of them not."""
+    ledger = _spread(tmp_path, limit="-0.34", reprices=3)
+    client = _Chaser({"ord-9": {"status": "new"}}, _book(5.30, 5.03))
+    _chase(client, ledger, journal)
+    assert client.replaced == []
+
+
+def test_a_replace_records_the_new_price_and_the_new_order_id(tmp_path, journal):
+    """A replacement is a different order at the broker. Keeping the old id would leave
+    the next cycle asking about something that no longer exists."""
+    ledger = _spread(tmp_path, limit="-0.34")
+    _chase(_Chaser({"ord-9": {"status": "new"}}, _book(5.30, 5.03)), ledger, journal)
+    s = Ledger.load(str(ledger.path)).open_structures[0]
+    assert s.entry_price == Decimal("-0.27")
+    assert s.order_id == "ord-10"
+    assert s.reprices == 1
+
+
+def test_a_book_it_cannot_read_changes_nothing(tmp_path, journal):
+    """No quotes, no chase, no cancel. Not knowing the price is not a reason to move."""
+    ledger = _spread(tmp_path, limit="-0.34")
+    client = _Chaser({"ord-9": {"status": "new"}}, {})
+    _chase(client, ledger, journal)
+    assert client.replaced == [] and client.cancelled == []
+
+
+def test_a_freshly_walked_limit_gets_its_own_grace(tmp_path, journal):
+    """The clock restarts on every move. Otherwise the between-scan job, which runs each
+    minute, walks the limit its whole allowance inside three of them — spending every
+    step before the book has had a chance to come back."""
+    from datetime import UTC, datetime
+    ledger = _spread(tmp_path, limit="-0.34", age=45)
+    ledger.structures[-1].repriced_at = datetime.now(UTC).isoformat()
+    ledger.save()
+    client = _Chaser({"ord-9": {"status": "new"}}, _book(5.30, 5.03))
+    _chase(client, ledger, journal)
+    assert client.replaced == [] and client.cancelled == []
+
+
+def test_a_floor_holds_the_order_rather_than_pulling_it(tmp_path, journal):
+    """The distinction the first draft of this missed. A floor answers "should the limit
+    move", and the answer being no is not an argument for cancelling — at a three-minute
+    grace that would pull orders the thirty-five-minute rule would have left to fill."""
+    ledger = _spread(tmp_path, limit="-0.34", age=5)
+    client = _Chaser({"ord-9": {"status": "new"}}, _book(5.10, 5.05))   # 0.05 credit
+    _chase(client, ledger, journal)
+    assert client.replaced == [] and client.cancelled == []
+
+
+def test_past_the_backstop_an_unchaseable_order_is_withdrawn(tmp_path, journal):
+    ledger = _spread(tmp_path, limit="-0.34", age=45)
+    client = _Chaser({"ord-9": {"status": "new"}}, _book(5.10, 5.05))
+    _chase(client, ledger, journal)
+    assert client.replaced == []
+    assert client.cancelled == ["ord-9"]
+
+
+def test_the_backstop_is_measured_from_when_the_order_was_written(tmp_path, journal):
+    """Not from the last move. Otherwise each chase resets the backstop and a limit that
+    keeps just barely qualifying never reaches it — the exact shape of a stale order the
+    thirty-five-minute rule exists to catch."""
+    from datetime import UTC, datetime, timedelta
+    ledger = _spread(tmp_path, limit="-0.34", age=90)
+    ledger.structures[-1].repriced_at = (datetime.now(UTC)
+                                         - timedelta(minutes=5)).isoformat()
+    ledger.save()
+    client = _Chaser({"ord-9": {"status": "new"}}, _book(5.10, 5.05))
+    _chase(client, ledger, journal)
+    assert client.cancelled == ["ord-9"]

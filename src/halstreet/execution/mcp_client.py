@@ -26,6 +26,7 @@ import json
 import os
 import shutil
 import sys
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -135,6 +136,7 @@ TOOL_CLOSE_POSITION = "close_position"
 TOOL_CLOSE_ALL_POSITIONS = "close_all_positions"
 TOOL_CANCEL_ALL_ORDERS = "cancel_all_orders"
 TOOL_CANCEL_ORDER = "cancel_order_by_id"
+TOOL_REPLACE_ORDER = "replace_order_by_id"
 
 # `indicative` is Alpaca's free options feed and the default. `opra` is the official
 # consolidated feed and needs a paid market-data agreement on the account — without
@@ -418,6 +420,17 @@ class AlpacaMCP:
         payload = await self.call(TOOL_OPTION_BARS, args)
         bars = (payload or {}).get("bars") if isinstance(payload, dict) else None
         return bars if isinstance(bars, dict) else {}
+
+    async def replace_order(self, order_id: str, limit_price: Decimal) -> dict:
+        """Move a working order to a new limit. Returns the replacement.
+
+        A replacement is a *different* order at the broker with a different id, which
+        the caller has to record — keeping the old one leaves the next cycle asking
+        about something that no longer exists.
+        """
+        out = await self.call(TOOL_REPLACE_ORDER,
+                              {"order_id": order_id, "limit_price": str(limit_price)})
+        return out if isinstance(out, dict) else {}
 
     async def cancel_order(self, order_id: str) -> dict:
         """Withdraw one working order.

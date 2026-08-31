@@ -209,6 +209,16 @@ async def main_async(args: argparse.Namespace) -> int:
         totals["approved"] += sum(r.approved for r in results)
         totals["submitted"] += sum(r.submitted for r in results)
 
+    async def tend() -> None:
+        """Between scans: mind the orders already at the broker.
+
+        Chases a working limit toward the book so a structure the gates approved gets
+        filled, instead of resting at a price the market moved away from thirty minutes
+        ago. It opens nothing — everything new still goes through a full pass.
+        """
+        for line in await agent.work_orders():
+            log(f"  {line}")
+
     # Built for both paths, because both need the same answer to Ctrl-C. A single
     # pass is a cycle too — it just happens to be the only one — and a mode where the
     # signal means something different is a mode nobody can predict from the outside.
@@ -234,7 +244,8 @@ async def main_async(args: argparse.Namespace) -> int:
         log(f"scheduled: every {interval}m while the market is open"
             f"{', until the close' if args.until_close else ''}. Ctrl-C to stop.")
         try:
-            await scheduler.run(one_pass, max_cycles=args.max_cycles,
+            await scheduler.run(one_pass, between=tend,
+                                max_cycles=args.max_cycles,
                                 until_close=args.until_close)
         except KeyboardInterrupt:
             log("interrupted")

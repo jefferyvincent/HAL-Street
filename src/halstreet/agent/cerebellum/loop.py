@@ -56,6 +56,7 @@ from halstreet.marketdata import events as events_mod
 from halstreet.marketdata import patterns as patterns_mod
 from halstreet.marketdata import smc as smc_mod
 from halstreet.marketdata.chain import enrich
+from halstreet.marketdata.occ import CONTRACT_MULTIPLIER
 from halstreet.strategy import bias as bias_mod
 from halstreet.strategy import burn, scoring
 from halstreet.strategy import markov as markov_mod
@@ -156,7 +157,40 @@ class Agent:
     #: order ninety seconds old has not had its chance — and longer is the behaviour
     #: this replaces, where a spread sat from 14:15 to the close while the agent placed
     #: another on top of it.
+    #: How long an order rests before it is withdrawn outright.
+    #:
+    #: The backstop under the chase, and the older of the two rules. Past it the
+    #: structure goes back to the ordinary path, where the next scan prices it off fresh
+    #: quotes through the whole scenario and gate chain.
     STALE_ORDER_MINUTES = 35
+
+    #: How long a limit rests untouched before it is walked toward the book.
+    #:
+    #: Short, because the between-scan job runs each minute and the point of it is that
+    #: an unfilled order loses value while it sits. Not zero, because a limit that has
+    #: only just gone on has not yet been refused — a book two cents away often comes
+    #: back on its own, and a chase that starts immediately pays for impatience.
+    CHASE_AFTER_MINUTES = 3
+
+    #: How far the entry limit may be walked toward the book, in steps.
+    #:
+    #: Bounded because a drifting market drags a limit to nothing one defensible tick
+    #: at a time, and the sum of those steps is not defensible.
+    MAX_REPRICES = 3
+
+    #: The least of the original credit the chase may settle for.
+    #:
+    #: The expectancy that justified this trade was computed at the credit it was
+    #: scored on. Halve that and it is a different trade nobody assessed — so it is
+    #: withdrawn instead, and the next scan may propose it again at a price it can
+    #: defend, through the whole scenario and gate chain.
+    MIN_CREDIT_FRACTION = Decimal("0.5")
+
+    #: Max gain must clear the cost of getting out by this much.
+    #:
+    #: Below it the position is friction with a lottery ticket attached, whatever its
+    #: reward/risk says.
+    MIN_EDGE_OVER_EXIT = 3
 
     async def work_orders(self) -> list[str]:
         """Look at every order the broker has not filled, and settle it.
@@ -167,7 +201,7 @@ class Agent:
         unfilled from 14:15 while a second went on top of it, and the ledger carried
         both as though the account held them.
 
-        Three outcomes and no fourth:
+        Three ways an order ends, and no fourth:
 
         **Filled** — recorded, at the price it actually filled at rather than the limit
         we asked for. The exit path owns it from here.
@@ -176,12 +210,13 @@ class Agent:
         structure is forgotten rather than closed: closing writes an exit price and a
         realized figure, and there is nothing to realize.
 
-        **Still working** — left alone inside its grace period, withdrawn past it.
-        Withdrawn rather than re-priced, deliberately. Cancelling returns the structure
-        to the ordinary path, where the next cycle prices it off fresh quotes and puts
-        it through the whole scenario and gate chain again. A bespoke re-pricing loop
-        would need its own answer to "what is this worth now", and a second definition
-        of that is how two numbers start disagreeing.
+        **Still working** — left alone inside its grace period, then walked toward the
+        book by `_chase_or_drop`, and withdrawn when walking it further would settle
+        for a trade nobody assessed. Cancelling was the whole answer at first, on the
+        reasoning that the next cycle would re-price it off fresh quotes through the
+        full gate chain. That reasoning holds for a limit the market has genuinely left
+        behind; it is much too blunt for one sitting seven cents from a book that keeps
+        touching it, which is what the live case turned out to be.
 
         A partial fill is never withdrawn. Half a spread is a position and an
         unbalanced one; cancelling the remainder leaves naked legs, which is the single
@@ -246,16 +281,110 @@ class Agent:
         if _dec(order.get("filled_qty")) not in (None, Decimal(0)):
             return "partial"
 
-        if _age_minutes(structure.opened_at) < self.STALE_ORDER_MINUTES:
+        # From the last move, not from when the order was written: otherwise a job
+        # that runs every minute spends the whole allowance in three of them.
+        since = structure.repriced_at or structure.opened_at
+        if _age_minutes(since) < self.CHASE_AFTER_MINUTES:
             return "waiting"
 
+        return await self._chase_or_drop(structure)
+
+    async def _chase_or_drop(self, structure) -> str:
+        """Walk the limit toward the book, hold it, or withdraw it once it is stale.
+
+        The live case: a SPY spread priced at 0.34 credit against a book paying 0.27 —
+        seven cents out, drifting in and out of reach all afternoon. Withdrawing that
+        throws away a trade the desk wanted over a difference smaller than one tick of
+        the underlying; the whole reason the order exists is that the structure was
+        judged worth having.
+
+        The three outcomes are not two. A floor answers "should the limit move", and
+        the answer being no is not an argument for cancelling — the first draft of this
+        conflated them, and at a three-minute grace that pulls orders the thirty-five
+        minute rule would have left alone. So a floor **holds**; only
+        `STALE_ORDER_MINUTES`, measured from when the order was written, withdraws.
+
+        What it must not do is chase anywhere. Two floors, and the stricter wins:
+
+        The **credit floor**, because the expectancy that justified the trade was
+        computed at the credit it was scored on. Below half of it this is a different
+        trade nobody assessed, and the honest move is to withdraw and let the next scan
+        propose it again through the whole scenario and gate chain.
+
+        The **exit floor**, because max gain has to stay worth more than getting out
+        costs. `MIN_EDGE_OVER_EXIT` times the round trip, measured on the book as it is
+        now rather than as it was when the order went on.
+
+        And a **step bound**, because a drifting market drags a limit to nothing one
+        defensible tick at a time. Each step passes both floors; the sum of them is how
+        a considered position becomes whatever the market will pay.
+
+        A book it cannot read changes nothing. Not knowing the price is not a reason to
+        move a limit, nor to withdraw one.
+        """
+        chain = await self._quotes_or_empty(list(structure.legs))
+        market = marketable_net(structure, chain)
+        if market is None:
+            return "unpriced"
+
+        limit = structure.entry_price
+        if limit is None or limit >= market:
+            # Already asking no more credit than the book pays. Moving it would give
+            # away money for a fill that is on its way.
+            return "marketable"
+
+        if structure.reprices >= self.MAX_REPRICES:
+            return await self._hold_or_stale(structure, "walked as far as it may go")
+
+        floor = limit * self.MIN_CREDIT_FRACTION      # negative: half the credit
+        exit_cost = exit_friction(structure, chain)
+        gain = -market * CONTRACT_MULTIPLIER * structure.qty
+        if market > floor:
+            return await self._hold_or_stale(
+                structure, "the book is below half the credit this was scored on")
+        if exit_cost is not None and gain < exit_cost * self.MIN_EDGE_OVER_EXIT:
+            return await self._hold_or_stale(
+                structure, "max gain no longer clears the cost of getting out")
+
+        try:
+            replaced = await self.client.replace_order(structure.order_id, market)
+        except (MCPError, KeyError, TypeError) as exc:
+            self.journal.error("replace_order", f"{structure.order_id}: {exc}")
+            return "reprice-failed"
+        # A replacement is a different order. Recording the new id is what keeps the
+        # next cycle asking about something that exists.
+        self.ledger.record_reprice(structure.structure_id, market,
+                                   str(replaced.get("id") or structure.order_id))
+        return "repriced"
+
+    async def _hold_or_stale(self, structure, why: str) -> str:
+        """Not chaseable. Leave it, unless it has been resting long enough to be stale.
+
+        The backstop is measured from when the order was written, never from the last
+        move — otherwise each chase resets it and a limit that keeps just barely
+        qualifying never reaches it, which is the exact shape of stale order the
+        thirty-five-minute rule exists to catch.
+        """
+        if _age_minutes(structure.opened_at) < self.STALE_ORDER_MINUTES:
+            return f"held: {why}"
+        return await self._withdraw(structure, why)
+
+    async def _withdraw(self, structure, why: str) -> str:
         try:
             await self.client.cancel_order(structure.order_id)
         except (MCPError, KeyError, TypeError) as exc:
             self.journal.error("cancel_order", f"{structure.order_id}: {exc}")
             return "cancel-failed"
         self.ledger.forget(structure.structure_id)
+        self.journal.write("working_order", structure_id=structure.structure_id,
+                           order_id=structure.order_id, action="withdrawn", detail=why)
         return "cancelled"
+
+    async def _quotes_or_empty(self, symbols: list[str]) -> dict[str, dict]:
+        try:
+            return await self.quotes_for(symbols)
+        except (MCPError, KeyError, TypeError):
+            return {}
 
     async def manage_exits(self, positions: list[dict] | None = None) -> list[ExitDecision]:
         """Review every open structure and close the ones that qualify.
@@ -1086,6 +1215,42 @@ def _age_minutes(opened_at: str | None) -> float:
     except (TypeError, ValueError):
         return 0.0
     return max(0.0, (datetime.now(UTC) - began).total_seconds() / 60)
+
+
+def marketable_net(structure, chain: dict[str, dict]) -> Decimal | None:
+    """What this structure can be opened for right now, on the same sign convention.
+
+    Sell legs at the bid, buy legs at the ask — the worst of both touches, which is what
+    `candidates` prices a credit at and therefore what "marketable" has to mean here
+    too. Negative is a credit.
+
+    None where any leg cannot be read. A net computed from three of four legs is not a
+    net, and moving a limit onto one would be worse than leaving the order alone.
+    """
+    total = Decimal(0)
+    for symbol, signed in structure.legs.items():
+        quote = (chain.get(symbol) or {}).get("latestQuote") or {}
+        bid, ask = _dec(quote.get("bp")), _dec(quote.get("ap"))
+        if bid is None or ask is None or bid <= 0 or ask <= 0:
+            return None
+        total += (ask if signed > 0 else -bid) * abs(signed)
+    return total
+
+
+def exit_friction(structure, chain: dict[str, dict]) -> Decimal | None:
+    """What one crossing out costs, in dollars, on the book as it stands.
+
+    The entry crossing is already inside the limit — a marketable net is quoted at the
+    touch — so this is the half still owed, and the number max gain has to beat.
+    """
+    total = Decimal(0)
+    for symbol in structure.legs:
+        quote = (chain.get(symbol) or {}).get("latestQuote") or {}
+        bid, ask = _dec(quote.get("bp")), _dec(quote.get("ap"))
+        if bid is None or ask is None:
+            return None
+        total += (ask - bid) / 2 * CONTRACT_MULTIPLIER
+    return total * structure.qty
 
 
 async def chain_with_held(client, chain: dict[str, dict],
