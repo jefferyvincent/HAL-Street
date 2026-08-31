@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useStrings } from "@/hooks/useStrings";
 import { STROKE } from "@/constants/theme";
+import { exposureKind, exposureTone } from "@/lib/exposure";
 import type { Position } from "@/types";
 
 export interface PatternRead {
@@ -29,7 +30,7 @@ export interface PatternRead {
 export function usePatternRead(position: Position): PatternRead {
   const t = useStrings();
   return useMemo(() => {
-    const exposure = position.exposure ?? "unknown";
+    const exposure = exposureKind(position.exposure);
     const against = position.against ?? [];
     const confirming = position.confirming ?? [];
     const all = position.patterns ?? [];
@@ -44,10 +45,8 @@ export function usePatternRead(position: Position): PatternRead {
     });
 
     return {
-      exposure: t.book.exposure[exposure as keyof typeof t.book.exposure] ?? exposure,
-      tone: exposure === "bullish" ? STROKE.pass
-        : exposure === "bearish" ? STROKE.fail
-        : STROKE.muted,
+      exposure: t.book.exposure(exposure, position.underlying),
+      tone: exposureTone(exposure),
       lines: [
         ...against.map(line(STROKE.fail)),
         ...confirming.map(line(STROKE.pass)),

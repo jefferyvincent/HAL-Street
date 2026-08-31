@@ -483,12 +483,12 @@ export function makeStrings(t: Translate) {
       unrealizedTag: t("book.unrealizedTag"),
       unpriced: t("book.unpriced"),
       note: t("book.note"),
-      exposure: {
-        bullish: t("book.exposure.bullish"),
-        bearish: t("book.exposure.bearish"),
-        neutral: t("book.exposure.neutral"),
-        unknown: t("book.exposure.unknown"),
-      },
+      // Named, not "the market". The chip sits beside the structure chart, which
+      // plots the spread's own mark rather than the underlying — so "WANTS THE
+      // MARKET UP" next to a line that also wants to go up reads as one claim when
+      // it is two. The symbol is what makes them visibly different quantities.
+      exposure: (kind: string, symbol: string) =>
+        t(`book.exposure.${kind}`, { symbol }),
       // Chosen here rather than through i18next's plural machinery, which needs a
       // per-language rule set configured to work and fails silently to the singular
       // when it is not. Two keys and a comparison cannot fail silently.
