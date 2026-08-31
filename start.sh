@@ -19,6 +19,7 @@
 #   ./start.sh panel            read-only dashboard on http://127.0.0.1:8787
 #                               (build it once: cd apps/desktop && npm run build)
 #   ./start.sh watch            the loop and the panel together, browser opened
+#   ./start.sh stop             stop every agent and panel this project started
 #   ./start.sh --env comp ...   use the judged account (COMP_* keys in .env)
 #
 set -euo pipefail
@@ -92,13 +93,37 @@ ARGS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    verify|preflight|test|loop|report|panel|soak|watch) MODE="$1"; shift ;;
+    verify|preflight|test|loop|report|panel|soak|watch|stop) MODE="$1"; shift ;;
     -h|--help) usage; exit 0 ;;
     --env) ENV_NAME="${2:?--env needs dev or comp}"; shift 2 ;;
     --) shift; ARGS+=("$@"); break ;;
     *) ARGS+=("$1"); shift ;;
   esac
 done
+
+# --- stop, before anything that could refuse ----------------------------------
+#
+# Deliberately above the credential checks and the venv import probe. This is the
+# command someone reaches for when things are wrong, and every prerequisite is a way
+# for it to fail at exactly the moment it is needed. It needs `pgrep` and nothing else.
+#
+# Matched on the module path rather than on "halstreet", because that word also appears
+# in the shell you type the command into — `pkill -f halstreet` kills the terminal
+# asking the question, which is how this came up.
+if [ "$MODE" = "stop" ]; then
+  found=0
+  for pattern in "halstreet\.agent\.run" "halstreet\.cli\.panel"; do
+    for pid in $(pgrep -f "python.*-m $pattern" 2>/dev/null || true); do
+      # A panel started detached — by a tool, or by an earlier session — is in nobody's
+      # terminal and no Ctrl-C will ever reach it. That is the case this exists for.
+      say "stopping $pid  ($(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | cut -c1-60))"
+      kill "$pid" 2>/dev/null || true
+      found=$((found + 1))
+    done
+  done
+  [ "$found" -eq 0 ] && say "nothing of ours was running"
+  exit 0
+fi
 
 # One file, two accounts. Which credentials get read is decided by the variable
 # prefix below, not by which file we open — see src/halstreet/config.py.

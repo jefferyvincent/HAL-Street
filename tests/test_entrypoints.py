@@ -137,8 +137,15 @@ def test_every_mode_start_advertises_is_one_it_can_dispatch():
     advertised = set(re.findall(r"^#\s+\./start\.sh (\w+)", text, re.MULTILINE))
     body = text[text.index('case "$MODE" in'):]
     dispatched = set(re.findall(r"^\s{2}(\w+)\)", body, re.MULTILINE))
+    # `stop` answers above the case — before the credential checks and the venv probe,
+    # because every prerequisite is a way for it to refuse at exactly the moment it is
+    # needed. It is dispatchable without being a branch, so the two ideas are separate
+    # sets: this one gates the advertised check, and the loop below still walks only
+    # the real branches.
+    early = {"stop"} if 'if [ "$MODE" = "stop" ]' in text else set()
     assert advertised, "the usage block names no modes"
-    assert advertised <= dispatched, f"advertised but undispatchable: {advertised - dispatched}"
+    assert advertised <= dispatched | early, \
+        f"advertised but undispatchable: {advertised - dispatched - early}"
 
     # And each branch must actually run something. A phrase list ("isn't built yet",
     # "not implemented") is the wrong shape for this: it catches the wording that
@@ -349,3 +356,38 @@ def test_the_interrupt_advice_is_where_someone_pressing_it_will_look():
     """The terminal, not just the log. A person holding Ctrl-C is watching the screen."""
     source = START.read_text()
     assert "again" in source.lower()
+
+
+# --- stopping it ------------------------------------------------------------------
+#
+# "How do I kill all processes?" — asked after Ctrl-C left a panel running, because the
+# panel had been started detached and was in nobody's terminal. There was no answer in
+# the script. The nearest was `pkill -f halstreet`, which is a pattern that also matches
+# the shell you type it in.
+
+def test_stop_is_a_mode_and_is_advertised():
+    done = _run_start(["--help"], tty=False)
+    assert "stop" in done.stdout + done.stderr
+
+
+def test_stop_answers_before_anything_that_could_refuse():
+    """It is the command you reach for when things are wrong, so it must run above the
+    credential checks and the venv probe. Anything it depends on is a way for it to fail
+    at exactly the moment it is needed."""
+    source = START.read_text()
+    assert source.index('if [ "$MODE" = "stop" ]') < source.index("Refusing to start")
+
+
+def test_stop_does_not_match_the_shell_that_typed_it():
+    """`pkill -f halstreet` kills the terminal asking the question — which is how this
+    came up. The pattern is the module path under a python interpreter."""
+    source = START.read_text()
+    stop = source[source.index('if [ "$MODE" = "stop" ]'):]
+    stop = stop[:stop.index("\nfi\n")]
+    assert "python.*-m" in stop
+
+
+def test_stop_names_what_it_killed_rather_than_working_silently():
+    source = START.read_text()
+    stop = source[source.index('if [ "$MODE" = "stop" ]'):]
+    assert "say" in stop[:stop.index("\nfi\n")]
