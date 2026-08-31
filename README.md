@@ -57,6 +57,47 @@ stupid; it still cannot put on an undefined-risk position or exceed a per-underl
 The boundary that matters is the one between the proposal and the gates. Everything above it is
 probabilistic. Everything below it is auditable.
 
+### What the deterministic side computes before anybody argues
+
+The model is never asked to estimate something arithmetic can answer. Each candidate arrives
+already carrying:
+
+- **Simulated outcomes, at two volatilities.** Twenty thousand paths to expiry, after friction,
+  priced once at the implied vol the short strike was actually quoted at and once at the vol the
+  tape has been running. Where those agree it is a conclusion; where they disagree it *is* the
+  trade, because short premium pays exactly when implied exceeds what realizes. Neither is
+  averaged into the other. It refuses to run on a volatility nobody measured rather than
+  defaulting to one — a structure simulated at a made-up 20% would arrive on the menu looking
+  identical to a measured one.
+- **Persistence.** A first-order chain over daily direction, and mostly it says *no*: on every
+  name measured it forgets where it started within two days, so a 49-DTE structure cannot be
+  argued on it at all. That refusal is the contribution. The threshold scales with sampling
+  error, because a flat one labelled a random walk "persistent" at the first attempt.
+- **Market structure.** Where price last broke a confirmed swing, which is the one reading in the
+  bias vote about a level rather than an average of closes. It votes on what reaches the menu and
+  is structurally unable to reach an exit.
+- **Macro odds.** What a prediction market charges for the questions the headlines argue about —
+  a price rather than prose. Read-only and not tradeable by this agent, which trades US equity
+  options and nothing else.
+
+The catalyst is told a price outranks a claim about the same question. It was handed the Fed-hike
+market at 50.5 cents beside a wire reporting "odds now favour a hike" and quoted the wire, because
+nothing had said which kind of evidence a price is.
+
+### Between submitting an order and holding a position
+
+There is a third path beside entry and exit, and its absence cost a live morning. The agent used
+to submit a `day` limit and forget the order existed — one spread rested unfilled for an hour
+while a second went on top of it, and the ledger carried both as positions.
+
+Every pass now settles each working order first: filled is recorded at the price it actually
+filled at, cancelled or expired is *forgotten* rather than closed, and one still resting past its
+grace is withdrawn — which returns it to the ordinary path, where the next cycle prices it off
+fresh quotes and puts it back through the whole scenario and gate chain. A partial fill is never
+withdrawn: half a spread is an unbalanced position, and cancelling the remainder leaves naked
+legs. The concentration gates count committed contracts too, because an order you have placed is
+exposure whether or not the broker has booked it.
+
 ## Layout
 
 ```
@@ -117,10 +158,19 @@ doing without being another way to make it do something.
 ## The panel
 
 `apps/desktop/` is a Vite + React + TypeScript app — a browser tab at `http://127.0.0.1:8787`,
-or the same page in a Tauri window. It has three views: the **console** (one decision, its
-rationale, and all fifteen gate verdicts grouped by family), the **journal** (every decision at
-full width), and the **gates** view (the chain in evaluation order, with how often each gate has
-actually rejected something). An equity curve runs beside it on `lightweight-charts`.
+or the same page in a Tauri window. Seven views, on the number keys: the **console** (equity, a
+live countdown to the next scan or the bell, the book, and the run's own figures), **agent**
+(this scan name by name, each one's track through tape → menu → desk → gates → order, plus the
+macro odds and the raw journal pulse), **journal** (every decision at full width), **discovery**
+(the census as a heat map — every symbol the tape named, brightest where it named most),
+**gates** (the chain in evaluation order, with how often each has actually rejected something),
+**committee** (the desk while it sits, filling in seat by seat, with the menu it was handed), and
+**book** (every structure, open and closed, each with its own chart). An equity curve runs on
+`lightweight-charts`.
+
+A position and a working order are drawn differently, which took a live morning to learn: the
+ledger records on *acceptance*, so the book carries orders the broker has not filled, and one
+badge for both had a resting spread reading as money already at work.
 
 The Python server pushes over a WebSocket, so the panel updates within half a second of the
 agent writing a record rather than on a five-second poll.
@@ -193,13 +243,27 @@ run from starting early. See [docs/COMPETITION-ACCOUNT.md](docs/COMPETITION-ACCO
 ./start.sh -- --once          # one scan + propose pass, submits nothing
 ./start.sh                    # the scheduled loop, dev account
 ./start.sh -- --submit        # ...and actually place approved orders (paper)
+./start.sh watch -- --submit  # the loop and the panel together, browser opened
 ./start.sh panel              # read-only dashboard on http://127.0.0.1:8787
 ./start.sh report -- --offline  # P&L and gate counts from the journal
+./start.sh stop               # stop every agent and panel this project started
 
 # judged run — refuses to start unless the account is fresh and at $100,000
 ./start.sh preflight --env comp
 ./start.sh --env comp -- --submit
 ```
+
+**Stopping it.** Ctrl-C is three states, not one: the first press finishes the cycle in flight,
+because a scan interrupted between the gate chain and the broker is how a structure ends up half
+placed; the second abandons that cycle; the third leaves immediately. A cycle over six discovered
+names is four model calls each and can run past four minutes, so the agent says which state it is
+in on every press — and `tee` ignores the interrupt so those lines survive to be read.
+
+`./start.sh stop` is the answer when Ctrl-C cannot reach it at all: a panel started detached sits
+in nobody's terminal. It matches the module path under a python interpreter rather than the word
+`halstreet`, which also appears in the shell you type the command into, and it runs above the
+credential checks and the venv probe — this is the command you reach for when things are wrong,
+and every prerequisite is a way for it to refuse at the moment it is needed.
 
 `./start.sh` refuses to launch on a non-paper `ALPACA_ENV` or a live `AK…` key before it does
 anything else; the Python path asserts the same at every order. The underlying commands are
@@ -213,7 +277,7 @@ directly — the launcher exists to put `uv` on `PATH` for the MCP subprocess an
 src/halstreet/     the agent — see Layout above
 apps/desktop/      the panel: React + TypeScript, Tauri shell, Vite build
 scripts/           entry points: preflight, report, panel, verify_multileg
-tests/             380 tests; the gate tests are the ones that matter
+tests/             1718 tests; the gate tests are the ones that matter
 docs/              write-up, testing notes, competition rules, build log
 var/               everything the agent writes — gitignored
 ```
@@ -225,10 +289,25 @@ covers it. `src/halstreet/paths.py` owns those locations — set `HALSTREET_VAR`
 
 ## Status
 
-Working end to end on the dev paper account: scans, proposes, gates, submits, reconciles, and
-reports. One real round trip has been through the whole path — submitted, filled at −1.60,
-closed at +1.69. Still ahead: the judged account (external lead time), a multi-session soak run,
-and the demo video.
+Working end to end on the dev paper account: discovers its own universe from the tape, scans,
+simulates, deliberates, gates, submits, works its orders, reconciles and reports. Two round trips
+have been through the whole path, and the ledger reconciles clean against the broker.
+
+The sizing is honest about itself. `MAX_POSITIONS_PER_UNDERLYING` caps *contracts*, not
+structures, so it **is** the maximum qty — at the shipped default of 1, the best structure the
+desk found in a week was $54 of risk against a $1,000 cap for $46 of max gain, which is 0.05% of
+the account for a 49-day hold. The per-position dollar cap was doing nothing and the contract cap
+was doing the risk control's job about eighteen times too tightly. They now work together: size is
+`min(cap_contracts, dollar_cap / risk-per-contract)`.
+
+Still ahead: the judged account (external lead time), a multi-session soak, the demo video, and a
+price for the analyst-tier model in `LLM_PRICES` — until that is set the reported cost is a floor
+and the panel says so beside it rather than quietly omitting two thirds of the input.
+
+One known gap: `get_orders` returns nothing whatever status filter is passed, so the order book
+cannot be enumerated. Nothing depends on it — the fill path looks orders up by id — but it means
+"no other orders are outstanding" is currently a reconciliation result rather than a direct
+reading.
 
 `docs/MIGRATION.md` is the build log — what came from HAL and TradeScans, what was written new,
 every defect found on the way and what changed because of it.
