@@ -51,6 +51,9 @@ def ledger(tmp_path: Path):
     led = Ledger(path=tmp_path / "l.json")
     led.record_open(iron_condor("Oct condor", P755, P760, C770, C775), "SPY",
                     structure_id="c1", entry_price=Decimal("-4.04"))
+    # And filled at it. `record_open` books on acceptance; the exit path only manages
+    # what the broker actually gave us, which the guard added on 2026-08-31 enforces.
+    led.record_fill("c1", Decimal("-4.04"))
     return led
 
 

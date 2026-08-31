@@ -59,9 +59,16 @@ def ledger(tmp_path: Path) -> Ledger:
 
 @pytest.fixture
 def condor(ledger):
-    """The condor actually traded: opened for a 4.04 credit."""
+    """The condor actually traded: opened for a 4.04 credit, and filled at it.
+
+    Filled explicitly, because `record_open` books on *acceptance* and the exit path
+    only manages what the broker actually gave us. Left unfilled this fixture models a
+    state the exit path can never legitimately see — which is what it was doing, and
+    what the guard added on 2026-08-31 now says out loud.
+    """
     ledger.record_open(iron_condor("Oct condor", P755, P760, C770, C775), "SPY",
                        structure_id="c1", entry_price=Decimal("-4.04"))
+    ledger.record_fill("c1", Decimal("-4.04"))
     return ledger.open_structures[0]
 
 
@@ -70,6 +77,7 @@ def debit_spread(ledger):
     """The vertical actually traded: opened for a 2.99 debit."""
     ledger.record_open(vertical("Oct vertical", C765, C770), "SPY",
                        structure_id="v1", entry_price=Decimal("2.99"))
+    ledger.record_fill("v1", Decimal("2.99"))
     return ledger.open_structures[0]
 
 
@@ -149,7 +157,10 @@ def test_will_not_act_on_a_partial_mark(condor, policy):
 
 
 def test_reports_a_missing_entry_price_rather_than_guessing(ledger, policy):
+    # Filled, with no price recorded — a ledger repair case, and the one this branch is
+    # about. Unfilled is a different answer now and is caught before this point.
     ledger.record_open(vertical("v", C765, C770), "SPY", structure_id="v1")
+    ledger.open_structures[0].entry_filled = True
     d = evaluate_exit(ledger.open_structures[0], chain(**{C765: 5, C770: 3}),
                       policy, asof=TODAY)
     assert d.action is Action.UNKNOWN
@@ -319,7 +330,10 @@ def test_levels_agree_with_the_policy_that_acts_on_them(entry):
     structure = OpenStructure(
         structure_id="lv", name="spread", underlying="SPY", qty=1,
         legs={C770: -1, C775: 1}, opened_at="2026-08-26T00:00:00+00:00",
-        entry_price=entry,
+        # Filled, because a structure under exit management has by definition filled —
+        # the guard added on 2026-08-31 makes that explicit rather than assumed, and
+        # this fixture was modelling a state the exit path can never legitimately see.
+        entry_price=entry, entry_filled=True,
     )
     levels = exit_levels(entry, policy)
     nudge = Decimal("0.02")
@@ -404,3 +418,67 @@ def test_reachability_reaches_the_panel():
     levels = exit_levels(Decimal("2.99"), ExitPolicy(
         take_profit_pct=Decimal(50), stop_loss_pct=Decimal(200), force_close_dte=5))
     assert levels.to_prompt()["stop_reachable"] is False
+
+
+# --- an order that has not filled is not a position ----------------------------------
+#
+# `entry_price` on an unfilled structure is the limit we *asked* for, not a fill — so
+# the `entry_price is None` guard below does not catch it, and everything after that
+# point marks a phantom position against a price nobody paid. `should_close` then
+# reaches `_close`, which submits a closing order for contracts the account does not
+# hold.
+#
+# Found live on 2026-08-31 with the agent armed and a SPY spread resting unfilled.
+
+def _unfilled(**over):
+    from halstreet.agent.hippocampus.ledger import OpenStructure
+    base = {"structure_id": "abc", "name": "SPY 765/763 put credit spread",
+            "underlying": "SPY", "qty": 2,
+            "legs": {"SPY261016P00765000": -2, "SPY261016P00763000": 2},
+            "opened_at": "2026-08-31T14:15:57+00:00",
+            "entry_price": Decimal("-1.02"), "entry_filled": False}
+    return OpenStructure(**{**base, **over})
+
+
+def _rich_chain() -> dict:
+    """Marks that would look like a large profit against the limit we never paid."""
+    return {
+        "SPY261016P00765000": {"latestQuote": {"bp": 1.0, "ap": 1.1}},
+        "SPY261016P00763000": {"latestQuote": {"bp": 0.9, "ap": 1.0}},
+    }
+
+
+def test_an_unfilled_order_is_never_closed():
+    """The hazard. A closing order for contracts we do not hold either bounces or
+    opens a short — and the second one is worse than the first."""
+    from halstreet.agent.cerebellum.manager import ExitPolicy, evaluate_exit
+
+    out = evaluate_exit(_unfilled(), _rich_chain(), ExitPolicy())
+    assert out.should_close is False
+
+
+def test_it_says_why_rather_than_holding_silently():
+    """A resting order needs cancelling, not closing, and that is a human's call —
+    but nobody makes it if the console never mentions it."""
+    from halstreet.agent.cerebellum.manager import ExitPolicy, evaluate_exit
+
+    out = evaluate_exit(_unfilled(), _rich_chain(), ExitPolicy())
+    assert "fill" in out.reason.lower()
+
+
+def test_the_check_precedes_the_forced_close_at_expiry():
+    """Ordering matters. The expiry branch runs before any mark, so an unfilled order
+    inside the force-close window would be 'closed' — the one path that acts without
+    ever looking at a price."""
+    from halstreet.agent.cerebellum.manager import ExitPolicy, evaluate_exit
+
+    near = _unfilled(legs={"SPY260901P00765000": -2, "SPY260901P00763000": 2})
+    assert evaluate_exit(near, {}, ExitPolicy()).should_close is False
+
+
+def test_a_filled_structure_is_judged_exactly_as_before():
+    """The guard must not become a reason to stop managing the book."""
+    from halstreet.agent.cerebellum.manager import ExitPolicy, evaluate_exit
+
+    out = evaluate_exit(_unfilled(entry_filled=True), _rich_chain(), ExitPolicy())
+    assert out.should_close is True, "deep in profit against a real fill"

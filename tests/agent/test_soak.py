@@ -209,6 +209,8 @@ def test_a_winner_is_taken_at_the_profit_target(soak):
 def test_a_loser_is_cut_at_the_stop(soak):
     agent, broker, _journal, ledger = soak
     ledger.record_open(spread(), "SPY", structure_id="s1", entry_price=Decimal("-1.00"))
+    # The ledger books on acceptance; the exit path only manages what actually filled.
+    ledger.record_fill("s1", Decimal("-1.00"))
     broker.positions = [position(SHORT, -1), position(LONG, 1)]
 
     # Costs 3.10 to close against a 1.00 credit — past the 200% stop.
@@ -283,6 +285,7 @@ def test_exits_still_run_while_the_breaker_is_halted(soak):
     agent, broker, _journal, ledger = soak
     agent.breaker.halt("daily loss limit breached")
     ledger.record_open(spread(), "SPY", structure_id="s1", entry_price=Decimal("-1.00"))
+    ledger.record_fill("s1", Decimal("-1.00"))
     broker.positions = [position(SHORT, -1), position(LONG, 1)]
     broker.mark_spread_at("0.30")
 

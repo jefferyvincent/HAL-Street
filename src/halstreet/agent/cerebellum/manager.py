@@ -372,6 +372,26 @@ def evaluate_exit(structure: OpenStructure, chain: dict[str, dict], policy: Exit
     today = asof or clock.today()
     dte = structure.dte(today)
 
+    # 0. Is this a position at all? The ledger records on acceptance, so an order still
+    #    resting at its limit sits here looking like everything else — and its
+    #    `entry_price` is the limit we *asked* for, so the `entry_price is None` guard
+    #    below does not catch it. Everything after that point would mark a phantom
+    #    against a price nobody paid, and `should_close` reaches `_close`, which submits
+    #    a closing order for contracts the account does not hold. That either bounces or
+    #    opens a short, and the second is worse than the first.
+    #
+    #    Before the expiry branch, deliberately: that one acts without looking at a
+    #    price at all, so it is the single path that would close a phantom with no mark
+    #    involved. An unfilled order near expiry wants cancelling, which is a human's
+    #    act and not this function's — so it says so rather than holding silently.
+    if not structure.entry_filled:
+        return ExitDecision(
+            structure, Action.UNKNOWN,
+            "the entry order has not filled, so there is no position to manage. "
+            "Cancel the working order if it is no longer wanted — closing is not the "
+            "same act and would sell contracts the account does not hold.",
+        )
+
     # 1. Expiry first, and before anything that needs a mark. A position we cannot
     #    price is still a position we must not carry into expiry.
     if dte is not None and dte <= policy.force_close_dte:

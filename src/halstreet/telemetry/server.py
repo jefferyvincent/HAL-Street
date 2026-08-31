@@ -806,6 +806,28 @@ def _gap(a: Any, b: Any) -> float | None:
 MACRO_FRESH_S = 45 * 60
 
 
+def mark_pnl(structure: Any, mark: Decimal) -> Decimal | None:
+    """This structure's unrealized P&L against its own fill, or None where there is none.
+
+    None rather than zero for an order the broker has not filled, and the distinction
+    is the whole function. Zero is a position that has not moved; an unfilled order is
+    not a position, and its `entry_price` is the limit we asked for rather than a price
+    anybody paid. Marking against it produced a gain — the console showed $23 on the
+    SPY spread, then $36, on contracts the account did not hold.
+
+    That is the worst shape a wrong number can take: it looks like money, it moves like
+    money, and on a book judged by P&L it is the headline.
+
+    A structure whose ledger record predates `entry_filled` reads as unfilled. Absent
+    is not evidence of a fill, and defaulting the other way reinstates the phantom.
+    """
+    if not getattr(structure, "entry_filled", False):
+        return None
+    if structure.entry_price is None:
+        return None
+    return (mark - structure.entry_price) * CONTRACT_MULTIPLIER * structure.qty
+
+
 def _macro(events: list[dict]) -> dict | None:
     """The macro-odds read for the scan in progress, or None if this one has no read.
 
@@ -1578,8 +1600,7 @@ async def api_marks() -> JSONResponse:
             continue
         unrealized = None
         if structure.entry_price is not None:
-            unrealized = ((mark.value - structure.entry_price)
-                          * CONTRACT_MULTIPLIER * structure.qty)
+            unrealized = mark_pnl(structure, mark.value)
         out[structure.structure_id] = {"mark": mark.value,
                                        "unrealized_usd": unrealized, "legs": legs}
     return JSONResponse(_plain({"marks": out, "as_of": _now()}))
