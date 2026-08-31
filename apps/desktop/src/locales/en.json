@@ -51,7 +51,7 @@
     "detail": "{{reason}} — entries are blocked until this is cleared at the CLI. Exits are not: they never are."
   },
   "console": {
-    "none": "No proposal has been gated yet — most cycles end in a considered pass, and the gates only see a proposal.",
+    "none": "No proposal has been gated yet — most cycles end in a considered decline, and the gates only see a proposal.",
     "approved": "APPROVED · {{n}}/{{n}} GATES",
     "rejected": "REJECTED · {{bad}}/{{n}} GATES · NO ORDER SUBMITTED",
     "rationale": "RATIONALE",
@@ -117,7 +117,7 @@
   "tape": {
     "title": "RUN JOURNAL",
     "empty": "Nothing gated yet.",
-    "counts": "{{approved}} APPROVED · {{rejected}} REJECTED · {{passed}} PASSED",
+    "counts": "{{approved}} APPROVED · {{rejected}} REJECTED · {{passed}} DECLINED",
     "approved": "APPROVED {{n}}/{{n}}",
     "rejected": "REJECTED {{bad}}/{{n}}",
     "viewTrade": "CHART",
@@ -239,7 +239,7 @@
     "reflectionEmpty": "nothing closed on this underlying yet",
     "missing": "unavailable",
     "silent": "this side said nothing",
-    "passed": "PASSED",
+    "passed": "DECLINED",
     "proposed": "PROPOSED",
     "failed": "NO ANSWER",
     "approved": "approved by every gate",
@@ -342,8 +342,8 @@
     "drawdown": "MAX DRAWDOWN",
     "drawdownNote": "over {{samples}} scan samples — scan resolution, not tick",
     "turns": "MODEL TURNS",
-    "turnsValue": "{{proposals}} proposed · {{passed}} passed",
-    "turnsNote": "A pass is a considered decline, counted separately.",
+    "turnsValue": "{{proposals}} proposed · {{passed}} declined",
+    "turnsNote": "A decline is the model choosing not to propose. Counted apart from a rejection, which is a gate refusing one it did propose.",
     "gated": "GATED",
     "gatedValue": "{{approved}} approved · {{rejected}} rejected",
     "orders": "ORDERS",
@@ -455,7 +455,7 @@
     "outcome": {
       "running": "WORKING",
       "no menu": "NO MENU",
-      "passed": "PASSED",
+      "passed": "DECLINED",
       "proposed": "PROPOSED",
       "approved": "APPROVED",
       "rejected": "REJECTED",

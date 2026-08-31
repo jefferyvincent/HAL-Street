@@ -434,6 +434,10 @@ export function makeStrings(t: Translate) {
       reflectionEmpty: t("committee.reflectionEmpty"),
       missing: t("committee.missing"),
       silent: t("committee.silent"),
+      // Keyed `passed` because that is the journal's field, but it reads DECLINED:
+      // "PASSED" was taken for approval by every reader who met it next to a gate
+      // count, which is the opposite of what it records — the model choosing not to
+      // propose at all. A rejection is a gate refusing one it did propose.
       passed: t("committee.passed"),
       proposed: t("committee.proposed"),
       failed: t("committee.failed"),
