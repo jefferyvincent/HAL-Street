@@ -482,3 +482,101 @@ def test_a_filled_structure_is_judged_exactly_as_before():
 
     out = evaluate_exit(_unfilled(entry_filled=True), _rich_chain(), ExitPolicy())
     assert out.should_close is True, "deep in profit against a real fill"
+
+
+# --- holding out for a hundred dollars -----------------------------------------------
+#
+# The percentage target is a fraction of whatever the structure happened to be worth, so
+# a spread carrying $151 of credit gets closed for $75. The rest of it was there and the
+# percentage was the only reason to settle — that is money left on the table.
+#
+# So the figure raises the target rather than adding a second trigger. The first version
+# of this had it backwards and would have closed the $151 spread at $75.50, which is the
+# exact behaviour it was asked to stop. A structure that cannot reach the figure keeps
+# its percentage target, because a floor nothing can clear holds every small winner to
+# expiry; a structure whose percentage already asks for more keeps that too.
+
+def _credit_at(tmp_path, entry, mark, *, qty=1, usd=None, pct=50):
+    """One filled credit structure, marked, under a policy with an absolute target."""
+    policy = ExitPolicy(take_profit_pct=Decimal(pct), take_profit_usd=usd)
+    led = Ledger(path=tmp_path / "a.json")
+    led.record_open(vertical("Oct spread", P755, P760, qty=qty), "SPY",
+                    structure_id="a1", entry_price=Decimal(entry))
+    led.record_fill("a1", Decimal(entry))
+    s = led.open_structures[0]
+    # A net of `mark` across the two legs, priced so nothing is missing.
+    base = Decimal("20.00")
+    chain = {P760: {"latestQuote": {"bp": str(base), "ap": str(base)}},
+             P755: {"latestQuote": {"bp": str(base + Decimal(mark)),
+                                    "ap": str(base + Decimal(mark))}}}
+    return evaluate_exit(s, chain, policy, asof=date(2026, 9, 1))
+
+
+def test_a_reachable_figure_is_held_out_for_rather_than_settled_below(tmp_path):
+    """The live QQQ case: $151 of credit, up $75.50, which is the 50% target exactly.
+    Without the floor this closes; with it the position keeps working."""
+    d = _credit_at(tmp_path, "-1.51", "-0.755", usd=Decimal(100))
+    assert d.action is Action.HOLD
+
+
+def test_and_closed_once_the_figure_is_actually_reached(tmp_path):
+    d = _credit_at(tmp_path, "-1.51", "-0.51", usd=Decimal(100))
+    assert d.action is Action.TAKE_PROFIT
+    assert "target $100.00" in d.reason
+
+
+def test_a_structure_too_small_to_reach_it_keeps_its_percentage(tmp_path):
+    """The 733/731 case: $22 of credit can never make $100. A floor nothing can clear
+    would hold every small winner to expiry."""
+    d = _credit_at(tmp_path, "-0.22", "-0.11", usd=Decimal(100))
+    assert d.action is Action.TAKE_PROFIT
+    assert "target 50%" in d.reason
+
+
+def test_a_percentage_that_already_asks_for_more_is_not_dragged_down_to_it(tmp_path):
+    """$1,000 of credit: half of it is $500. Settling for $100 there is the same
+    mistake in the other direction."""
+    d = _credit_at(tmp_path, "-10.00", "-8.50", usd=Decimal(100))
+    assert d.action is Action.HOLD
+
+
+def test_no_figure_configured_changes_nothing(tmp_path):
+    d = _credit_at(tmp_path, "-1.51", "-0.755", usd=None)
+    assert d.action is Action.TAKE_PROFIT
+
+
+def test_the_figure_counts_the_whole_position_not_one_contract(tmp_path):
+    """Three contracts of a $50-credit spread can make $150, so the figure is reachable
+    and governs. One contract cannot, and keeps its percentage."""
+    one = _credit_at(tmp_path, "-0.50", "-0.25", qty=1, usd=Decimal(100))
+    three = _credit_at(tmp_path, "-0.50", "-0.25", qty=3, usd=Decimal(100))
+    assert one.action is Action.TAKE_PROFIT       # 50% of $50
+    assert three.action is Action.HOLD            # $75 of a reachable $100
+
+
+def test_a_loss_is_never_read_as_reaching_the_target(tmp_path):
+    d = _credit_at(tmp_path, "-3.00", "-4.00", usd=Decimal(100))
+    assert d.action is not Action.TAKE_PROFIT
+
+
+# --- and the chart has to agree with it ----------------------------------------------
+
+def test_the_drawn_target_follows_the_figure_when_it_governs():
+    """The chart's whole claim is that it cannot disagree with the policy. A target the
+    exit raised without moving the line would break exactly that."""
+    policy = ExitPolicy(take_profit_pct=Decimal(50), take_profit_usd=Decimal(100))
+    # $151 credit: 50% is $75.50, so the figure governs and the line sits further out.
+    assert exit_levels(Decimal("-1.51"), policy, qty=1).target == Decimal("-0.51")
+
+
+def test_the_drawn_target_stays_the_percentage_when_the_figure_is_unreachable():
+    policy = ExitPolicy(take_profit_pct=Decimal(50), take_profit_usd=Decimal(100))
+    assert exit_levels(Decimal("-0.22"), policy, qty=1).target == Decimal("-0.11")
+
+
+def test_the_drawn_target_scales_with_quantity():
+    """$100 across three contracts is a third of the move it is across one, so the line
+    sits nearer the entry — the one place quantity does not cancel."""
+    policy = ExitPolicy(take_profit_pct=Decimal(50), take_profit_usd=Decimal(100))
+    target = exit_levels(Decimal("-0.50"), policy, qty=3).target
+    assert target == Decimal("-0.1666666666666666666666666667")

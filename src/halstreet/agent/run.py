@@ -153,8 +153,10 @@ async def main_async(args: argparse.Namespace) -> int:
     log("proposal path: " + ("committee (catalyst -> bull/bear -> judge)"
                              if use_committee else "single call"))
     log(f"feed={client.option_feed}  journal={args.journal}  ledger={args.ledger}")
+    banked = ("" if policy.take_profit_usd is None
+              else f" / bank at ${policy.take_profit_usd:,.0f}")
     log(f"exits: take {policy.take_profit_pct:g}% / stop {policy.stop_loss_pct:g}% / "
-        f"force close at {policy.force_close_dte} DTE")
+        f"force close at {policy.force_close_dte} DTE{banked}")
     log(f"profile={profile.name}  deltas={'/'.join(f'{d:g}' for d in profile.short_deltas)}  "
         f"dte band {profile.min_dte}-{profile.max_dte}  "
         f"builds {', '.join(profile.structures)}")

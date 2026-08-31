@@ -114,6 +114,21 @@ class ExitPolicy:
     stop_loss_pct: Decimal = Decimal(200)    # of credit received / premium paid
     force_close_dte: int = 5
 
+    #: The profit worth holding out for, on any structure that can actually reach it.
+    #: `None` disables it and nothing changes.
+    #:
+    #: A percentage target is a fraction of whatever the structure happened to be worth,
+    #: which means a position with $151 of credit in it gets closed for $75. That is
+    #: money left on the table: the position had the rest of it available and the
+    #: percentage was the only reason to settle.
+    #:
+    #: So this raises the target rather than adding a second trigger — the distinction
+    #: matters and the first version got it backwards. A structure that cannot reach the
+    #: figure keeps its percentage target, because a floor nothing can clear would hold
+    #: every small winner to expiry. A structure whose percentage already asks for more
+    #: keeps that too, for the same reason the figure exists at all.
+    take_profit_usd: Decimal | None = None
+
     @classmethod
     def from_env(cls, source: dict[str, str] | None = None) -> ExitPolicy:
         src = os.environ if source is None else source
@@ -126,11 +141,34 @@ class ExitPolicy:
             raw = (src.get(key) or "").strip()
             return int(raw) if raw else default
 
+        def opt(key: str) -> Decimal | None:
+            raw = (src.get(key) or "").strip()
+            return Decimal(raw) if raw else None
+
         return cls(
+            take_profit_usd=opt("TAKE_PROFIT_USD"),
             take_profit_pct=dec("TAKE_PROFIT_PCT", cls.take_profit_pct),
             stop_loss_pct=dec("STOP_LOSS_PCT", cls.stop_loss_pct),
             force_close_dte=integer("FORCE_CLOSE_DTE", cls.force_close_dte),
         )
+
+    def profit_target_usd(self, max_gain_usd: Decimal) -> Decimal:
+        """What this position is being held for, in dollars.
+
+        Three cases and the order is the whole rule:
+
+        * No absolute figure set — the percentage, exactly as before.
+        * The figure is more than the structure can ever make — the percentage again.
+          A target nothing can clear is not ambition, it is a position held to expiry.
+        * Otherwise the larger of the two. The figure is a floor under the percentage,
+          not a ceiling over it: on a structure big enough that half its max gain is
+          already more than the figure, settling for the figure would be the same
+          mistake in the other direction.
+        """
+        pct = max_gain_usd * self.take_profit_pct / 100
+        if self.take_profit_usd is None or self.take_profit_usd > max_gain_usd:
+            return pct
+        return max(pct, self.take_profit_usd)
 
     def sanity_check(self, max_gain_usd: Decimal | None, *, legs: int = 4,
                      qty: int = 1) -> str | None:
@@ -195,7 +233,20 @@ class Levels:
                 "stop_reachable": self.stop_reachable}
 
 
-def exit_levels(entry_price: Decimal, policy: ExitPolicy) -> Levels:
+def _target_note(policy: ExitPolicy, max_gain_usd: Decimal) -> str:
+    """Which rule set the target this position was closed on.
+
+    Named rather than assumed: a reason that says "target 50%" while a dollar floor did
+    the closing is a diagnostic stating something false, which Constitution VII does not
+    allow whether or not anyone would have noticed.
+    """
+    target = policy.profit_target_usd(max_gain_usd)
+    if policy.take_profit_usd is not None and target == policy.take_profit_usd:
+        return f"target ${policy.take_profit_usd:,.2f}"
+    return f"target {policy.take_profit_pct:g}%"
+
+
+def exit_levels(entry_price: Decimal, policy: ExitPolicy, *, qty: int = 1) -> Levels:
     """The marks at which this policy would close a structure opened at `entry_price`.
 
     Derived from the same inequalities `evaluate_exit` applies:
@@ -226,13 +277,34 @@ def exit_levels(entry_price: Decimal, policy: ExitPolicy) -> Levels:
     tp = policy.take_profit_pct / 100
     sl = policy.stop_loss_pct / 100
     credit = entry_price < 0
+
+    def target_mark(pct_target: Decimal) -> Decimal:
+        """The mark the policy's dollar target corresponds to.
+
+        Same `profit_target_usd` the exit acts on, converted into mark space — the
+        chart's whole claim is that it cannot disagree with the rule, so it may not
+        carry a second copy of the arithmetic.
+
+        P&L rises with the mark for a credit and a debit alike, since `unrealized` is
+        `(mark - entry) * multiplier * qty` in both, so one conversion covers each.
+
+        This is the one place quantity does not cancel. A percentage target is a price
+        and does not move when you trade ten instead of one; a dollar target is reached
+        ten times sooner, so the line sits nearer the entry.
+        """
+        if policy.take_profit_usd is None or qty <= 0:
+            return pct_target
+        max_gain = abs(entry_price) * CONTRACT_MULTIPLIER * qty
+        target = policy.profit_target_usd(max_gain)
+        return entry_price + target / (CONTRACT_MULTIPLIER * qty)
+
     if credit:
         # A rising mark is the loss here, and it has no ceiling: the short leg can be
         # bought back for any price. Every level is reachable.
-        return Levels(entry=entry_price, target=entry_price * (1 - tp),
+        return Levels(entry=entry_price, target=target_mark(entry_price * (1 - tp)),
                       stop=entry_price * (1 + sl), credit=True)
     stop = entry_price * (1 - sl)
-    return Levels(entry=entry_price, target=entry_price * (1 + tp),
+    return Levels(entry=entry_price, target=target_mark(entry_price * (1 + tp)),
                   stop=max(stop, Decimal(0)), credit=False,
                   stop_reachable=stop >= 0)
 
@@ -430,14 +502,14 @@ def evaluate_exit(structure: OpenStructure, chain: dict[str, dict], policy: Exit
 
     if entry_credit > 0:
         # Credit structure: max gain is the credit taken.
-        target = entry_credit * policy.take_profit_pct / 100
+        target = policy.profit_target_usd(entry_credit)
         stop = entry_credit * policy.stop_loss_pct / 100
         if unrealized >= target:
             return ExitDecision(
                 structure, Action.TAKE_PROFIT,
                 f"captured ${unrealized:,.2f} of the ${entry_credit:,.2f} credit "
-                f"({unrealized / entry_credit * 100:.0f}%, target "
-                f"{policy.take_profit_pct:g}%)",
+                f"({unrealized / entry_credit * 100:.0f}%, "
+                f"{_target_note(policy, entry_credit)})",
                 unrealized, mark.value,
             )
         if unrealized <= -stop:
@@ -451,11 +523,12 @@ def evaluate_exit(structure: OpenStructure, chain: dict[str, dict], policy: Exit
         # Debit structure: the premium paid is the whole risk.
         paid = structure.entry_price * CONTRACT_MULTIPLIER * structure.qty
         if paid > 0:
-            if unrealized >= paid * policy.take_profit_pct / 100:
+            if unrealized >= policy.profit_target_usd(paid):
                 return ExitDecision(
                     structure, Action.TAKE_PROFIT,
                     f"up ${unrealized:,.2f} on ${paid:,.2f} paid "
-                    f"({unrealized / paid * 100:.0f}%, target {policy.take_profit_pct:g}%)",
+                    f"({unrealized / paid * 100:.0f}%, "
+                    f"{_target_note(policy, paid)})",
                     unrealized, mark.value,
                 )
             if unrealized <= -paid * policy.stop_loss_pct / 100:

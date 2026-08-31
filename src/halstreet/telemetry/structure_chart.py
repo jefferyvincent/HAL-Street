@@ -248,7 +248,8 @@ def build(structure: OpenStructure, bars: dict[str, list[dict]],
     entry_legs = structure.entry_legs or {}
     exit_legs = structure.exit_legs or {}
     entry = structure.entry_price
-    levels = exit_levels(entry, policy) if entry is not None else None
+    levels = (exit_levels(entry, policy, qty=structure.qty)
+              if entry is not None else None)
 
     return {
         "structure_id": structure.structure_id,
@@ -299,6 +300,8 @@ def build(structure: OpenStructure, bars: dict[str, list[dict]],
             "take_profit_pct": str(policy.take_profit_pct),
             "stop_loss_pct": str(policy.stop_loss_pct),
             "force_close_dte": policy.force_close_dte,
+            "take_profit_usd": (None if policy.take_profit_usd is None
+                                else str(policy.take_profit_usd)),
         },
         "realized_usd": None if (r := structure.realized()) is None else str(r),
     }
