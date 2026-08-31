@@ -536,6 +536,8 @@ export function makeStrings(t: Translate) {
       legPnl: t("chart.legPnl"),
       legNoQuote: t("chart.legNoQuote"),
       legNoBasis: t("chart.legNoBasis"),
+      legAwaiting: t("chart.legAwaiting"),
+      legBasisUnknown: t("chart.legBasisUnknown"),
       legsNote: t("chart.legsNote"),
       legsPending: t("chart.legsPending"),
       legShort: t("chart.legShort"),

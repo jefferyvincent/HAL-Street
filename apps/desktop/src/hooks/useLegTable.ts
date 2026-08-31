@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 
+import { basisState } from "@/lib/basis";
 import { legRows } from "@/lib/legRows";
 import { useFormat } from "@/hooks/useFormat";
 import { useStrings } from "@/hooks/useStrings";
@@ -38,6 +39,15 @@ export function useLegTable(chart: StructureChart | null,
   const t = useStrings();
   const f = useFormat();
 
+  const basisWord = (basis: string | null, filled: boolean | null): string => {
+    switch (basisState(basis, filled)) {
+      case "known": return f.plain(basis);
+      case "awaiting": return t.chart.legAwaiting;
+      case "missing": return t.chart.legNoBasis;
+      default: return t.chart.legBasisUnknown;
+    }
+  };
+
   return useMemo(() => {
     const rows = legRows(chart, live);
     const closed = chart ? !chart.open : false;
@@ -50,7 +60,10 @@ export function useLegTable(chart: StructureChart | null,
         qty: f.signed(leg.contracts, 0),
         short: leg.contracts < 0,
         side: leg.contracts < 0 ? t.chart.legShort : t.chart.legLong,
-        basis: leg.basis === null ? t.chart.legNoBasis : f.plain(leg.basis),
+        // Three silences, not one. A leg of an order still resting at its limit has
+        // no fill because none happened; `not recorded` there says it filled and we
+        // lost the price, which is the only one of these that is a defect.
+        basis: basisWord(leg.basis, chart ? chart.entry_filled : null),
         hasBasis: leg.basis !== null,
         now: leg.now === null ? t.chart.legNoQuote : f.plain(leg.now),
         hasNow: leg.now !== null,

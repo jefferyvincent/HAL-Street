@@ -219,7 +219,9 @@
     "closedAt": "closed {{day}} {{time}}",
     "dteTag": "{{days}} DTE",
     "realizedTag": "realized",
-    "livePriceLine": "LIVE"
+    "livePriceLine": "LIVE",
+    "legAwaiting": "awaiting fill",
+    "legBasisUnknown": "—"
   },
   "committee": {
     "title": "COMMITTEE",
