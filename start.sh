@@ -130,7 +130,16 @@ esac
 banner
 say "env=$ENV_NAME  key=${KEY:0:6}…  mode=$MODE  log=$LOG"
 
-run() { say "$*"; "$@" 2>&1 | tee -a "$LOG"; return "${PIPESTATUS[0]}"; }
+# `tee` ignores the interrupt, deliberately.
+#
+# Ctrl-C from a terminal signals the whole foreground process group, and `tee` is in it.
+# With `tee` gone the agent's stdout is a closed pipe, so the shutdown output — the one
+# line that says "Ctrl-C again to stop now" — is the output most likely to be lost, and
+# the agent can die on BrokenPipeError rather than stopping cleanly. It has four minutes
+# of cycle to finish and needs somewhere to say so.
+#
+# Nothing is left running by this: `tee` still ends when the agent closes the pipe.
+run() { say "$*"; "$@" 2>&1 | { trap '' INT; tee -a "$LOG"; }; return "${PIPESTATUS[0]}"; }
 
 # --- Can the virtualenv actually run this? ------------------------------------
 #
@@ -204,7 +213,17 @@ case "$MODE" in
     # found holding ports for a day and a half, serving a journal nothing was writing
     # to and blocking the installer — that is what an untrapped background job
     # becomes. EXIT covers the ordinary end; INT and TERM cover Ctrl-C and a kill.
-    trap 'kill "$PANEL_PID" 2>/dev/null || true' EXIT INT TERM
+    #
+    # Bash defers a trap until the foreground command returns, and that command is an
+    # agent finishing a cycle — so this cannot be what makes the terminal feel
+    # answered. It is the tidy-up. The agent prints the responsive half itself, on the
+    # first press, which is why `tee` above must survive to carry it.
+    stop_panel() {
+      kill "$PANEL_PID" 2>/dev/null || true
+      wait "$PANEL_PID" 2>/dev/null || true
+    }
+    trap stop_panel EXIT INT TERM
+    say "Ctrl-C once finishes the cycle in flight; again stops now; a third leaves."
     run .venv/bin/python -m halstreet.agent.run --env "$ENV_NAME" "${ARGS[@]}"
     ;;
 esac

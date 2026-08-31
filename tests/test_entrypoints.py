@@ -314,3 +314,38 @@ def _mode_branch(mode: str) -> str:
     start = re.search(rf"^\s{{2}}{mode}\)", body, re.MULTILINE)
     assert start, f"no {mode}) branch"
     return body[start.end():body.index(";;", start.end())]
+
+
+# --- Ctrl-C must stop everything, and be able to say so --------------------------
+#
+# Reported live: "ctrl + c is not stopping it". Two things behind that, and the second
+# is the one that hides the first.
+#
+# A cycle over six discovered names is four model calls each — measured at 264 seconds
+# today — and the first press deliberately lets it finish so a structure is never left
+# half-placed. That is right, and it is four and a half minutes of a terminal that looks
+# ignored unless it says otherwise. It does say otherwise: "Ctrl-C again to stop now".
+#
+# Except the message goes through `tee`, and Ctrl-C from a terminal signals the whole
+# foreground process group — `tee` included. With `tee` dead the agent's own shutdown
+# output hits a closed pipe, so the one line explaining what to press next is exactly
+# the line most likely to be lost, and the agent can die on BrokenPipeError instead of
+# stopping cleanly.
+
+def test_the_log_pipe_survives_the_interrupt_that_stops_the_agent():
+    """`tee` must outlive the signal, or the shutdown has nowhere to print."""
+    source = START.read_text()
+    run_line = next(line for line in source.splitlines() if line.startswith("run()"))
+    assert "trap '' INT" in run_line, \
+        "tee is signalled with the agent and takes the shutdown messages with it"
+
+
+def test_watch_kills_the_panel_on_an_interrupt_not_only_at_exit():
+    source = START.read_text()
+    assert "INT TERM" in source
+
+
+def test_the_interrupt_advice_is_where_someone_pressing_it_will_look():
+    """The terminal, not just the log. A person holding Ctrl-C is watching the screen."""
+    source = START.read_text()
+    assert "again" in source.lower()
