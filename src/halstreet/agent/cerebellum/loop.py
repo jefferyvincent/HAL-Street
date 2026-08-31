@@ -709,8 +709,24 @@ class Agent:
                                error=str(exc))
             return
 
+        # An order we cannot name is an order we do not have. Live on 2026-08-31 a
+        # submission came back with neither an id nor a status; the ledger booked it
+        # anyway, and the book then carried a structure that could never be looked up,
+        # re-priced, cancelled or reconciled — visible on the console, counted toward
+        # exposure, and logging a divergence every cycle that nobody could act on.
+        #
+        # Recorded as a failure rather than a submission, which is what it is: the
+        # broker may well have the order, and if it does we will see it as an unknown
+        # position at the next reconciliation, which is the honest place to find it.
+        order_id = str(response.get("id") or "").strip()
+        if not order_id:
+            result.error = "broker accepted no order id; not booking a position"
+            self.journal.order(structure=proposal.structure.name, submitted=False,
+                               error=result.error, status=response.get("status"))
+            return
+
         result.submitted = True
-        result.order_id = response.get("id")
+        result.order_id = order_id
         # Stamp the throttle on acceptance, not on fill. The runaway this guards
         # against is a loop that keeps *submitting*; waiting for fills to count them
         # would let an unfilled storm through unmeasured.

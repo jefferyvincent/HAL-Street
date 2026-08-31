@@ -121,3 +121,74 @@ def test_exits_are_marked_against_held_symbols_not_the_scan_window(ledger, journ
 
     asyncio.run(agent_for(Recording(), ledger, journal, dry_run=True).manage_exits())
     assert set(asked["symbols"]) == {P755, P760, C770, C775}
+
+
+# --- a submission the broker did not acknowledge --------------------------------------
+#
+# Live, 2026-08-31 14:45:21: `submitted=True, order_id=None, status=None`. The response
+# carried neither an id nor a status, and the ledger booked the structure anyway — so
+# the book held a position that could never be looked up, re-priced, cancelled or
+# reconciled. It showed on the console, it counted toward exposure, and every cycle
+# after it logged a divergence nobody could act on.
+#
+# An order we cannot name is an order we do not have.
+
+class Nameless(FakeClient):
+    """A broker that accepts and says nothing useful about what it accepted."""
+
+    def __init__(self, response):
+        super().__init__()
+        self.response = response
+
+    async def place_structure(self, structure):
+        self.placed.append(structure)
+        return self.response
+
+
+def _fresh(tmp_path):
+    """An empty ledger — this is about opening, not about what is already held."""
+    return Ledger(path=tmp_path / "fresh.json")
+
+
+def _proposal():
+    from halstreet.gates.base import Proposal
+    return Proposal(underlying="SPY", rationale="", confidence=0.5,
+                    structure=iron_condor("Oct condor", P755, P760, C770, C775))
+
+
+def _submit_with(client, ledger, journal):
+    from halstreet.agent.cerebellum.loop import CycleResult
+    agent = agent_for(client, ledger, journal, dry_run=False)
+    result = CycleResult(underlying="SPY")
+    asyncio.run(agent._submit(_proposal(), result))
+    return agent, result
+
+
+@pytest.mark.parametrize("response", [{}, {"status": "accepted"}, {"id": ""},
+                                      {"id": None, "status": "new"}])
+def test_an_order_with_no_id_is_not_booked_as_a_position(response, tmp_path, journal):
+    ledger = _fresh(tmp_path)
+    _submit_with(Nameless(response), ledger, journal)
+    assert ledger.open_structures == [], "booked a structure it can never look up"
+
+
+def test_it_is_journalled_as_a_failure_rather_than_a_submission(tmp_path, journal):
+    _agent, result = _submit_with(Nameless({}), _fresh(tmp_path), journal)
+    order = next(e for e in journal.read() if e["event"] == "order")
+    assert order["submitted"] is False
+    assert "id" in (order["error"] or "").lower()
+    assert result.submitted is False
+
+
+def test_the_throttle_does_not_count_an_order_we_never_got(tmp_path, journal):
+    """`record_entry` stamps the runaway guard. An unacknowledged submission is not an
+    entry, and counting it spends the hour's budget on nothing."""
+    agent, _ = _submit_with(Nameless({}), _fresh(tmp_path), journal)
+    assert agent.breaker.entries_in_window() == 0
+
+
+def test_an_acknowledged_order_is_booked_exactly_as_before(tmp_path, journal):
+    ledger = _fresh(tmp_path)
+    _submit_with(Nameless({"id": "abc-123", "status": "new"}), ledger, journal)
+    assert len(ledger.open_structures) == 1
+    assert ledger.open_structures[0].order_id == "abc-123"
