@@ -11,7 +11,7 @@ import { useStrings } from "@/hooks/useStrings";
  * The chain as loaded, in the order it evaluates, with what each gate measured the
  * last time it ran and how often it has rejected something.
  *
- * A gate list nobody can check against the run is decoration — sixteen names and a
+ * A gate list nobody can check against the run is decoration — seventeen names and a
  * count answer "does this gate exist" and "has it ever bitten", neither of which is a
  * question anyone has while watching a book. The reading is: `2/20 open positions`,
  * `1/6 entries this hour`, `within the 5% floor of $89,817`. Those are the numbers

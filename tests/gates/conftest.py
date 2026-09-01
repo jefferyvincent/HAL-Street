@@ -77,7 +77,18 @@ def breaker():
 
 
 @pytest.fixture
-def ctx(limits, breaker):
+def benched():
+    """Nothing resting, stated rather than omitted.
+
+    `loss_cooldown` fails closed on a missing record, so a fixture that left this out
+    would reject every proposal in every chain test and look like a rejection on the
+    merits — the same trap the `breaker` fixture above exists to avoid.
+    """
+    return {}
+
+
+@pytest.fixture
+def ctx(limits, breaker, benched):
     """A healthy account with nothing open and a fully-quoted chain."""
     return GateContext(
         account={"equity": "100000.00", "account_number": "PA1", "id": "acct-1",
@@ -90,6 +101,7 @@ def ctx(limits, breaker):
         asof=TODAY,
         spot=SPOT,
         breaker=breaker,
+        benched=benched,
     )
 
 

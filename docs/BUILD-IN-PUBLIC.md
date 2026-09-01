@@ -68,7 +68,7 @@ string does not satisfy the requirement.
 > touch. The model's job is narrow: pick one, size it, and write down why, as closed-schema
 > JSON. It can also decline, and a decline is counted as a decision rather than a failure.
 >
-> Then the proposal meets sixteen risk gates written in plain Python. No model call, no
+> Then the proposal meets seventeen risk gates written in plain Python. No model call, no
 > network, no clock beyond an injected date. They check defined risk, max loss, portfolio
 > risk, options buying power, liquidity, spread width, concentration, correlation, net
 > greeks, assignment proximity, days to expiry — and every one of them runs on every

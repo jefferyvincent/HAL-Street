@@ -27,7 +27,7 @@ interface UI {
   /**
    * Whether the decision record is open.
    *
-   * Collapsed by default: it is a rationale and sixteen verdicts, and it sits under
+   * Collapsed by default: it is a rationale and seventeen verdicts, and it sits under
    * the run's numbers, the equity curve and the open book. What a reader wants from
    * it at a glance is the verdict, which stays in the header — the rest is there
    * when they go looking.

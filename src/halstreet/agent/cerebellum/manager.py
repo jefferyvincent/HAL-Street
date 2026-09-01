@@ -176,6 +176,20 @@ class ExitPolicy:
     #: carried — see `_overnight_veto` for the three that count.
     flatten_before_close_min: int | None = None
 
+    #: How many losing trades in a row on one (underlying, family) pair before it is
+    #: rested, and for how many sessions afterwards. `0` for the count turns the rule
+    #: off entirely.
+    #:
+    #: The agent already tells the model about its losses — the committee's judge is
+    #: handed closed structures and their realized P&L. This is the half the model
+    #: cannot argue with: `loss_cooldown` refuses the pair outright, and the record it
+    #: reads is computed from the ledger rather than remembered.
+    #:
+    #: Two, not one, because one loss is a trade and two is a pattern; and a pair, not
+    #: a symbol, because being wrong twice about calls says nothing about puts.
+    loss_cooldown_after: int = 2
+    loss_cooldown_days: int = 1
+
     @classmethod
     def from_env(cls, source: dict[str, str] | None = None) -> ExitPolicy:
         src = os.environ if source is None else source
@@ -204,6 +218,8 @@ class ExitPolicy:
             force_close_dte=integer("FORCE_CLOSE_DTE", cls.force_close_dte),
             scalp_friction_multiple=opt("SCALP_FRICTION_MULTIPLE"),
             flatten_before_close_min=opt_int("FLATTEN_BEFORE_CLOSE_MIN"),
+            loss_cooldown_after=integer("LOSS_COOLDOWN_AFTER", cls.loss_cooldown_after),
+            loss_cooldown_days=integer("LOSS_COOLDOWN_DAYS", cls.loss_cooldown_days),
         )
 
     def profit_target_usd(self, max_gain_usd: Decimal, *,

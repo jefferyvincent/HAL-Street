@@ -270,7 +270,7 @@
     "ungated": "not yet gated",
     "confidence": "confidence {{value}}",
     "tokens": "{{out}} tokens out",
-    "note": "The committee cannot approve anything. Whichever path built a proposal, it meets the same sixteen gates.",
+    "note": "The committee cannot approve anything. Whichever path built a proposal, it meets the same seventeen gates.",
     "latest": "LATEST",
     "working": "{{stage}} · {{underlying}}",
     "workingAny": "working…",

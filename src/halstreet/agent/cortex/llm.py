@@ -172,6 +172,11 @@ fallen past the day's floor. It does not reset when the tape bounces.
 operation you will never approach it.
   - `open-position-count` — how many broker positions the book may hold at once, \
 counted per contract after leg-netting.
+  - `loss-cooldown` — a structure family that has just lost repeatedly on an \
+underlying is rested for a short while. Keyed on the pair, so being wrong twice about \
+calls on a name does not stop you proposing puts on it; the desk record you were \
+shown is where those losses appear. Propose something else rather than the same idea \
+with a better argument — this one is counted, not judged.
 
 Every one of these fails **closed**. If a value needed to judge your proposal is \
 missing — a greek, a quote, an open-interest figure — the gate rejects rather than \

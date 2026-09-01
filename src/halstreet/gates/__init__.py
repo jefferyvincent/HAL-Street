@@ -31,10 +31,12 @@ from halstreet.gates.circuit import (
     CORRELATED,
     DAILY_LOSS,
     ENTRY_RATE,
+    LOSS_COOLDOWN,
     OPEN_POSITIONS,
     correlated_exposure,
     daily_loss_halt,
     entry_rate_throttle,
+    loss_cooldown,
     open_position_count,
 )
 from halstreet.gates.contract import (
@@ -66,11 +68,14 @@ from halstreet.gates.portfolio import (
 )
 
 ALL_GATES: list[Gate] = [
-    # Should we be opening anything at all right now? These four judge the situation
-    # rather than the proposal, and none of them looks at the structure.
+    # Should we be opening anything at all right now? These judge the situation rather
+    # than the proposal, and none of them looks at the structure's own merits.
     daily_loss_halt,
     entry_rate_throttle,
     open_position_count,
+    # Have we just been wrong about this exact idea? Reads a record computed from the
+    # ledger, so a losing run stops the trade rather than only warning the model.
+    loss_cooldown,
     # Is this even a real structure, and is it one we actually offered?
     contract_exists,
     on_the_menu,
@@ -104,6 +109,7 @@ __all__ = [
     "ENTRY_RATE",
     "GREEK_BOUNDS",
     "LIQUIDITY",
+    "LOSS_COOLDOWN",
     "MAX_LOSS",
     "ON_THE_MENU",
     "OPEN_POSITIONS",

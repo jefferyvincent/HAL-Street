@@ -98,7 +98,7 @@ export function ConsoleView() {
         <span className="font-mono text-[10.5px] font-medium leading-none text-ink/40">
           {f.stamp(current.ts)}
         </span>
-        {/* The record is a rationale and sixteen verdicts. The verdict itself is in
+        {/* The record is a rationale and seventeen verdicts. The verdict itself is in
             this header, so the rest opens on request rather than pushing the run's
             numbers and the open book off the top of the view. */}
         <button

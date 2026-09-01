@@ -44,6 +44,7 @@ from halstreet.agent.cerebellum.manager import (
 )
 from halstreet.agent.cortex.committee import Committee, Session, brief, reflection
 from halstreet.agent.cortex.llm import ProposalWriter
+from halstreet.agent.hippocampus import experience
 from halstreet.agent.hippocampus.ledger import Ledger
 from halstreet.execution.fills import leg_fills
 from halstreet.execution.mcp_client import AlpacaMCP, MCPError
@@ -880,6 +881,16 @@ class Agent:
             # objects rather than re-derived later, so the gate compares against what
             # was actually offered on this cycle and not a reconstruction of it.
             menu=frozenset(leg_signature(c.legs) for c in candidates),
+            # Which (underlying, family) pairs have just been losing. Computed from
+            # the ledger every cycle rather than stored, so it cannot drift from the
+            # record it claims to summarise — and passed in rather than looked up,
+            # because a gate that read a file would not be a pure function any more.
+            benched=experience.benched_pairs(
+                self.ledger.structures,
+                after=self.policy.loss_cooldown_after,
+                days=self.policy.loss_cooldown_days,
+                today=clock.today(),
+            ),
         )
         decision = evaluate(proposal, ctx, ALL_GATES)
         result.decision = decision

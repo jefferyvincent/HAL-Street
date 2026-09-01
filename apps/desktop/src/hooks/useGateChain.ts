@@ -76,7 +76,7 @@ export function useGateChain(): GateChain {
       seen: snap.pnl.approved + snap.pnl.rejected,
       readAt: any?.at ?? null,
       readOf: any?.structure ?? "",
-      // Said once, above the list, rather than repeated on sixteen rows. Every
+      // Said once, above the list, rather than repeated on seventeen rows. Every
       // reading in a set comes from the same evaluation, so they share an answer.
       afterHoursNote: any?.after_hours ? t.gates.afterHours : null,
     };

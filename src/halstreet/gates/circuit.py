@@ -35,11 +35,13 @@ from decimal import Decimal, InvalidOperation
 
 from halstreet.gates.base import GateContext, GateResult, Proposal, allow, gate, reject
 from halstreet.marketdata.occ import root as occ_root
+from halstreet.strategy.family import classify
 
 CORRELATED = "correlated-exposure"
 DAILY_LOSS = "daily-loss-halt"
 ENTRY_RATE = "entry-rate-throttle"
 OPEN_POSITIONS = "open-position-count"
+LOSS_COOLDOWN = "loss-cooldown"
 
 # Names that move together closely enough that holding several is one position rather
 # than a diversified book. Deliberately a small static map rather than a live
@@ -280,3 +282,42 @@ def open_position_count(proposal: Proposal, ctx: GateContext) -> GateResult:
             f"would exceed the cap of {cap}",
         )
     return allow(OPEN_POSITIONS, f"{total}/{cap} open positions")
+
+
+@gate(LOSS_COOLDOWN)
+def loss_cooldown(proposal: Proposal, ctx: GateContext) -> GateResult:
+    """Refuse a structure family that has just lost repeatedly on this underlying.
+
+    The agent already *tells* the model about its losses: `committee.reflection` puts
+    closed structures and their realized P&L in front of the judge. That is advice, and
+    the standing assumption of this project is that a confident model can talk its way
+    past advice — a proposal arriving with a paragraph about why this time is different
+    is exactly what a losing streak looks like from the inside. So the record is
+    computed deterministically from the ledger and the refusal happens here, where no
+    rationale reaches.
+
+    Keyed on `(underlying, family)` rather than on the symbol. Being wrong twice about
+    calls says nothing about puts, and benching the whole name would throw away the
+    half of the book that was never tested. The model is free to propose the other
+    half, which is the point: this narrows what may be traded, it never stops trading.
+
+    Fails closed on a missing record, like every gate here. `{}` is a measured "nothing
+    is resting"; `None` means nobody looked.
+    """
+    if ctx.benched is None:
+        return reject(
+            LOSS_COOLDOWN,
+            "the record of recent losing trades is not available, so a cooldown "
+            "cannot be checked. Not knowing whether this pair is resting is not the "
+            "same as knowing it is not.",
+        )
+
+    # `classify` reads the rights off the symbols and ignores the quantities, which is
+    # what makes a two-contract spread the same family as a one-contract one — size
+    # must not be a way back in for a benched idea.
+    family = classify({leg.symbol: leg.ratio_qty for leg in proposal.structure.legs})
+    key = (proposal.underlying, family)
+    resting = ctx.benched.get(key)
+    if resting is None:
+        return allow(LOSS_COOLDOWN)
+    return reject(LOSS_COOLDOWN, resting)

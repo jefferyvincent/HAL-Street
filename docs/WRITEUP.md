@@ -33,7 +33,7 @@ Counting runs on the publisher's structured `symbols` field, never on the headli
 the same line `marketdata/news` already drew — "a headline never becomes a symbol" — and it is why
 Alpaca was chosen over RSS in the first place: the mapping from article to ticker is Benzinga's,
 not a regex of ours. Discovery *nominates*; the tradability screen, the liquidity floors and the
-sixteen gates all still stand between a mention and an order.
+seventeen gates all still stand between a mention and an order.
 
 **What the strategy engine produces, deterministically.** `strategy/` builds put and call credit
 spreads and iron condors from the live chain — arithmetic only, no model, no randomness, so the
@@ -93,7 +93,7 @@ agreement looks like corroboration to a judge. The judge is told so explicitly: 
 instructed to disagree, so their agreeing is not evidence.
 
 **The committee cannot approve anything.** It produces a proposal, and a proposal meets the same
-sixteen gates whichever path built it. A committee that agreed unanimously and enthusiastically
+seventeen gates whichever path built it. A committee that agreed unanimously and enthusiastically
 still has its structure checked against the menu, its loss against the cap, and its size against
 buying power. More deliberation is allowed to make a *better* proposal; it is never allowed to
 make a *permitted* one. `COMMITTEE=false` falls back to the single call for a cheap demo.
@@ -108,7 +108,7 @@ turn, fenced and labelled, where what comes back is a constrained JSON verdict r
 that flows onward.
 
 None of that is the security boundary. The gates are. A successful injection reaches a lean, a
-sentence of note, and from there a worse trade proposal — which is the case sixteen deterministic
+sentence of note, and from there a worse trade proposal — which is the case seventeen deterministic
 gates already exist for. That is the point of putting the model between two deterministic layers:
 it is what makes reading untrusted input safe enough to do at all.
 
@@ -132,7 +132,7 @@ attempt, and an unattended loop must not spend an unbounded budget arguing with 
 
 ## Risk gates
 
-**Sixteen gates. All of them run on every proposal — evaluation never short-circuits**, because
+**Seventeen gates. All of them run on every proposal — evaluation never short-circuits**, because
 "rejected by four gates" is a more useful artifact than "rejected by the first one we checked."
 Every gate **fails closed**: a missing greek, an absent quote, an unreadable open-interest figure
 is a rejection, never a skip. A gate that silently stops protecting you when the data is bad stops
@@ -142,6 +142,7 @@ protecting you exactly when you need it most.
 |---|---|---|
 | `daily-loss-halt` | Latched off once equity falls past the day's floor (5%) | every entry, for the rest of the session |
 | `entry-rate-throttle` | Entries per rolling hour | a runaway loop submitting outside the schedule |
+| `loss-cooldown` | A structure family that just lost repeatedly on this underlying | the same losing idea, re-argued |
 | `open-position-count` | Broker positions held at once | a book bigger than the exit path can work through |
 | `contract-validation` | Leg must exist in the chain fetched this cycle | hallucinated or stale contracts |
 | `from-the-menu` | Structure must be one the strategy engine actually built and scored | a real but unscored structure the ranking never saw |
@@ -218,6 +219,34 @@ the journal rather than asserted here, because a safety layer's own write-up is 
 number should be taken on trust. Coverage is not the standard used: a test is accepted when the
 defect it names, planted back into the source, actually makes it fail.
 
+**Four exit conditions, and the fourth decides overnight risk.** Expiry fires first and closes
+regardless of P&L. Then the stop, then the profit target — each a percentage of the structure's
+own max gain or max loss, so a $41 condor and an $820 condor are managed alike. The profit target
+carries a floor at `SCALP_FRICTION_MULTIPLE` round trips: friction is $7.50 a leg, measured on
+this account, so a two-leg spread costs $15 to open and close, and a 10% target on a $200 credit
+asks for $20 — a losing trade that reports as a win. The floor raises the target rather than
+refusing the trade, because holding a little longer is the only thing that actually fixes that
+arithmetic.
+
+**The fourth is the overnight sweep**, and it is a veto rather than a reason of its own. Near the
+session close a position is flattened unless it has earned the hold, and three things end one: it
+is down, an event is scheduled before the next session, or the calendar could not be read. That
+last is the same fail-closed rule the gates follow — not knowing whether there is an event
+tonight is not the same as knowing there is none, and only one of those is safe to hold through.
+
+It is deliberately **not** a nightly flatten. At the measured friction, closing every position at
+the bell and reopening in the morning costs $15–30 a structure against roughly $3.50 of daily
+decay, so a mechanical sweep pays four days of theta for one night of comfort. What it removes is
+the overnight gap on positions that have given no reason to be carried — the one risk a
+defined-risk structure cannot bound, because the max loss every sizing gate measures against
+assumes an orderly market and a gap does not open in one.
+
+The sweep reads the **broker's** clock, never a local one: a host that thinks it is 15:45 on a
+half-day would flatten an hour after the close and submit into a shut market. If that read fails
+the sweep does not arm at all. And it is checked last, after the target and the stop, so a
+position that hit its target is reported as having hit its target — the journal is what the
+Results below are computed from, and it has to name the rule that took the money.
+
 **Exits are never gated.** Nothing in `gates/` applies on the way out. A latched halt, a breached
 concentration cap, an account in drawdown — every one of those is a reason to be *more* able to
 close, not less.
@@ -293,14 +322,14 @@ it was the one item on that list this project genuinely lacked, and the measurem
 that followed found options buying power to be a quarter of the headline figure.
 
 **Telemetry.** Append-only JSONL journal: every cycle, market view, candidate menu with score
-breakdowns, the committee session, proposal, all sixteen gate verdicts, order, fill, exit. `./start.sh report` exports
+breakdowns, the committee session, proposal, all seventeen gate verdicts, order, fill, exit. `./start.sh report` exports
 `summary.json`, `positions.csv` and `results.txt`. Realized P&L comes from the ledger rather than
 the broker, because Alpaca can tell you what a *contract* did but never what a *condor* did.
 Drawdown is labelled "over N scan samples" — it is scan-resolution, not tick-resolution, and the
 output should not imply otherwise.
 
 **The panel, and why it cannot trade.** `./start.sh panel` serves a React/TypeScript app that
-reads the same journal: one decision with all sixteen verdicts grouped by family, the full
+reads the same journal: one decision with all seventeen verdicts grouped by family, the full
 decision history, the chain with each gate's actual rejection count, an equity curve, and — on
 clicking a position — a chart of that structure's own net price with its entry, target and stop
 drawn on it. Those three lines are derived from the same `ExitPolicy` the position manager acts

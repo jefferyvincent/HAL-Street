@@ -27,7 +27,7 @@ REGIONS = {
     "cortex": {"llm", "committee", "proposal"},
     "cerebellum": {"loop", "manager"},
     "brainstem": {"schedule", "lock", "breaker"},
-    "hippocampus": {"ledger", "soak"},
+    "hippocampus": {"ledger", "soak", "experience"},
 }
 
 #: The entrypoint. Outside every region, as HAL keeps `server.py` outside its own.

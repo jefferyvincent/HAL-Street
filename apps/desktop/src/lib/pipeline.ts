@@ -62,7 +62,7 @@ export function pipeline(row: PassRow): Track[] {
     : desk === "done" ? (live ? "working" : "pending")
     : "pending";
 
-  // `held` rather than `done`: a rehearsal clears all sixteen gates and stops before
+  // `held` rather than `done`: a rehearsal clears all seventeen gates and stops before
   // submission. Drawing that as a completed order is the panel saying a trade was
   // placed, which is the exact failure the dry-run label exists to prevent.
   const order: StepState = stopped || declined || gates === "failed" ? "skipped"

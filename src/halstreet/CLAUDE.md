@@ -51,7 +51,7 @@ the report without capturing stdout.
 | Package | Holds | Never |
 |---|---|---|
 | `agent/` | the agent itself, split into brain regions — see below | anything a gate needs |
-| `gates/` | the sixteen accept/reject rules | network, wall clock, an LLM |
+| `gates/` | the seventeen accept/reject rules | network, wall clock, an LLM |
 | `execution/` | broker boundary, order construction, paper assertion | strategy opinion |
 | `marketdata/` | chains, symbols, news, events, patterns | a decision about a trade |
 | `strategy/` | candidate structures, scoring, regime, maths | I/O of any kind |

@@ -86,6 +86,15 @@ class GateContext:
     # read that list too: the greek bounds want contracts it can price, and a
     # committed-but-unfilled leg would fail closed there for the wrong reason.
     pending: list[dict] = field(default_factory=list)
+    # Which (underlying, family) pairs are resting after a run of losses, and why.
+    # Computed from the ledger by `hippocampus.experience`; the gates only read it,
+    # the same arrangement as `breaker`.
+    #
+    # `None` and `{}` are different answers and `loss_cooldown` keeps them different:
+    # empty is a measured statement that nothing is resting, missing means nobody
+    # looked. A gate that read those the same way would wave everything through on the
+    # day the caller forgot to load the ledger.
+    benched: dict[tuple[str, str], str] | None = None
 
     @property
     def equity(self) -> Decimal | None:

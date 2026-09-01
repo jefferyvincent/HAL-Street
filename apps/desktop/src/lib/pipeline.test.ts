@@ -62,7 +62,7 @@ describe("pipeline", () => {
   });
 
   it("holds the order on an approved rehearsal rather than calling it done", () => {
-    // A dry run clears all sixteen and stops. "Done" here would be the panel saying a
+    // A dry run clears all seventeen and stops. "Done" here would be the panel saying a
     // trade was placed, which is the exact failure the dry-run label exists to stop.
     const t = track(row({ menu: 6, proposal: "proposed", gates: "approved",
                           order: "held", outcome: "approved", running: false }));
