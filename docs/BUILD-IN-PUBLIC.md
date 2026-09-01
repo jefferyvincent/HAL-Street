@@ -60,7 +60,7 @@ string does not satisfy the requirement.
 
 **LinkedIn**
 
-> Most LLM trading agents let the model decide *and* execute. I think that is the wrong
+> Most LLM trading agents let the model decide and execute. I think that is the wrong
 > shape, so HAL Street splits them.
 >
 > A deterministic strategy engine builds a menu of defined-risk option structures from the
@@ -184,25 +184,52 @@ Screenshot the terminal rejection, not the source. Crop out the account number.
 
 ### 4 — The setback
 
-The brief asks for setbacks by name. This is the honest one: a bug I introduced by
-accepting a suggestion without checking the values it would run on.
+The brief asks for setbacks by name. Two of them, one lesson: I trusted something I had
+not checked. **Shoot:** the traceback in `var/log/halstreet.log`, or the uv cache
+timestamps showing the two environments built on the 31st.
 
 **X**
 
-> A lint autofix stopped my trading agent dead.
+> My trading agent was up all day and never placed a trade.
 >
-> .replace("Z","+00:00") → .removesuffix("Z"). Alpaca sends −04:00, so it became
-> −04:00+00:00. Parse fails → swallowed → next_open=None → the scheduler waits forever.
+> alpaca-mcp-server allows fastmcp>=3.1.0, unbounded. fastmcp 4.0.0 shipped, moved a
+> module the server imports at start-up, and every call came back "Connection closed".
 >
-> I took the fix without checking the data.
+> Nothing in my repo changed.
 >
 > @lablabai @AlpacaHQ
 
-*275 characters.*
+*276 characters.*
 
 **LinkedIn**
 
-> The worst bug in this build was one I introduced on purpose, in a cleanup commit.
+> My autonomous trading agent spent a full session up, healthy, and doing nothing at
+> all. No trades. No errors on the console. The loop was running.
+>
+> Alpaca's MCP server declares `fastmcp>=3.1.0` with no upper bound, and it is launched
+> through `uvx`, which re-resolves its dependencies at every single start. fastmcp 4.0.0
+> was released. It moved a module the server imports at start-up. So the server died
+> before it could speak, and every broker call — including the one that asks whether the
+> market is open — came back as "Connection closed". The scheduler read that as "market
+> state unknown", waited 30 minutes, and did it again. All day.
+>
+> Nothing in my repository changed. The uv cache dates it precisely: environments built
+> on the 28th and the 30th resolved fastmcp 3.4.7 and worked. Both environments built on
+> the 31st got 4.0.0 and did not.
+>
+> One design decision saved me. The MCP subprocess prints a fifteen-line banner on every
+> launch, and I had written a filter for it rather than pointing stderr at /dev/null —
+> because the channel that carries the noise is the same one that carries the failure.
+> The filter's bias runs one way: an unrecognised line is always kept. So the
+> ModuleNotFoundError was sitting in the log, in full, and the diagnosis took one grep
+> instead of a day.
+>
+> The fix is a pin — `uvx --with 'fastmcp<4' alpaca-mcp-server` — and it lives in the
+> code rather than in a config file, because a default that only works if someone edited
+> their environment is not a default.
+>
+> The second one, the same week, was mine rather than upstream's, and it is the same
+> lesson wearing different clothes.
 >
 > A lint rule flagged a timestamp normalisation: .replace("Z", "+00:00") on a broker
 > timestamp. The suggested fix was .removesuffix("Z"). I took it. It was even correct in
@@ -226,7 +253,11 @@ accepting a suggestion without checking the values it would run on.
 > host-calendar reads were sitting behind a check that was never on. It is enabled now,
 > confirmed by planting a violation and watching it fire.
 >
-> There is now a test over all three timestamp shapes the broker emits.
+> There is now a test over all three timestamp shapes the broker emits, and a test that
+> fails if the fastmcp pin is ever dropped.
+>
+> One lesson, twice: a suggestion is a hypothesis about your data, and an unbounded
+> dependency range is a promise someone else can break on a Tuesday. Verify both.
 >
 > A build log with no mistakes in it is a build log nobody should believe.
 >
