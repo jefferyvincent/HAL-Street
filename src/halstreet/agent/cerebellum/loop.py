@@ -34,6 +34,7 @@ from typing import Any
 
 from halstreet import clock
 from halstreet.agent.brainstem.breaker import CircuitState
+from halstreet.agent.brainstem.schedule import market_clock
 from halstreet.agent.cerebellum.manager import (
     Action,
     ExitDecision,
@@ -393,6 +394,53 @@ class Agent:
         except (MCPError, KeyError, TypeError):
             return {}
 
+    async def _overnight_facts(
+        self, structures: list[Any]
+    ) -> tuple[float | None, dict[str, bool | None]]:
+        """Minutes to the session close, and whether each name has an event tonight.
+
+        Both are measured rather than assumed, and both fail in the safe direction.
+
+        The clock is the **broker's**, never a local `datetime`: a host that thinks it
+        is 15:45 on a half-day would flatten the book an hour after the close and
+        submit orders into a shut market. If the read fails, `None` comes back and the
+        sweep does not arm at all — a flatten decided against a guess about the time is
+        worse than no flatten, because it would fire on the wrong day rather than not
+        at all.
+
+        The calendar answers per underlying and keeps three values. `None` means it
+        could not be read, and the veto treats that as grounds to flatten — the same
+        fail-closed rule the gates follow, for the same reason.
+
+        Skipped entirely when the sweep is off, so a policy that never flattens costs
+        no broker call.
+        """
+        if self.policy.flatten_before_close_min is None:
+            return None, {}
+
+        minutes: float | None = None
+        try:
+            reading = await market_clock(self.client)
+            seconds = reading.seconds_until_close()
+            minutes = None if seconds is None else seconds / 60
+        except Exception as exc:
+            self.journal.error("exit_clock", f"{type(exc).__name__}: {exc}")
+            return None, {}
+
+        # Only worth asking once the sweep could actually arm — the calendar is a
+        # network read, and the book is re-reviewed every thirty minutes all session.
+        if minutes is None or minutes > self.policy.flatten_before_close_min:
+            return minutes, {}
+
+        asof = clock.today()
+        tomorrow = asof + timedelta(days=1)
+        events: dict[str, bool | None] = {}
+        for underlying in sorted({s.underlying for s in structures}):
+            window = await asyncio.to_thread(
+                events_mod.events_between, underlying, asof, tomorrow)
+            events[underlying] = None if window is None else bool(window)
+        return minutes, events
+
     async def manage_exits(self, positions: list[dict] | None = None) -> list[ExitDecision]:
         """Review every open structure and close the ones that qualify.
 
@@ -421,7 +469,9 @@ class Agent:
         # prices and callers read it as one, so a backfill that changes no price must
         # not be added to it.
         await self.refresh_leg_fills()
-        decisions = review(self.ledger, chain, self.policy, asof=clock.today())
+        minutes, events = await self._overnight_facts(open_structures)
+        decisions = review(self.ledger, chain, self.policy, asof=clock.today(),
+                           minutes_to_close=minutes, events_by_underlying=events)
         for decision in decisions:
             # After the decision, never before it. The ratchet compares against where
             # the position has *been*, so folding this reading into the peak first

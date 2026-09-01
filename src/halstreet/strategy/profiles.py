@@ -182,6 +182,34 @@ MODERATE = Profile(
     position_sizing_cap_pct=Decimal(5),
 )
 
+# Moderate's judgement, on a shorter window.
+#
+# The DTE band and the risk posture used to be welded together: anything faster than
+# 21 days meant `aggressive`, which also widens the short delta band from 0.20-0.45 to
+# 0.30-0.55, drops the liquidity floors and raises the sizing cap. Three risk increases
+# to buy one change of window.
+#
+# Every selection rule below is *referenced* from MODERATE rather than copied, so the
+# two cannot drift: retuning moderate's liquidity floor retunes this one, which is the
+# whole claim the profile makes. Only the window is its own.
+#
+# It is not a claim of identical risk. A 10 DTE spread at the same delta carries more
+# gamma than a 45 DTE one and will lose faster when it loses; what is held constant is
+# how a candidate is chosen, not how it behaves afterwards. The floor at 7 keeps it
+# clear of the same-day expiry band where Alpaca returns no greeks and the delta and
+# vega gates fail closed.
+MODERATE_SHORT = Profile(
+    name="moderate_short",
+    min_dte=7, max_dte=21,
+    short_delta_min=MODERATE.short_delta_min,
+    short_delta_max=MODERATE.short_delta_max,
+    liquidity=MODERATE.liquidity,
+    weights=MODERATE.weights,
+    structures=MODERATE.structures,
+    position_sizing_cap_pct=MODERATE.position_sizing_cap_pct,
+)
+
+
 AGGRESSIVE = Profile(
     name="aggressive",
     min_dte=7, max_dte=45,
@@ -213,7 +241,8 @@ ULTRA_AGGRESSIVE = Profile(
 
 PROFILES: dict[str, Profile] = {
     p.name: p for p in
-    (ULTRA_CONSERVATIVE, CONSERVATIVE, MODERATE, AGGRESSIVE, ULTRA_AGGRESSIVE)
+    (ULTRA_CONSERVATIVE, CONSERVATIVE, MODERATE, MODERATE_SHORT, AGGRESSIVE,
+     ULTRA_AGGRESSIVE)
 }
 
 DEFAULT_PROFILE = MODERATE

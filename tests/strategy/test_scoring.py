@@ -103,8 +103,11 @@ def test_the_moderate_profile_does_not_override_the_configured_volume_floor():
 def test_volume_floors_still_rank_by_profile_caution():
     volumes = [P.PROFILES[n].liquidity.min_daily_volume for n in
                ("ultra_conservative", "conservative", "moderate",
-                "aggressive", "ultra_aggressive")]
+                "moderate_short", "aggressive", "ultra_aggressive")]
     assert volumes == sorted(volumes, reverse=True)
+    # Every profile, not a list someone remembered to extend. `moderate_short` was
+    # added later and would have sat outside this rule entirely.
+    assert len(volumes) == len(P.PROFILES)
 
 
 def test_the_conservative_profiles_do_not_sell_condors():
@@ -325,3 +328,53 @@ def test_pop_cannot_see_the_wing_width_and_does_not_pretend_to():
         "this is the confident wrong answer the strategy layer exists to prevent "
         "reaching; if it ever returns None on its own, the note above is stale"
     )
+
+
+class TestModerateShortProfile:
+    """The short-window profile, and what it deliberately does *not* change.
+
+    It exists because the DTE band and the risk posture were welded together. Going
+    faster than 21 DTE meant switching to `aggressive`, which also widens the short
+    delta band from 0.20-0.45 to 0.30-0.55, drops the liquidity floors and raises the
+    sizing cap — three risk increases riding along with the one that was wanted.
+
+    So this profile holds every selection rule at moderate's setting and moves the
+    window alone. That is not a claim it carries identical risk: a 10 DTE spread at the
+    same delta has more gamma than a 45 DTE one, and it will lose faster when it loses.
+    What is held constant is how a candidate is *chosen*, not what it does afterwards.
+    """
+
+    def test_it_selects_exactly_as_moderate_does(self):
+        short, moderate = P.MODERATE_SHORT, P.MODERATE
+        assert short.short_delta_min == moderate.short_delta_min
+        assert short.short_delta_max == moderate.short_delta_max
+        assert short.liquidity == moderate.liquidity
+        assert short.weights == moderate.weights
+        assert short.position_sizing_cap_pct == moderate.position_sizing_cap_pct
+        assert short.structures == moderate.structures
+
+    def test_only_the_window_moves(self):
+        assert (P.MODERATE_SHORT.min_dte, P.MODERATE_SHORT.max_dte) == (7, 21)
+        assert (P.MODERATE.min_dte, P.MODERATE.max_dte) == (21, 60)
+
+    def test_it_stays_clear_of_the_zero_dte_hole(self):
+        """Alpaca returns no greeks at same-day expiry, so the delta and vega gates
+        fail closed there. The floor keeps the profile out of that band by
+        construction rather than by the operator remembering to."""
+        assert P.MODERATE_SHORT.min_dte >= 1
+
+    def test_it_is_reachable_by_name(self):
+        assert P.get("moderate_short") is P.MODERATE_SHORT
+        assert P.from_env({"RISK_PROFILE": "moderate_short"}).name == "moderate_short"
+
+    def test_a_request_outside_the_band_is_clamped_into_it(self):
+        # The 45-day default would otherwise sail past a short profile's ceiling.
+        assert P.MODERATE_SHORT.target_dte(45) == 21
+        assert P.MODERATE_SHORT.target_dte(1) == 7
+        assert P.MODERATE_SHORT.target_dte(14) == 14
+
+    def test_it_cannot_loosen_a_gate_either(self):
+        """Same rule as every other profile: strictest wins. A short profile asking
+        for 7 DTE against a MIN_DTE of 10 gets 10."""
+        limits = Limits(min_dte=10)
+        assert P.EffectiveFloor.compose(P.MODERATE_SHORT, limits).min_dte == 10

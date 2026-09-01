@@ -141,3 +141,20 @@ def test_no_region_imports_the_old_flat_paths():
             if module.startswith("halstreet.agent.") :
                 stale.append(f"{path.name} -> {module}")
     assert not stale, f"imports that no longer exist: {stale}"
+
+
+def test_the_target_dte_comes_from_the_config_when_no_flag_says_otherwise():
+    """`--dte` follows $TARGET_DTE, the way --universe follows $UNIVERSE.
+
+    Without this the window was the one operational setting that could only be changed
+    by editing a launcher, and `start.sh` does not pass it. A profile with a short band
+    would then be driven by the 45 baked into the parser and silently clamped to its
+    ceiling — the right answer by accident, and only ever the ceiling.
+    """
+    from halstreet.agent.run import target_dte_from
+
+    assert target_dte_from(0, {"TARGET_DTE": "14"}) == 14
+    # The flag still wins, because a flag is somebody typing it just now.
+    assert target_dte_from(30, {"TARGET_DTE": "14"}) == 30
+    # And with neither, the long-standing default.
+    assert target_dte_from(0, {}) == 45

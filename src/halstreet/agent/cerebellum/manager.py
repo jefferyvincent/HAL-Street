@@ -11,7 +11,7 @@ concentration cap. Every one of those is a reason to be *more* able to close, no
 less. The gates guard entries only; this module has no gate at all, and
 `agent.breaker` is never consulted here.
 
-Three exit conditions, in the order they are checked:
+Four exit conditions, in the order they are checked:
 
 1. **Expiry.** Non-negotiable, and it fires first. A short leg carried into expiry
    week is an assignment problem rather than a pricing one, and Alpaca returns no
@@ -22,6 +22,11 @@ Three exit conditions, in the order they are checked:
    least recoverable part of it.
 3. **Profit target.** Taking most of the move beats waiting for all of it, because
    the last portion of max gain is bought with the most time and the most risk.
+4. **The overnight sweep.** Last, and a veto rather than a reason of its own: near the
+   session close, a position that has not earned the hold is flattened. It is checked
+   last precisely so a position at its target is reported as having hit its target —
+   the journal is what the results are computed from, and it must name the rule that
+   took the money. See `_overnight_veto` for the three things that end a hold.
 
 Every threshold is a percentage of the structure's own max gain or max loss, not a
 dollar figure — a $41-risk condor and an $820-risk condor should be managed the same
@@ -103,6 +108,7 @@ class Action(str, Enum):
     TAKE_PROFIT = "take_profit"
     STOP_LOSS = "stop_loss"
     CLOSE_BEFORE_EXPIRY = "close_before_expiry"
+    FLATTEN_OVERNIGHT = "flatten_overnight"
     UNKNOWN = "unknown"
 
 
@@ -143,6 +149,33 @@ class ExitPolicy:
     #: protect $8 while paying $15 to do it is not protection.
     giveback_pct: Decimal | None = None
 
+    #: Scalping's one guard rail: a profit target must be worth at least this many
+    #: round trips. `None` disables it and nothing changes.
+    #:
+    #: Taking profit sooner is what makes a scalp a scalp, and it is also how a
+    #: strategy pays its edge away without noticing. Friction here is $7.50 a leg, so a
+    #: two-leg spread costs $15 to open and close and a condor $30. A 10% target on a
+    #: $200 credit asks for $20 — a trade that reports as a win and settles for $5, and
+    #: three of those in a session are worse than one loss because nobody looks at them.
+    #:
+    #: It raises the target rather than refusing the trade. The position is simply held
+    #: a little longer, which is the only thing that actually fixes the arithmetic.
+    scalp_friction_multiple: Decimal | None = None
+
+    #: Flatten anything that has not earned its overnight hold, this many minutes
+    #: before the session close. `None` disables the sweep entirely.
+    #:
+    #: The competition is scored on P&L over a window, and the overnight gap is the one
+    #: risk a defined-risk structure cannot bound: the gates size every position against
+    #: a max loss that assumes an orderly market, and a gap does not open in one.
+    #:
+    #: It is not a nightly flatten, because that arithmetic loses. At $7.50 a leg,
+    #: closing a spread tonight and reopening tomorrow costs $15 against roughly $3.50
+    #: of decay, so a mechanical sweep pays four days of theta for one night of
+    #: comfort. What this closes is the positions that have given no reason to be
+    #: carried — see `_overnight_veto` for the three that count.
+    flatten_before_close_min: int | None = None
+
     @classmethod
     def from_env(cls, source: dict[str, str] | None = None) -> ExitPolicy:
         src = os.environ if source is None else source
@@ -159,15 +192,22 @@ class ExitPolicy:
             raw = (src.get(key) or "").strip()
             return Decimal(raw) if raw else None
 
+        def opt_int(key: str) -> int | None:
+            raw = (src.get(key) or "").strip()
+            return int(raw) if raw else None
+
         return cls(
             take_profit_usd=opt("TAKE_PROFIT_USD"),
             giveback_pct=opt("GIVEBACK_PCT"),
             take_profit_pct=dec("TAKE_PROFIT_PCT", cls.take_profit_pct),
             stop_loss_pct=dec("STOP_LOSS_PCT", cls.stop_loss_pct),
             force_close_dte=integer("FORCE_CLOSE_DTE", cls.force_close_dte),
+            scalp_friction_multiple=opt("SCALP_FRICTION_MULTIPLE"),
+            flatten_before_close_min=opt_int("FLATTEN_BEFORE_CLOSE_MIN"),
         )
 
-    def profit_target_usd(self, max_gain_usd: Decimal) -> Decimal:
+    def profit_target_usd(self, max_gain_usd: Decimal, *,
+                          legs: int | None = None, qty: int = 1) -> Decimal:
         """What this position is being held for, in dollars.
 
         Three cases and the order is the whole rule:
@@ -179,11 +219,24 @@ class ExitPolicy:
           not a ceiling over it: on a structure big enough that half its max gain is
           already more than the figure, settling for the figure would be the same
           mistake in the other direction.
+
+        `scalp_friction_multiple` then puts a second floor under the result, for the
+        same reason and with the same shape — see the field. It needs `legs` because
+        friction is charged per leg per contract; a caller that does not know the leg
+        count gets the unfloored answer rather than a guessed one, which is why the
+        chart passes it through from the ledger rather than assuming four.
         """
         pct = max_gain_usd * self.take_profit_pct / 100
-        if self.take_profit_usd is None or self.take_profit_usd > max_gain_usd:
-            return pct
-        return max(pct, self.take_profit_usd)
+        target = pct
+        if self.take_profit_usd is not None and self.take_profit_usd <= max_gain_usd:
+            target = max(pct, self.take_profit_usd)
+
+        if self.scalp_friction_multiple is None or legs is None:
+            return target
+        floor = round_trip_cost(legs, qty) * self.scalp_friction_multiple
+        # Never above what the structure can make: a floor nothing can clear holds the
+        # position to expiry, which is the opposite of what a scalp setting is for.
+        return max(target, floor) if floor <= max_gain_usd else target
 
     def sanity_check(self, max_gain_usd: Decimal | None, *, legs: int = 4,
                      qty: int = 1) -> str | None:
@@ -273,20 +326,61 @@ def _giveback(structure: OpenStructure, policy: ExitPolicy,
             "made rather than watching it become nothing")
 
 
-def _target_note(policy: ExitPolicy, max_gain_usd: Decimal) -> str:
+def _overnight_veto(unrealized: Decimal, event: bool | None) -> str | None:
+    """Why this position may not be carried through the close, or None if it may.
+
+    Three vetoes, and the third is the one worth arguing about.
+
+    A **losing** position is not positive data. The gap is the risk being avoided, and
+    a trade already going the wrong way is the worst thing to hand to it — closing
+    costs the round trip, which is the price of not finding out.
+
+    A **scheduled event** before the next session is the case where the overnight move
+    is not a tail at all but the expected outcome. Nothing in a delta or a spread width
+    prices an earnings print.
+
+    A calendar that **could not be read** flattens too, which is the same fail-closed
+    rule every gate follows: not knowing whether there is an event tonight is not the
+    same as knowing there is none, and only one of those is safe to hold through. This
+    is the branch that would quietly become "assume it is quiet" if `None` were ever
+    folded into `False`.
+    """
+    if unrealized < 0:
+        return (f"down ${-unrealized:,.2f} into the close — a position going the wrong "
+                "way is not data that it is worth the overnight gap")
+    if event is None:
+        return ("the events calendar could not be read, so an event before the next "
+                "session cannot be ruled out — not knowing is not the same as knowing "
+                "there is nothing")
+    if event:
+        return ("a scheduled event before the next session — an overnight print is not "
+                "a tail this structure's width was priced for")
+    return None
+
+
+def _target_note(policy: ExitPolicy, max_gain_usd: Decimal, *,
+                 legs: int | None = None, qty: int = 1) -> str:
     """Which rule set the target this position was closed on.
 
     Named rather than assumed: a reason that says "target 50%" while a dollar floor did
     the closing is a diagnostic stating something false, which Constitution VII does not
-    allow whether or not anyone would have noticed.
+    allow whether or not anyone would have noticed. The friction floor is a third rule
+    that can set it, and it says so — "target $30 (2x round trip)" is the difference
+    between a reader understanding the exit and guessing at it.
     """
-    target = policy.profit_target_usd(max_gain_usd)
+    target = policy.profit_target_usd(max_gain_usd, legs=legs, qty=qty)
+    if legs is not None and policy.scalp_friction_multiple is not None:
+        floor = round_trip_cost(legs, qty) * policy.scalp_friction_multiple
+        if target == floor:
+            return (f"target ${floor:,.2f}, "
+                    f"{policy.scalp_friction_multiple:g}x the round trip")
     if policy.take_profit_usd is not None and target == policy.take_profit_usd:
         return f"target ${policy.take_profit_usd:,.2f}"
     return f"target {policy.take_profit_pct:g}%"
 
 
-def exit_levels(entry_price: Decimal, policy: ExitPolicy, *, qty: int = 1) -> Levels:
+def exit_levels(entry_price: Decimal, policy: ExitPolicy, *, qty: int = 1,
+                legs: int | None = None) -> Levels:
     """The marks at which this policy would close a structure opened at `entry_price`.
 
     Derived from the same inequalities `evaluate_exit` applies:
@@ -332,10 +426,16 @@ def exit_levels(entry_price: Decimal, policy: ExitPolicy, *, qty: int = 1) -> Le
         and does not move when you trade ten instead of one; a dollar target is reached
         ten times sooner, so the line sits nearer the entry.
         """
-        if policy.take_profit_usd is None or qty <= 0:
+        # Both rules that can raise the target off the percentage have to be asked,
+        # not just the dollar one. This early-out read `take_profit_usd is None` while
+        # that was the only such rule; the friction floor is a second, and a level
+        # function that did not know about it would draw a line the exit does not act
+        # on — which is the failure this whole conversion exists to prevent.
+        floored = policy.scalp_friction_multiple is not None and legs is not None
+        if (policy.take_profit_usd is None and not floored) or qty <= 0:
             return pct_target
         max_gain = abs(entry_price) * CONTRACT_MULTIPLIER * qty
-        target = policy.profit_target_usd(max_gain)
+        target = policy.profit_target_usd(max_gain, legs=legs, qty=qty)
         return entry_price + target / (CONTRACT_MULTIPLIER * qty)
 
     if credit:
@@ -433,6 +533,56 @@ def mark_legs(structure: OpenStructure, chain: dict[str, dict]) -> list[LegMark]
     ]
 
 
+@dataclass(frozen=True)
+class StructureGreeks:
+    """Net delta and vega for one held structure, and which legs could not answer.
+
+    Shaped like `Mark`, and for the same reason: an incomplete reading is reported as
+    incomplete rather than as a smaller number. A net that quietly dropped a leg with
+    no greeks would describe a position the account is not carrying.
+    """
+
+    delta: Decimal
+    vega: Decimal
+    missing: tuple[str, ...]
+
+    @property
+    def complete(self) -> bool:
+        return not self.missing
+
+
+def structure_greeks(structure: OpenStructure, chain: dict[str, dict]) -> StructureGreeks:
+    """What this one structure is doing to the book's delta and vega.
+
+    `portfolio_greek_bounds` answers the book-level version of this question and is the
+    one that can reject a trade; this is the per-position view the panel draws, and it
+    deliberately uses the gate's units so a reader is never converting between two
+    conventions on one screen. **Delta is share-equivalents** — signed contracts times
+    the multiplier — because that is the number that says what the position does when
+    the tape moves a dollar. **Vega is per contract**, unmultiplied, because it is
+    already quoted per point of implied volatility.
+
+    Fails closed on a missing greek, exactly as the gate does. Alpaca omits them where
+    inverting Black-Scholes is ill-conditioned, and entirely at 0DTE.
+    """
+    delta = Decimal(0)
+    vega = Decimal(0)
+    missing: list[str] = []
+
+    for symbol, signed in structure.legs.items():
+        greeks = (chain.get(symbol) or {}).get("greeks")
+        d = _dec((greeks or {}).get("delta"))
+        v = _dec((greeks or {}).get("vega"))
+        if d is None or v is None:
+            missing.append(symbol)
+            continue
+        contracts = Decimal(signed * structure.qty)
+        delta += d * contracts * CONTRACT_MULTIPLIER
+        vega += v * contracts
+
+    return StructureGreeks(delta=delta, vega=vega, missing=tuple(missing))
+
+
 def mark_structure(structure: OpenStructure, chain: dict[str, dict]) -> Mark:
     """Current net mark for an open structure, using leg mids.
 
@@ -469,9 +619,16 @@ class ExitDecision:
 
     @property
     def should_close(self) -> bool:
-        return self.action in (
-            Action.TAKE_PROFIT, Action.STOP_LOSS, Action.CLOSE_BEFORE_EXPIRY
-        )
+        """Whether the loop turns this decision into a closing order.
+
+        Written as "everything except the two that are not instructions" rather than as
+        a list of the ones that are. The list version was silently wrong the day
+        `FLATTEN_OVERNIGHT` was added: the decision was journalled, read as a rule that
+        had fired, and the position was still on the book in the morning. A new action
+        now has to be argued *into* the holding set instead of being forgotten out of
+        the closing one.
+        """
+        return self.action not in (Action.HOLD, Action.UNKNOWN)
 
     def __str__(self) -> str:
         pnl = "" if self.unrealized_usd is None else f" (${self.unrealized_usd:+,.2f})"
@@ -479,8 +636,17 @@ class ExitDecision:
 
 
 def evaluate_exit(structure: OpenStructure, chain: dict[str, dict], policy: ExitPolicy,
-                  *, asof: date | None = None) -> ExitDecision:
-    """Decide what to do with one open structure."""
+                  *, asof: date | None = None,
+                  minutes_to_close: float | None = None,
+                  event_before_next_session: bool | None = None) -> ExitDecision:
+    """Decide what to do with one open structure.
+
+    Pure, and the two overnight arguments are why they are arguments: the minutes come
+    from the *broker's* clock and the event flag from the calendar, both of which are
+    I/O this function must not do. `minutes_to_close=None` means nobody asked the
+    clock, and the sweep then never arms — a flatten decided against a guess about what
+    time it is would be worse than no flatten at all.
+    """
     today = asof or clock.today()
     dte = structure.dte(today)
 
@@ -551,14 +717,16 @@ def evaluate_exit(structure: OpenStructure, chain: dict[str, dict], policy: Exit
 
     if entry_credit > 0:
         # Credit structure: max gain is the credit taken.
-        target = policy.profit_target_usd(entry_credit)
+        target = policy.profit_target_usd(entry_credit, legs=len(structure.legs),
+                                          qty=structure.qty)
         stop = entry_credit * policy.stop_loss_pct / 100
         if unrealized >= target:
+            note = _target_note(policy, entry_credit, legs=len(structure.legs),
+                                qty=structure.qty)
             return ExitDecision(
                 structure, Action.TAKE_PROFIT,
                 f"captured ${unrealized:,.2f} of the ${entry_credit:,.2f} credit "
-                f"({unrealized / entry_credit * 100:.0f}%, "
-                f"{_target_note(policy, entry_credit)})",
+                f"({unrealized / entry_credit * 100:.0f}%, {note})",
                 unrealized, mark.value,
             )
         if unrealized <= -stop:
@@ -572,12 +740,14 @@ def evaluate_exit(structure: OpenStructure, chain: dict[str, dict], policy: Exit
         # Debit structure: the premium paid is the whole risk.
         paid = structure.entry_price * CONTRACT_MULTIPLIER * structure.qty
         if paid > 0:
-            if unrealized >= policy.profit_target_usd(paid):
+            if unrealized >= policy.profit_target_usd(
+                    paid, legs=len(structure.legs), qty=structure.qty):
+                note = _target_note(policy, paid, legs=len(structure.legs),
+                                    qty=structure.qty)
                 return ExitDecision(
                     structure, Action.TAKE_PROFIT,
                     f"up ${unrealized:,.2f} on ${paid:,.2f} paid "
-                    f"({unrealized / paid * 100:.0f}%, "
-                    f"{_target_note(policy, paid)})",
+                    f"({unrealized / paid * 100:.0f}%, {note})",
                     unrealized, mark.value,
                 )
             if unrealized <= -paid * policy.stop_loss_pct / 100:
@@ -587,6 +757,22 @@ def evaluate_exit(structure: OpenStructure, chain: dict[str, dict], policy: Exit
                     f"({-unrealized / paid * 100:.0f}%, stop {policy.stop_loss_pct:g}%)",
                     unrealized, mark.value,
                 )
+
+    # Last, deliberately. Every rule above closes for a reason of its own, and a
+    # position at its target that got reported as an overnight flatten would name the
+    # wrong rule for the money in the journal the results are computed from.
+    if (policy.flatten_before_close_min is not None and minutes_to_close is not None
+            and minutes_to_close <= policy.flatten_before_close_min):
+        veto = _overnight_veto(unrealized, event_before_next_session)
+        if veto is not None:
+            return ExitDecision(structure, Action.FLATTEN_OVERNIGHT, veto,
+                                unrealized, mark.value)
+        return ExitDecision(
+            structure, Action.HOLD,
+            f"held through the close: {dte} DTE, up ${unrealized:,.2f}, no scheduled "
+            "event before the next session",
+            unrealized, mark.value,
+        )
 
     return ExitDecision(
         structure, Action.HOLD,
@@ -623,8 +809,19 @@ def closing_order(structure: OpenStructure) -> Structure:
 
 
 def review(ledger: Ledger, chain: dict[str, dict], policy: ExitPolicy,
-           *, asof: date | None = None) -> list[ExitDecision]:
-    """Every open structure, judged."""
+           *, asof: date | None = None, minutes_to_close: float | None = None,
+           events_by_underlying: dict[str, bool | None] | None = None) -> list[ExitDecision]:
+    """Every open structure, judged.
+
+    One clock reading covers the whole book — the session closes once — while the
+    events answer is per name, so it arrives keyed by underlying. A name absent from
+    the mapping is one the calendar did not answer for, which `.get` returns as `None`
+    and the veto treats as unknown: the fail-closed default falls out of the lookup
+    rather than depending on every caller remembering to fill the map.
+    """
+    events = events_by_underlying or {}
     return [
-        evaluate_exit(s, chain, policy, asof=asof) for s in ledger.open_structures
+        evaluate_exit(s, chain, policy, asof=asof, minutes_to_close=minutes_to_close,
+                      event_before_next_session=events.get(s.underlying))
+        for s in ledger.open_structures
     ]

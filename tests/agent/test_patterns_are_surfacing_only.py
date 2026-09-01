@@ -76,16 +76,27 @@ def test_the_scorer_has_no_pattern_term():
 
 
 def test_the_exit_decision_reads_only_arithmetic():
-    """`evaluate_exit` takes a structure, a chain and a policy. Nothing else.
+    """`evaluate_exit` takes a structure, a chain, a policy, and two measured facts.
 
-    If a pattern is ever to influence an exit it has to arrive through this
-    signature, so pinning the signature is the cheapest way to notice.
+    If a pattern is ever to influence an exit it has to arrive through this signature,
+    so pinning it exhaustively is the cheapest way to notice. It has been widened once,
+    deliberately, and what was added is the test of whether the rule still holds:
+
+    * `minutes_to_close` — a reading off the *broker's* `get_clock`, which is a number
+      about the exchange's session rather than an opinion about the trade.
+    * `event_before_next_session` — the earnings calendar's answer for this underlying,
+      three-valued so an unreadable calendar cannot pass as a quiet one.
+
+    Both are deterministic facts the caller measured, neither is a read of price
+    action, and neither can carry a pattern, a model's view or a chart shape. That is
+    the line this test defends; the count of parameters was only ever a proxy for it.
     """
     import inspect
 
     from halstreet.agent.cerebellum.manager import evaluate_exit
     params = set(inspect.signature(evaluate_exit).parameters)
-    assert params == {"structure", "chain", "policy", "asof"}
+    assert params == {"structure", "chain", "policy", "asof",
+                      "minutes_to_close", "event_before_next_session"}
 
 
 def test_patterns_reach_the_journal_and_the_panel_and_stop_there():

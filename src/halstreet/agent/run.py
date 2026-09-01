@@ -87,6 +87,31 @@ def resolve_paths(args: argparse.Namespace) -> argparse.Namespace:
     return args
 
 
+#: The window when nobody has said otherwise. Long-standing, and deliberately not a
+#: profile's business — a profile clamps the request into its own band, which is a
+#: different question from what to ask for in the first place.
+DEFAULT_TARGET_DTE = 45
+
+
+def target_dte_from(flag: int, source: dict[str, str] | None = None) -> int:
+    """Target days to expiry: the flag, then `$TARGET_DTE`, then the default.
+
+    Same sentinel shape as `--universe` and `--discovery-limit`: argparse cannot read
+    the environment, because `load_env` runs after the parser is built. `0` means the
+    caller said nothing.
+
+    It matters more than it looks. `start.sh` passes no `--dte`, so before this the
+    window was the one operational setting that could not be configured — a short
+    profile would be handed the 45 baked into the parser and clamped to its own
+    ceiling, which is the right answer by accident and only ever the ceiling.
+    """
+    src = os.environ if source is None else source
+    if flag:
+        return flag
+    raw = (src.get("TARGET_DTE") or "").strip()
+    return int(raw) if raw else DEFAULT_TARGET_DTE
+
+
 async def main_async(args: argparse.Namespace) -> int:
     resolve_paths(args)
     try:
@@ -136,6 +161,7 @@ async def main_async(args: argparse.Namespace) -> int:
                 else universe_from_env())
     discovery_limit = args.discovery_limit or int(
         os.environ.get("DISCOVERY_LIMIT") or discovery.DEFAULT_SHORTLIST)
+    target_dte = target_dte_from(args.dte)
 
     # Tri-state on purpose: the flag is None unless the caller said something, so an
     # explicit --committee/--no-committee beats $COMMITTEE and silence defers to it.
@@ -143,7 +169,7 @@ async def main_async(args: argparse.Namespace) -> int:
     # what the environment turned on, which is the one thing the flag is now for.
     use_committee = committee_mod.resolve(args.committee)
     agent = Agent(client, writer, limits=limits, journal=journal, ledger=ledger,
-                  policy=policy, dry_run=dry_run, target_dte=args.dte,
+                  policy=policy, dry_run=dry_run, target_dte=target_dte,
                   profile=profile, breaker=breaker,
                   committee=committee_mod.Committee.from_env() if use_committee else None)
 
@@ -296,7 +322,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--discovery-limit", type=int, default=0,
                    help="names to scan per pass when the universe is auto; "
                         "defaults to $DISCOVERY_LIMIT")
-    p.add_argument("--dte", type=int, default=45, help="target days to expiry")
+    p.add_argument("--dte", type=int, default=0,
+                   help="target days to expiry; defaults to $TARGET_DTE, then "
+                        f"{DEFAULT_TARGET_DTE}")
     p.add_argument("--profile", default="", choices=["", *sorted(P.PROFILES)],
                    help="risk profile; defaults to $RISK_PROFILE, then moderate")
     # default=None so `resolve_paths` below can tell "unset" from "set to the dev

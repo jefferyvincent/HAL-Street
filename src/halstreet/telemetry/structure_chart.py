@@ -248,7 +248,7 @@ def build(structure: OpenStructure, bars: dict[str, list[dict]],
     entry_legs = structure.entry_legs or {}
     exit_legs = structure.exit_legs or {}
     entry = structure.entry_price
-    levels = (exit_levels(entry, policy, qty=structure.qty)
+    levels = (exit_levels(entry, policy, qty=structure.qty, legs=len(structure.legs))
               if entry is not None else None)
 
     return {
