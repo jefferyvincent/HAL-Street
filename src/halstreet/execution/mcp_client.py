@@ -109,7 +109,21 @@ def resolve_command(command: str) -> str:
 
 _CALL_TIMEOUT = 60.0
 _DEFAULT_COMMAND = "uvx"
-_DEFAULT_ARGS = ("alpaca-mcp-server",)
+
+#: How the broker subprocess is launched, and why it carries a version pin.
+#:
+#: `uvx` resolves the server's dependencies at every launch, so upstream can break
+#: this project without a commit landing in it — and did. alpaca-mcp-server 2.3.0
+#: declares `fastmcp>=3.1.0` with no upper bound; fastmcp 4.0.0 moved
+#: `fastmcp.tools.tool`, and the server started dying at import with
+#: `ModuleNotFoundError`. That reaches the agent as `MCPError: Connection closed` on
+#: *every* call, `get_clock` included, so the scheduler read it as "market state
+#: unknown", waited 30 minutes, and repeated — an agent that looks alive and is not.
+#:
+#: Pinned here rather than in `.env` because a default that only works if someone
+#: edited their config is not a default. `ALPACA_MCP_ARGS` still overrides the whole
+#: line, which is the escape hatch for a checkout or a newer server.
+_DEFAULT_ARGS = ("--with", "fastmcp<4", "alpaca-mcp-server")
 
 # Tool names read off a live server via list_tools, not from the repo's toolsets.py.
 # That file lists OpenAPI operationIds (getAccount, OptionChain, get-options-contracts)

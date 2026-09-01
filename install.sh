@@ -83,6 +83,24 @@ venv_ok() {
   return 0
 }
 
+# uv, found before anything below can destroy it.
+#
+# It is the fallback when this Python cannot produce a venv with pip in it — Debian
+# and Ubuntu split that into a separate package, and `python3 -m venv` then succeeds
+# and quietly omits pip. That is not a hypothetical: a distro upgrade to 3.13 left
+# this repo with a venv pointing at a 3.12 that no longer existed, and re-running the
+# installer dead-ended on "no pip" with nothing to do about it but apt-get.
+#
+# uv needs no pip, fetches its own interpreter if the system one will not do, and is
+# already a hard dependency of this project — the MCP server runs as `uvx
+# alpaca-mcp-server`. So the only awkwardness is bootstrapping it, which is why the
+# copy inside the venv is rescued before the rebuild rather than after.
+UV="$(command -v uv 2>/dev/null || true)"
+if [ -z "$UV" ] && [ -x .venv/bin/uv ]; then
+  UV="$(mktemp -d)/uv"
+  cp .venv/bin/uv "$UV"
+fi
+
 VENV_WHY="cannot run"
 if [ ! -e .venv/bin/python ]; then
   say "Creating .venv"
@@ -129,18 +147,43 @@ else
   "$PY" -m venv .venv
 fi
 
+# How packages get installed from here on. `uv pip` when pip itself is unavailable,
+# which is the whole point of the rescue above.
+UV_MODE=0
+pip_install() {
+  if [ "$UV_MODE" = "1" ]; then
+    VIRTUAL_ENV="$PWD/.venv" "$UV" pip install --quiet "$@"
+  else
+    .venv/bin/python -m pip install --quiet "$@"
+  fi
+}
+
 if ! .venv/bin/python -m pip --version >/dev/null 2>&1; then
-  warn "The virtualenv has no pip, and rebuilding did not give it one."
-  warn "Debian and Ubuntu ship that separately:"
-  warn "    sudo apt-get install -y python${PYMM}-venv python3-pip"
-  warn "Then delete .venv and run ./install.sh again."
-  exit 1
+  if [ -n "$UV" ]; then
+    say "This Python builds a venv without pip — using uv instead"
+    rm -rf .venv
+    "$UV" venv --python "$PYMM" .venv || {
+      warn "uv could not build a virtualenv for Python $PYMM."
+      exit 1
+    }
+    UV_MODE=1
+    ok "$("$UV" --version) built .venv"
+  else
+    warn "The virtualenv has no pip, and rebuilding did not give it one."
+    warn "Debian and Ubuntu ship that separately:"
+    warn "    sudo apt-get install -y python${PYMM}-venv python3-pip"
+    warn "Or install uv, which needs neither and is a dependency anyway:"
+    warn "    curl -LsSf https://astral.sh/uv/install.sh | sh"
+    warn "Then re-run ./install.sh."
+    exit 1
+  fi
+else
+  .venv/bin/python -m pip install --quiet --upgrade pip
 fi
-.venv/bin/python -m pip install --quiet --upgrade pip
 
 # --- 3. The package and its dev tools ----------------------------------------
 say "Installing halstreet (editable) + dev tools"
-.venv/bin/pip install --quiet -e ".[dev]"
+pip_install -e ".[dev]"
 ok "pydantic, httpx, mcp, python-dotenv, structlog, pandas, numpy, pytest, ruff, mypy"
 
 # --- 4. uv, for the Alpaca MCP server ----------------------------------------
@@ -149,11 +192,14 @@ ok "pydantic, httpx, mcp, python-dotenv, structlog, pandas, numpy, pytest, ruff,
 # dependency, not a convenience. Installed into the venv rather than the system so
 # this repo stays self-contained — which is why start.sh puts .venv/bin on PATH.
 say "Installing uv (runs the Alpaca MCP server)"
-.venv/bin/pip install --quiet uv
+pip_install uv
 ok "$(.venv/bin/uv --version)"
 
+# The pin matches mcp_client.py's _DEFAULT_ARGS, and warming the cache without it
+# would cache the environment that crashes: alpaca-mcp-server allows fastmcp>=3.1.0
+# unbounded, and 4.x moved a module the server imports at start-up.
 say "Pre-fetching alpaca-mcp-server so the first run isn't a download"
-if PATH="$PWD/.venv/bin:$PATH" timeout 300 .venv/bin/uvx alpaca-mcp-server --help >/dev/null 2>&1; then
+if PATH="$PWD/.venv/bin:$PATH" timeout 300 .venv/bin/uvx --with 'fastmcp<4' alpaca-mcp-server --help >/dev/null 2>&1; then
   ok "alpaca-mcp-server cached"
 else
   # --help may exit non-zero depending on the server's CLI; the fetch still warms
