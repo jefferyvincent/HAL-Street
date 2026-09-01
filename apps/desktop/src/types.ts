@@ -637,6 +637,15 @@ export interface Marks {
      * the net fill and the leg mids sum to the net mark.
      */
     legs?: LegMark[];
+    /**
+     * This structure's own net delta and vega, in the gates' units — delta in
+     * share-equivalents, vega per contract.
+     *
+     * `missing` instead of the figures when a leg carried no greeks: Alpaca omits them
+     * deep in or out of the money and entirely at 0DTE, and a net that dropped that
+     * leg would report a flatter position than the account is holding.
+     */
+    greeks?: { delta?: string; vega?: string; missing?: string[] };
   }>;
   as_of: string;
   error?: string;

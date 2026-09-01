@@ -224,7 +224,30 @@
     "realizedTag": "realized",
     "livePriceLine": "LIVE",
     "legAwaiting": "awaiting fill",
-    "legBasisUnknown": "—"
+    "legBasisUnknown": "—",
+    "progress": "TOWARD EXIT",
+    "towardTarget": "toward the target",
+    "towardStop": "toward the stop",
+    "towardNeither": "at the price it opened for",
+    "progressPct": "{{pct}}% {{toward}}",
+    "progressBeyond": "past it — the exit has not run yet",
+    "greeks": "NET GREEKS",
+    "netDelta": "delta {{value}}",
+    "netVega": "vega {{value}}",
+    "greeksMissing": "no greeks for {{count}} leg(s) — this position cannot be risk-assessed, so nothing is netted",
+    "greeksNote": "share-equivalents for delta, per contract for vega — the same units the portfolio gate bounds"
+  },
+  "payoff": {
+    "title": "AT EXPIRY",
+    "maxGain": "MAX GAIN",
+    "maxLoss": "MAX LOSS",
+    "breakeven": "BREAKEVEN",
+    "breakevens": "BREAKEVENS",
+    "unbounded": "unbounded",
+    "spot": "spot {{price}}",
+    "noEntry": "No payoff to draw: this structure's entry price was never recorded, and the curve is measured from it.",
+    "unreadable": "No payoff to draw: a leg here is not a contract symbol this panel can read, and a strike it cannot place is a bend it would have to invent.",
+    "note": "Arithmetic over the legs — no quote, no broker call — so it is exact, and it is drawable on a day the chain will not load. It says what this position can do at expiry, not what it is worth now."
   },
   "committee": {
     "title": "COMMITTEE",

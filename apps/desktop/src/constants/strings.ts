@@ -555,6 +555,34 @@ export function makeStrings(t: Translate) {
       realizedTag: t("chart.realizedTag"),
       stopUnreachable: t("chart.stopUnreachable"),
       unreachableNote: t("chart.unreachableNote"),
+      progress: t("chart.progress"),
+      towardTarget: t("chart.towardTarget"),
+      towardStop: t("chart.towardStop"),
+      towardNeither: t("chart.towardNeither"),
+      progressPct: (pct: number, toward: string) => t("chart.progressPct", { pct, toward }),
+      // Said rather than shown by a longer bar: the bar is clamped, and a reader who
+      // cannot see past its end would otherwise read "100%" as "the exit fired".
+      progressBeyond: t("chart.progressBeyond"),
+      greeks: t("chart.greeks"),
+      netDelta: (value: string) => t("chart.netDelta", { value }),
+      netVega: (value: string) => t("chart.netVega", { value }),
+      greeksMissing: (count: number) => t("chart.greeksMissing", { count }),
+      greeksNote: t("chart.greeksNote"),
+    },
+
+    payoff: {
+      title: t("payoff.title"),
+      maxGain: t("payoff.maxGain"),
+      maxLoss: t("payoff.maxLoss"),
+      breakeven: t("payoff.breakeven"),
+      breakevens: t("payoff.breakevens"),
+      // What stands in for a figure on a wing that never turns. Words rather than a
+      // dash: a dash reads as "not measured", and this is measured — it has no end.
+      unbounded: t("payoff.unbounded"),
+      spot: (price: string) => t("payoff.spot", { price }),
+      noEntry: t("payoff.noEntry"),
+      unreadable: t("payoff.unreadable"),
+      note: t("payoff.note"),
     },
 
     tape: {

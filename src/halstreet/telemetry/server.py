@@ -47,6 +47,7 @@ from halstreet.agent.cerebellum.manager import (
     ExitPolicy,
     mark_legs,
     mark_structure,
+    structure_greeks,
 )
 from halstreet.agent.hippocampus.ledger import Ledger
 from halstreet.gates import ALL_GATES
@@ -283,6 +284,25 @@ def _age(ts: Any) -> float | None:
         return None
 
 
+#: What each exit action is called on the activity feed.
+#:
+#: The feed is prose and an enum value is not. `flatten_overnight` reached the screen
+#: verbatim the day the sweep was added, because the line interpolated the action
+#: straight in — every other event kind here is a sentence.
+#:
+#: An unrecognised value falls through to itself rather than to a blank: a journal
+#: read back from an older build can carry an action this one has never heard of, and
+#: the raw token is worth more than a line that reads as though no check ran.
+_EXIT_WORDS = {
+    "hold": "holding",
+    "take_profit": "taking profit",
+    "stop_loss": "stopped out",
+    "close_before_expiry": "closing before expiry",
+    "flatten_overnight": "flattening before the close",
+    "unknown": "could not tell",
+}
+
+
 def _activity_line(event: dict) -> str:
     """One short phrase for what happened. No prices — this is a pulse, not a record."""
     kind = event.get("event")
@@ -312,7 +332,8 @@ def _activity_line(event: dict) -> str:
         verb = "closing" if event.get("intent") == "close" else "opening"
         return f"{verb} order {'submitted' if event.get('submitted') else 'not sent'}"
     if kind == "exit_decision":
-        return f"exit check: {event.get('action')}"
+        action = str(event.get("action"))
+        return f"exit check: {_EXIT_WORDS.get(action, action)}"
     if kind == "halt":
         return f"HALTED — {event.get('reason') or event.get('detail') or ''}"
     if kind == "error":
@@ -598,6 +619,23 @@ def _pattern_read(structure: Any, by_underlying: dict[str, list[dict]]) -> dict:
         "against": against,
         "confirming": confirming,
     }
+
+
+def _greeks_view(structure: Any, chain: dict[str, dict]) -> dict | None:
+    """This structure's net delta and vega, or None when a leg could not answer.
+
+    None rather than a partial sum, and the panel renders that as "could not tell"
+    rather than as zero exposure — a book that reads flat because a greek was missing
+    is the one reading that would stop somebody looking.
+
+    Units are the gate's: delta in share-equivalents, vega per contract. Both come
+    from `structure_greeks`, which is also what keeps this route from growing its own
+    idea of what a net delta is.
+    """
+    greeks = structure_greeks(structure, chain)
+    if not greeks.complete:
+        return {"missing": list(greeks.missing[:4])}
+    return {"delta": greeks.delta, "vega": greeks.vega}
 
 
 def _legs_view(structure: Any, chain: dict[str, dict]) -> list[dict]:
@@ -1602,7 +1640,8 @@ async def api_marks() -> JSONResponse:
         if structure.entry_price is not None:
             unrealized = mark_pnl(structure, mark.value)
         out[structure.structure_id] = {"mark": mark.value,
-                                       "unrealized_usd": unrealized, "legs": legs}
+                                       "unrealized_usd": unrealized, "legs": legs,
+                                       "greeks": _greeks_view(structure, chain)}
     return JSONResponse(_plain({"marks": out, "as_of": _now()}))
 
 

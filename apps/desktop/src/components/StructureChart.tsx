@@ -1,6 +1,7 @@
 import { cn } from "@/lib/cn";
 import { CLS } from "@/constants/theme";
 import { LegTable } from "@/components/LegTable";
+import { PayoffChart } from "@/components/PayoffChart";
 import { Ticker } from "@/components/Ticker";
 import { Trend } from "@/components/Trend";
 import { Note } from "@/components/Icon";
@@ -49,6 +50,31 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
         <Level tile={view.pnlTile} lead={<Trend value={view.pnl} size={10} />} />
       </div>
 
+      {/* How far along this trade is, under the levels it is measured against. A bar
+          rather than a fourth figure: the three above are prices, and "62% of the way
+          to the target" is a different kind of fact that reads badly as one more. */}
+      {view.progress && (
+        <div className="mb-3 border border-line bg-void px-[10px] py-[9px]">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="font-mono text-[8.5px] font-bold leading-none tracking-[.08em] text-ink/40">
+              {t.chart.progress}
+            </span>
+            <span className="font-mono text-[9.5px] leading-none text-ink/60 tabular-nums">
+              {view.progress.label}
+            </span>
+          </div>
+          <div className="mt-[7px] h-[4px] w-full bg-line">
+            <div className={cn("h-full", view.progress.tone)}
+                 style={{ width: view.progress.width }} />
+          </div>
+          {view.progress.note && (
+            <div className="mt-[5px] font-mono text-[9px] leading-none text-amber/70">
+              {view.progress.note}
+            </div>
+          )}
+        </div>
+      )}
+
       {view.drawable ? (
         <div ref={view.host} className="h-[320px] w-full border border-line bg-panel" />
       ) : (
@@ -96,7 +122,24 @@ export function StructureChart({ chart, error }: { chart: Chart; error: string |
         ))}
       </div>
 
+      {/* What this position does to the book when the tape moves, in the units the
+          portfolio gate bounds. A missing greek is said, never netted to zero. */}
+      {view.greeks && (
+        <div className="mt-2 flex flex-wrap items-baseline gap-x-3 gap-y-1 font-mono text-[9.5px] leading-[1.4]">
+          <span className="font-bold tracking-[.08em] text-ink/40">{t.chart.greeks}</span>
+          {view.greeks.figures?.map((figure) => (
+            <span key={figure} className="text-ink/70 tabular-nums">{figure}</span>
+          ))}
+          {view.greeks.missing && <span className="text-amber/80">{view.greeks.missing}</span>}
+          <span className="text-ink/30">{t.chart.greeksNote}</span>
+        </div>
+      )}
+
       <LegTable chart={chart} live={view.live} />
+
+      {/* What the position can do, under what it has done. Same legs, same entry
+          price, no second source — so the two pictures cannot disagree. */}
+      <PayoffChart chart={chart} />
 
       <div className="mt-2 font-mono text-[9.5px] leading-[1.4] text-ink/35">
         {view.footer.opened}

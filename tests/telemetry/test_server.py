@@ -548,3 +548,38 @@ def test_the_hashed_assets_are_cached_forever():
         response = client.get(f"/assets/{name}")
     assert response.status_code == 200, Path(name)
     assert "immutable" in response.headers.get("cache-control", "")
+
+
+class TestExitDecisionsReadAsEnglish:
+    """The activity feed is prose, and an enum value is not prose.
+
+    `flatten_overnight` reached the screen verbatim the day the overnight sweep was
+    added, because the line interpolated `action` straight in. Every other event kind
+    on this feed is a sentence; this one was leaking an identifier, and the identifier
+    is the half a reader has to translate.
+    """
+
+    def _line(self, action: str) -> str:
+        from halstreet.telemetry.server import _activity_line
+        return _activity_line({"event": "exit_decision", "action": action})
+
+    def test_each_action_gets_words(self):
+        assert self._line("hold") == "exit check: holding"
+        assert self._line("take_profit") == "exit check: taking profit"
+        assert self._line("stop_loss") == "exit check: stopped out"
+        assert self._line("close_before_expiry") == "exit check: closing before expiry"
+        assert self._line("flatten_overnight") == "exit check: flattening before the close"
+        assert self._line("unknown") == "exit check: could not tell"
+
+    def test_every_action_the_manager_can_emit_has_a_phrase(self):
+        """Pinned against the enum, so an action added later cannot reach the screen
+        as an identifier again — which is exactly how this one did."""
+        from halstreet.agent.cerebellum.manager import Action
+        for action in Action:
+            assert "_" not in self._line(action.value), action
+
+    def test_an_action_nobody_recognises_still_says_something(self):
+        """A journal read back from an older build can carry a value this one has
+        never heard of. Better the raw token than an empty line that reads as though
+        no exit check ran."""
+        assert self._line("rolled") == "exit check: rolled"

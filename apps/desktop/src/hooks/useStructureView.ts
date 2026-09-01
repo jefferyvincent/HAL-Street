@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 
+import { exitProgress } from "@/lib/exitProgress";
 import { stripRoot } from "@/lib/names";
 import { useFormat } from "@/hooks/useFormat";
 import { useMarks } from "@/hooks/useMarks";
@@ -96,6 +97,47 @@ export function useStructureView(chart: StructureChart) {
         tone: pnl === null ? "text-ink/40" : tone,
       } as Tile,
       pnl,
+      // How far this position has come from its entry, and which way. The three level
+      // tiles say where the boundaries are; none of them says whether the trade is
+      // nearly over, which is the thing a person opening this screen wants first.
+      progress: (() => {
+        const p = exitProgress({
+          entry: chart.levels ? Number(chart.levels.entry) : null,
+          target: chart.levels ? Number(chart.levels.target) : null,
+          stop: chart.levels ? Number(chart.levels.stop) : null,
+          now: now === null ? null : Number(now),
+        });
+        if (!p) return null;
+        const toward = p.toward === "target" ? t.chart.towardTarget
+          : p.toward === "stop" ? t.chart.towardStop
+          : t.chart.towardNeither;
+        return {
+          pct: p.pct,
+          // The bar's own width, decided here so the markup does no arithmetic.
+          width: `${p.pct}%`,
+          label: p.toward === "neither" ? toward : t.chart.progressPct(p.pct, toward),
+          note: p.beyond ? t.chart.progressBeyond : null,
+          // Green toward the target, red toward the stop — the same pairing the level
+          // tiles above already use, so the eye reads one language on this screen.
+          tone: p.toward === "target" ? "bg-pass" : p.toward === "stop" ? "bg-fail" : "bg-ink/30",
+        };
+      })(),
+      // Net delta and vega for this position alone. Three states, not two: figures,
+      // "a leg has no greeks", or nothing at all before the marks route has answered.
+      // The middle one is the one that matters — Alpaca omits greeks deep in or out of
+      // the money and at 0DTE, and a flat-looking net is exactly the reading that
+      // would stop somebody looking.
+      greeks: !live?.greeks
+        ? null
+        : live.greeks.missing?.length
+          ? { missing: t.chart.greeksMissing(live.greeks.missing.length), figures: null }
+          : {
+              missing: null,
+              figures: [
+                t.chart.netDelta(f.signed(live.greeks.delta ?? null, 0)),
+                t.chart.netVega(f.signed(live.greeks.vega ?? null, 2)),
+              ],
+            },
       offscreen,
       forming: candles.some((c) => c.forming),
       // Offered from what the server actually serves, so the panel cannot drift from
