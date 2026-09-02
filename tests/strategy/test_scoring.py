@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import pytest
+
 from halstreet.gates.base import Limits
 from halstreet.strategy import bias, pop, scoring
 from halstreet.strategy import profiles as P
@@ -378,3 +380,33 @@ class TestModerateShortProfile:
         for 7 DTE against a MIN_DTE of 10 gets 10."""
         limits = Limits(min_dte=10)
         assert P.EffectiveFloor.compose(P.MODERATE_SHORT, limits).min_dte == 10
+
+
+# --- choosing which structures get built ---------------------------------------------
+
+def test_the_structure_set_can_be_overridden_from_the_environment():
+    """Added with the long verticals. Every shipped profile is credit-only, and the
+    alternative to this was a parallel set of profiles differing in one field."""
+    p = P.from_env({"RISK_PROFILE": "moderate",
+                    "STRUCTURES": "put_credit_spread,call_debit_spread"})
+    assert p.structures == ("put_credit_spread", "call_debit_spread")
+    assert p.builds(P.CALL_DEBIT) and not p.builds(P.IRON_CONDOR)
+
+
+def test_an_unset_override_leaves_the_profile_alone():
+    assert P.from_env({"RISK_PROFILE": "moderate"}).structures == P.MODERATE.structures
+
+
+def test_a_misspelled_structure_refuses_to_start():
+    """The one field where a typo produces an empty menu rather than an error: every
+    builder is skipped, `generate` returns nothing, and the cycle reports "no
+    candidates" as though the chain were thin."""
+    with pytest.raises(ValueError, match="unknown structure"):
+        P.from_env({"STRUCTURES": "put_credit_sprad"})
+
+
+def test_an_override_that_names_nothing_refuses_too():
+    """Blank disables the override; a list of separators is a config that meant to say
+    something and did not, and it would silently stop the agent trading at all."""
+    with pytest.raises(ValueError, match="names no structures"):
+        P.from_env({"STRUCTURES": " , ,"})

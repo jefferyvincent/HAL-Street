@@ -285,6 +285,83 @@ def credit_spread(quotes: list[Quote], right: Right, short_delta: Decimal,
     )
 
 
+def debit_spread(quotes: list[Quote], right: Right, long_delta: Decimal,
+                 width_steps: int, dte: int, *,
+                 spot: Decimal | None = None) -> Candidate | None:
+    """A long vertical: buy near the money, sell further out to cap the cost.
+
+    The mirror of `credit_spread`, and the half of the menu that was missing. Every
+    profile built credit structures only, so a bullish read could be expressed exactly
+    one way — by selling puts — and in a regime where realized volatility runs above
+    implied, that has negative expectancy by construction. The agent spent 2026-09-02
+    correctly declining every candidate it could build and unable to build the one the
+    conditions called for.
+
+    Two things invert against the credit builder and both are easy to get backwards:
+
+    The **leg chosen by delta is the long one**, near the money, because that is where
+    the directional exposure is bought. The short leg is the further-out neighbour and
+    exists only to pay for part of it.
+
+    The **direction that means "further out" is unchanged** — higher strikes for calls,
+    lower for puts — because it is a fact about the chain rather than about the trade.
+    Flipping it here builds a credit spread wearing a debit spread's name.
+
+    Priced against us on both legs, the same convention as everywhere else: buy at the
+    ask, sell at the bid.
+    """
+    long_ = _by_delta(quotes, right, long_delta)
+    if long_ is None:
+        return None
+    direction = 1 if right is Right.CALL else -1
+    short = _neighbour(quotes, long_, direction * width_steps)
+    if short is None or short.contract.strike == long_.contract.strike:
+        return None
+
+    debit = long_.ask - short.bid
+    if debit <= 0:
+        return None
+    width = abs(short.contract.strike - long_.contract.strike)
+    max_gain = (width - debit) * CONTRACT_MULTIPLIER
+    # A debit above the width can never profit: its best outcome is a smaller loss.
+    if max_gain <= 0:
+        return None
+
+    kind = P.CALL_DEBIT if right is Right.CALL else P.PUT_DEBIT
+    worst, oi, vol, slip = _stats([long_, short])
+    prob = _debit_pop(kind, long_, debit, dte, spot)
+    return Candidate(
+        name=f"{long_.contract.root} {long_.contract.expiry} "
+             f"{long_.contract.strike:g}/{short.contract.strike:g} "
+             f"{'call' if right is Right.CALL else 'put'} debit spread",
+        kind=kind,
+        legs=[_leg(long_, "buy"), _leg(short, "sell")],
+        net=debit,
+        # The whole of it, and no more. This is the property that makes a long vertical
+        # holdable through a gap the short structures cannot be held through.
+        max_loss_usd=debit * CONTRACT_MULTIPLIER,
+        max_gain_usd=max_gain,
+        dte=dte,
+        short_delta=abs(short.delta) if short.delta is not None else None,
+        worst_spread_pct=worst,
+        min_open_interest=oi,
+        min_volume=vol,
+        slippage_usd=slip,
+        pop=prob,
+        quotes=((long_, "buy"), (short, "sell")),
+    )
+
+
+def _debit_pop(kind: str, long_: Quote, debit: Decimal, dte: int,
+               spot: Decimal | None) -> float | None:
+    """POP for a debit vertical, or None when spot or IV is missing."""
+    if spot is None or long_.iv is None or long_.iv <= 0:
+        return None
+    fn = pop_math.debit_call_spread if kind == P.CALL_DEBIT else pop_math.debit_put_spread
+    return fn(float(spot), float(long_.contract.strike), float(debit), dte,
+              float(long_.iv))
+
+
 def _spread_pop(kind: str, short: Quote, credit: Decimal, dte: int,
                 spot: Decimal | None) -> float | None:
     """POP for a credit vertical, or None when spot or IV is missing."""
@@ -475,6 +552,43 @@ def generate(chain: dict[str, dict], *, spot: Decimal | None = None,
 #: nobody asked for; the DTE floor and the profile's band still bound where it can go.
 MAX_EXPIRIES_TRIED = 3
 
+#: Deltas to buy a long vertical at — at the money and a little either side.
+#:
+#: Not the profile's `short_deltas`. Those say where to *sell*, out at 0.20-0.45, and
+#: buying an option that far out of the money is a lottery ticket rather than a
+#: directional position: it needs a large move just to be worth what was paid for it.
+LONG_DELTAS = (Decimal("0.45"), Decimal("0.55"), Decimal("0.65"))
+
+
+#: How many times the round trip a structure's best case has to be worth.
+#:
+#: The live failure: a one-strike-wide SPY spread at qty 3 carried $54 of max gain
+#: against $45 of round-trip crossing. Every gate passed it and the scenario's EV was
+#: positive, because friction *is* deducted honestly and the number still cleared —
+#: barely. What nothing caught was that the trade had to be right before it could pay
+#: for having been placed.
+#:
+#: Three is judgement rather than arithmetic. Two leaves nothing for being wrong about
+#: the fill; five refuses most of a normal chain.
+MIN_EDGE_OVER_FRICTION = 3
+
+
+def clears_friction(candidate: Candidate) -> bool:
+    """Whether the best case is worth more than crossing the spread twice.
+
+    `slippage_usd` is the one-way cost of entering. The position has to be closed as
+    well, so the round trip is twice that — a floor that counts one crossing is half a
+    floor, and it was the half that let the thin structures through.
+
+    A candidate that cannot price its own friction is kept. Unknown is not zero and it
+    is not disqualifying either: the liquidity gates already refuse a leg nobody can
+    quote, and this rule is about the ones that can be quoted and still are not worth
+    crossing.
+    """
+    if candidate.slippage_usd is None or candidate.max_gain_usd is None:
+        return True
+    return candidate.max_gain_usd >= candidate.slippage_usd * 2 * MIN_EDGE_OVER_FRICTION
+
 
 def _menu_for(chain: dict[str, dict], expiry: date, *, spot: Decimal | None, dte: int,
               profile: P.Profile, floor: P.EffectiveFloor, ctx: scoring.Context,
@@ -496,6 +610,18 @@ def _menu_for(chain: dict[str, dict], expiry: date, *, spot: Decimal | None, dte
             if profile.builds(P.IRON_CONDOR) and (
                     c := iron_condor(quotes, delta, steps, dte, spot=spot)) is not None:
                 out.append(c)
+            # The long verticals. Built off their own delta band rather than the
+            # profile's short deltas: the leg chosen by delta here is the one being
+            # bought, and buying a 0.20-delta option is a lottery ticket rather than a
+            # directional position.
+            for right in (Right.CALL, Right.PUT):
+                kind = P.CALL_DEBIT if right is Right.CALL else P.PUT_DEBIT
+                if not profile.builds(kind):
+                    continue
+                for long_delta in LONG_DELTAS:
+                    if (c := debit_spread(quotes, right, long_delta, steps, dte,
+                                          spot=spot)) is not None:
+                        out.append(c)
 
     seen: set[tuple] = set()
     unique: list[Candidate] = []
@@ -504,7 +630,7 @@ def _menu_for(chain: dict[str, dict], expiry: date, *, spot: Decimal | None, dte
         if key in seen:
             continue
         seen.add(key)
-        if not viable(c) or not tradeable(c, floor):
+        if not viable(c) or not tradeable(c, floor) or not clears_friction(c):
             continue
         c.breakdown = score(c, ctx)
         c.score = scoring.as_decimal(c.breakdown.total)

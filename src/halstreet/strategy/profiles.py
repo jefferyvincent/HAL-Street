@@ -31,6 +31,7 @@ gate it is supposed to anticipate.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -40,16 +41,26 @@ from decimal import Decimal
 PUT_CREDIT = "put_credit_spread"
 CALL_CREDIT = "call_credit_spread"
 IRON_CONDOR = "iron_condor"
+PUT_DEBIT = "put_debit_spread"
+CALL_DEBIT = "call_debit_spread"
 
 VERTICALS = (PUT_CREDIT, CALL_CREDIT)
+DEBIT_VERTICALS = (PUT_DEBIT, CALL_DEBIT)
 VERTICALS_AND_CONDORS = (PUT_CREDIT, CALL_CREDIT, IRON_CONDOR)
+#: Everything, for a profile that wants to trade both sides of volatility.
+#:
+#: The credit-only whitelists are the reason the agent could not act on a
+#: bullish read except by selling puts — and could not act at all in a regime
+#: where realized vol runs above implied, which is precisely when a long
+#: vertical is the trade.
+ALL_STRUCTURES = (PUT_CREDIT, CALL_CREDIT, IRON_CONDOR, PUT_DEBIT, CALL_DEBIT)
 
 # All three are net-credit structures, so every profile prefers a high-volatility
 # tape. The distinction the vendor drew between credit- and debit-preferred
 # strategies collapses here — kept as a set rather than inlined so that adding a
 # debit structure later restores the distinction instead of silently mis-scoring it.
 CREDIT_STRUCTURES = frozenset(VERTICALS_AND_CONDORS)
-DEBIT_STRUCTURES: frozenset[str] = frozenset()
+DEBIT_STRUCTURES: frozenset[str] = frozenset(DEBIT_VERTICALS)
 
 
 @dataclass(frozen=True)
@@ -270,7 +281,20 @@ def from_env(source: dict[str, str] | None = None) -> Profile:
     """
     src = os.environ if source is None else source
     raw = (src.get("RISK_PROFILE") or "").strip()
-    return DEFAULT_PROFILE if not raw else get(raw)
+    profile = DEFAULT_PROFILE if not raw else get(raw)
+
+    # Every shipped profile is credit-only, which is the shape the agent had before the
+    # long verticals existed. Rather than a parallel set of profiles differing in one
+    # field, the set is overridable directly — a profile is a risk posture, and which
+    # structures express it is a separate choice.
+    kinds = (src.get("STRUCTURES") or "").strip()
+    if not kinds:
+        return profile
+    named = tuple(k.strip() for k in kinds.split(",") if k.strip())
+    if not named:
+        raise ValueError("STRUCTURES names no structures; leave it blank to use the "
+                         "profile's own set")
+    return replace_structures(profile, named)
 
 
 @dataclass(frozen=True)
@@ -346,3 +370,17 @@ class EffectiveFloor:
             clamped=clamped,
             tightened=tightened,
         )
+
+
+def replace_structures(profile: Profile, structures: tuple[str, ...]) -> Profile:
+    """The same profile, building a different set of structures.
+
+    A named function rather than `dataclasses.replace` at the call sites, because the
+    whitelist is the one field where a typo produces an empty menu instead of an error
+    — every builder is skipped, `generate` returns nothing, and the cycle reports
+    "no candidates" as though the chain were thin.
+    """
+    unknown = set(structures) - set(ALL_STRUCTURES)
+    if unknown:
+        raise ValueError(f"unknown structure kind(s): {sorted(unknown)}")
+    return dataclasses.replace(profile, structures=tuple(structures))

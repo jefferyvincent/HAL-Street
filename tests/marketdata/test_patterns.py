@@ -160,6 +160,11 @@ def test_the_journal_line_names_patterns_without_prices():
     ("long put", {P760: 1}, E.BEARISH),
     ("long straddle", {C780: 1, P760: 1}, E.NEUTRAL),
     ("nothing parseable", {"NOT-AN-OCC-SYMBOL": 1}, E.UNKNOWN),
+    # The long verticals, added 2026-09-02. The short-leg rule got both backwards: a
+    # call debit spread is short a call and is bullish, and the panel would have put
+    # "WANTS SPY DOWN" on a position wanting exactly the opposite.
+    ("call debit spread", {C780: 1, C785: -1}, E.BULLISH),
+    ("put debit spread", {P760: 1, P755: -1}, E.BEARISH),
 ])
 def test_exposure_is_a_property_of_the_structure_not_of_a_leg(name, legs, want):
     """HAL's version reads one leg, because HAL holds one instrument.

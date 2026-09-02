@@ -17,14 +17,15 @@ naive per-leg reading gets all three of them wrong:
     wants price to go nowhere, which is not an answer any per-leg rule can produce
     because it is a property of the combination.
 
-So exposure is derived from the *short* legs, which is where the risk actually
-sits in a credit structure, and from their position relative to spot. A short put
-below the money profits from price staying up; a short call above it profits from
-price staying down; both at once is a range bet.
+So exposure is derived from the **strikes**, one right at a time: within a right,
+the long leg at the lower strike is bullish, and two rights pointing opposite ways
+is a range bet.
 
-Long (debit) structures invert, and they are handled even though no profile builds
-one today — that is a fact about the current profiles, not about this function,
-and the same assumption is what made HAL's per-leg version wrong here.
+That rule replaced one that read the short leg. Reading the short leg is correct
+for every credit structure and exactly wrong for a debit one — a call debit spread
+is short a call and is bullish — and when the long verticals arrived on
+2026-09-02 it had both of them backwards. The strike rule covers all four
+verticals and does not care how the structure was paid for.
 """
 
 from __future__ import annotations
@@ -56,29 +57,56 @@ def exposure_of(legs: dict[str, int], *, spot: Decimal | None = None) -> str:
     if not rights:
         return UNKNOWN
 
-    # Presence of a short leg, not the net. Netting is the trap: a put credit spread
-    # is short one put and long another, so its *net* puts are zero and a net-based
-    # reading calls a plainly bullish position directionless. The short leg is where
-    # the risk is and where the direction is.
-    short_puts = any(qty < 0 for c, qty in rights if c.right is Right.PUT)
-    short_calls = any(qty < 0 for c, qty in rights if c.right is Right.CALL)
-    if short_puts and short_calls:
+    # Read one right at a time, then combine. Netting across the whole structure is
+    # the trap: a put credit spread is short one put and long another, so its *net*
+    # puts are zero and a net-based reading calls a plainly bullish position
+    # directionless.
+    sides = {side for right in (Right.PUT, Right.CALL)
+             if (side := _side_of(rights, right)) is not None}
+    if not sides:
+        return UNKNOWN
+    if len(sides) > 1:
+        # A condor, a straddle, a strangle: two rights pointing opposite ways. The
+        # structure wants neither, which is not an answer any single-leg rule produces.
         return NEUTRAL
-    if short_puts:
-        return BULLISH
-    if short_calls:
-        return BEARISH
+    return sides.pop()
 
-    # Nothing short: a debit structure, where the long legs carry the direction.
-    long_calls = any(qty > 0 for c, qty in rights if c.right is Right.CALL)
-    long_puts = any(qty > 0 for c, qty in rights if c.right is Right.PUT)
-    if long_calls and long_puts:
-        return NEUTRAL          # a straddle or strangle; no directional opinion
-    if long_calls:
-        return BULLISH
-    if long_puts:
-        return BEARISH
-    return UNKNOWN
+
+def _side_of(rights: list[tuple], right: Right) -> str | None:
+    """Which way this structure's legs in one right lean. `None` if it holds none.
+
+    **The long leg at the lower strike is bullish.** One rule for all four verticals,
+    and it falls out of what a vertical is rather than out of how it was paid for.
+
+    The earlier rule read the *short* leg, on the reasoning that a credit structure
+    carries its risk there. That was true of every structure this agent could build,
+    and exactly wrong for the two it gained on 2026-09-02: a call debit spread is short
+    a call and is bullish, and reading the short leg put "WANTS SPY DOWN" on a position
+    wanting the opposite — which turns every confirming pattern into a warning and
+    teaches a reader to stop believing the badge.
+
+    A bare leg has no other strike to compare against, so it falls back to what a
+    single option means: long a call or short a put is bullish, and the mirror bearish.
+
+    Both legs at one strike is not a vertical. Whatever it is, no direction can be read
+    off it, and inventing one is worse than admitting it.
+    """
+    legs = [(c.strike, qty) for c, qty in rights if c.right is right]
+    if not legs:
+        return None
+
+    longs = [strike for strike, qty in legs if qty > 0]
+    shorts = [strike for strike, qty in legs if qty < 0]
+    if longs and shorts:
+        low_long, low_short = min(longs), min(shorts)
+        if low_long == low_short:
+            return None
+        return BULLISH if low_long < low_short else BEARISH
+
+    # A bare leg, or several on one side only.
+    if longs:
+        return BULLISH if right is Right.CALL else BEARISH
+    return BEARISH if right is Right.CALL else BULLISH
 
 
 def agrees(exposure: str, side: str) -> bool | None:

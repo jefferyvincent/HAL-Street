@@ -69,6 +69,12 @@ STRUCTURE_BIAS: dict[str, str] = {
     P.PUT_CREDIT: BULLISH,     # short puts below the money — wants up, or sideways
     P.CALL_CREDIT: BEARISH,    # short calls above the money — wants down, or sideways
     P.IRON_CONDOR: NEUTRAL,    # wants neither, and pays for the privilege
+    # The long verticals, and the pairing is the part worth reading twice: a long CALL
+    # vertical is bullish, and the credit structure that wants the same thing is the
+    # PUT credit spread. Matching them by right rather than by direction is how a menu
+    # ends up scored against the opposite of the read that built it.
+    P.CALL_DEBIT: BULLISH,     # long the near call, short the far one — wants up
+    P.PUT_DEBIT: BEARISH,      # long the near put, short the far one — wants down
 }
 
 EVENT_NONE = "none"
