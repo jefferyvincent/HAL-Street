@@ -25,12 +25,18 @@ from decimal import Decimal, InvalidOperation
 
 #: Dollars per million tokens, as (input, output).
 #:
-#: Only what is sourced. Opus 5 is documented at $5/$25 per MTok; the analyst tier's
-#: price is not in anything this project can cite, so it is absent rather than
-#: approximated — and the console shows its tokens under "unpriced" until someone
-#: fills it in, which is a visible gap rather than a silent understatement.
+#: Only what is sourced. Both tiers the committee uses are documented per MTok: Opus 5
+#: at $5/$25 as the judge, Sonnet 5 at $2/$10 as the analysts.
+#:
+#: The analyst price was absent for the first week, on the reasoning that an
+#: approximated number is worse than a visible gap. That was right about approximating
+#: and wrong about the size of the gap: 432 of the first 648 recorded calls were Sonnet,
+#: so two thirds of the spend by call count reported as unknown and the total read as a
+#: fraction of itself. `cost` was never the problem — it returns None rather than zero,
+#: exactly as intended — the table was simply missing a number.
 PRICES: dict[str, tuple[Decimal, Decimal]] = {
     "claude-opus-5": (Decimal(5), Decimal(25)),
+    "claude-sonnet-5": (Decimal(2), Decimal(10)),
 }
 
 #: A million. Prices are quoted per MTok and usage is counted in tokens.

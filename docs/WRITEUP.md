@@ -359,22 +359,35 @@ section as markdown straight from the journal. The numbers a judge reads first a
 ones most likely to be wrong if a human retypes them from a scrolled terminal, so the
 only line below written by hand is the last one.
 
-*Rehearsal figures from the dev paper account on 2026-08-26 — replaced by the judged
-window's output before submission:*
+*Rehearsal figures from the dev paper account — replaced by the judged window's output
+before submission:*
 
-- **Window traded:** 2026-08-26 (dev account rehearsal)
-- **Proposals / passes:** 30 proposed, 15 passed (45 model turns). A pass is a
+- **Window traded:** 2026-08-26 to 2026-09-02 (dev account rehearsal)
+- **Proposals / passes:** 45 proposed, 224 passed (269 model turns). A pass is a
   considered decline, not a failure — it is counted separately for that reason.
-- **Gate outcomes:** 30 approved, 0 rejected
-- **Rejections by gate:** none. Not evidence the gates are inert — candidates are
-  pre-filtered against the same limits before the model sees them, so the strategy
-  layer absorbs most of what would otherwise be rejected.
-- **Orders submitted:** 2
-- **Positions:** 1 closed, 0 open — 0W / 1L
-- **Realized P&L:** $-9.00 · **Unrealized:** $0.00 · **Total:** $-9.00
-- **Equity:** $89,826.79 → $89,817.69
-- **Max drawdown:** $9.10 (0.01%) over 60 scan samples — scan resolution, not tick
+- **Gate outcomes:** 42 approved, 3 rejected
+- **Rejections by gate:** `correlated-exposure` 2, `portfolio-greek-bounds` 1
+- **Agent runs in this window:** 46. The figures cover all of them. A restart
+  mid-window is ordinary; two agents running at once is not, and this is where that
+  would show.
+- **Orders submitted:** 15
+- **Positions:** 7 closed, 0 open — 1W / 5L
+- **Realized P&L:** $-65.00 · **Unrealized:** $0.00 · **Total:** $-65.00
+- **Equity:** $89,826.79 → $89,759.34
+- **Max drawdown:** $173.56 (0.19%) over 318 scan samples — scan resolution, not tick
   resolution
+- **What went wrong and what I'd change:** six of the seven closed trades were call
+  credit spreads, and every loss is the same trade — short calls into an up-move. That
+  is not variance at 224 declines and 15 orders; it is the menu. Every risk profile
+  built credit structures only, so a bullish read had exactly one expression, and the
+  agent's own judge said so on 2026-09-02: *"the correct expression would be a
+  long-delta debit structure, which was not on the menu."* Compounding it, realized
+  volatility ran above implied on every name scanned that session, which is precisely
+  the condition under which selling premium has negative expectancy — so the gates
+  correctly declined everything and the agent could do nothing else all day. Long
+  verticals are now on the menu and a friction floor prices out the structures whose
+  edge the spread would have eaten. Both are shipped and neither is yet proven on a
+  session, which is the honest state of it.
 
 **That figure was $-10.00 until the soak harness explained why.** The ledger held two
 *limits* — -1.59 in and 1.69 out — because an order is `pending_new` when it is

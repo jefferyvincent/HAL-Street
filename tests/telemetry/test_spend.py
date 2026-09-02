@@ -201,7 +201,7 @@ def test_only_sourced_prices_ship(monkeypatch):
     anything this project can cite, so it is absent rather than approximated — a
     visible gap beats a silent understatement."""
     monkeypatch.delenv("LLM_PRICES", raising=False)
-    assert pricing.from_env() == {"claude-opus-5": (Decimal(5), Decimal(25))}
+    assert pricing.from_env() == pricing.PRICES
 
 
 def test_the_environment_can_add_a_price(monkeypatch):
@@ -226,7 +226,7 @@ def test_a_malformed_price_is_ignored_rather_than_fatal(monkeypatch, raw):
     """A typo in an environment variable must not stop the agent reporting, and an
     unpriced model is already a state the console renders."""
     monkeypatch.setenv("LLM_PRICES", raw)
-    assert pricing.from_env() == {"claude-opus-5": (Decimal(5), Decimal(25))}
+    assert pricing.from_env() == pricing.PRICES
 
 
 def test_a_model_with_no_price_costs_none():
@@ -246,3 +246,27 @@ def test_the_cost_is_exact_rather_than_floating():
     got = pricing.cost("m", tokens_in=3_000_000, tokens_out=0, table=table)
     assert got == Decimal("0.3")
     assert isinstance(got, Decimal)
+
+
+def test_the_analyst_tier_is_priced():
+    """432 of the 648 model calls in the first week's journal were Sonnet 5, and the
+    price table knew only Opus — so two thirds of the calls by count reported an
+    unknown cost and the spend figure was a fraction of the real one.
+
+    Not a bug in `cost`, which correctly returns None rather than zero for an unpriced
+    model. The table was simply missing a number nobody had sourced yet."""
+    from halstreet.telemetry.pricing import PRICES
+    assert PRICES["claude-sonnet-5"] == (Decimal(2), Decimal(10))
+    assert PRICES["claude-opus-5"] == (Decimal(5), Decimal(25))
+
+
+def test_every_model_the_journal_names_can_be_priced():
+    """The property that matters, rather than the two names that happen to be in it
+    today. A tier added to the committee without a price silently shrinks the reported
+    spend, and the shrink is invisible — it looks like a cheaper week."""
+    from halstreet.agent.cortex.committee import ANALYST_MODEL
+    from halstreet.agent.cortex.llm import DEFAULT_MODEL
+    from halstreet.telemetry.pricing import from_env
+    table = from_env()
+    for model in {DEFAULT_MODEL, ANALYST_MODEL}:
+        assert model in table, f"{model} is used but has no price"
