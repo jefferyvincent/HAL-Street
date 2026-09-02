@@ -530,6 +530,15 @@ class Agent:
 
         Nothing in `gates/` is consulted. Exits are never gated.
         """
+        # Fills first, and before the empty-book guard. `refresh_fills` is about
+        # *closed* structures as much as open ones, and this guard used to sit above
+        # it: the moment the last position closed, the only code that would ever fetch
+        # its exit price became unreachable. On 2026-09-02 the sweep closed the whole
+        # book at 15:45, both orders filled within the minute, and every tick after
+        # that returned here — so the day reported +$50 realized when it had lost $125.
+        await self.refresh_fills()
+        await self.refresh_leg_fills()
+
         open_structures = self.ledger.open_structures
         if not open_structures:
             return []
@@ -542,13 +551,6 @@ class Agent:
             self.journal.error("exit_quotes", str(exc))
             chain = {}
 
-        # Real fill prices first: the exit thresholds below are percentages of the
-        # entry price, so they must be measured from what we actually paid.
-        await self.refresh_fills()
-        # After it, and separately: `refresh_fills` returns a count of corrected
-        # prices and callers read it as one, so a backfill that changes no price must
-        # not be added to it.
-        await self.refresh_leg_fills()
         minutes, events = await self._overnight_facts(open_structures)
         decisions = review(self.ledger, chain, self.policy, asof=clock.today(),
                            minutes_to_close=minutes, events_by_underlying=events)

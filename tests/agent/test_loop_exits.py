@@ -671,3 +671,35 @@ def test_a_new_cycle_forces_a_fresh_reading(tmp_path, journal):
     agent.forget_clock()
     asyncio.run(agent.sweep_if_due())
     assert client.clock_calls == 2
+
+
+def test_the_between_scan_job_records_fills_it_is_still_waiting_on(tmp_path, journal):
+    """The gap that cost a day's P&L on 2026-09-02.
+
+    The sweep submitted two closing orders at 15:45, they filled within the minute, and
+    no cycle ran again before the close — so `refresh_fills`, which lives at the top of
+    a cycle, never fetched them. Both structures were marked closed with no exit price
+    and no realized figure, and the report showed +$50 on a day that lost $125.
+
+    The orders were the last thing the agent did. Anything submitted in the flatten
+    window is, by construction, and a confirmation that only arrives on the next cycle
+    is a confirmation that never arrives.
+    """
+    from halstreet.execution.structures import vertical
+    led = Ledger(path=tmp_path / "rf.json")
+    led.record_open(vertical("Oct spread", P755, P760), "SPY",
+                    structure_id="x1", entry_price=Decimal("-1.85"))
+    led.record_fill("x1", Decimal("-1.85"))
+    led.record_close("x1", Decimal("2.23"), exit_order_id="exit-1")
+
+    class _Filled(_Orders):
+        async def get_order(self, order_id):
+            return {"id": order_id, "status": "filled", "filled_qty": "1",
+                    "filled_avg_price": "2.23"}
+
+    agent = agent_for(_Filled({}), led, journal, dry_run=True)
+    assert Ledger.load(str(led.path)).open_structures == [], "the book is empty"
+    asyncio.run(agent.manage_exits())
+    closed = Ledger.load(str(led.path)).structures[0]
+    assert closed.exit_filled is True
+    assert closed.realized() == Decimal("-38.00")
