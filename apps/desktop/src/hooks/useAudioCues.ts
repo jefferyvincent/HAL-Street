@@ -2,6 +2,8 @@ import { useEffect, useRef } from "react";
 import { CUE_GAP_MS } from "@/constants/theme";
 import { type Watched, decide, watch } from "@/lib/cues";
 import { CUES, ready, unlock } from "@/lib/sounds";
+import { soundLabel } from "@/lib/soundLabel";
+import { useStrings } from "@/hooks/useStrings";
 import { useUI } from "@/stores/ui";
 import type { Snapshot } from "@/types";
 
@@ -75,7 +77,7 @@ export function useAudioUnlock(): void {
   useEffect(() => {
     if (ready()) return;
     const arm = () => {
-      if (!useUI.getState().muted) void unlock();
+      if (!useUI.getState().muted) void armAudio();
     };
     const events: (keyof DocumentEventMap)[] = ["pointerdown", "keydown", "touchstart"];
     for (const name of events) document.addEventListener(name, arm, { once: true });
@@ -86,13 +88,33 @@ export function useAudioUnlock(): void {
 }
 
 
+/**
+ * Unlock the context and record whether it actually started.
+ *
+ * Both callers go through here so the store cannot fall out of step with the
+ * AudioContext — which is the whole bug: readiness lived only in the module, and the
+ * label that depended on it never re-rendered.
+ */
+async function armAudio(): Promise<void> {
+  await unlock();
+  useUI.getState().setArmed(ready());
+}
+
+
 export function useSoundToggle() {
+  const t = useStrings();
   const muted = useUI((s) => s.muted);
+  const armed = useUI((s) => s.armed);
   const setMuted = useUI((s) => s.setMuted);
   return {
     muted,
+    armed,
+    // Decided here, not in the markup: which of three states this is, is a rule.
+    label: soundLabel({ muted, armed }, {
+      off: t.chrome.soundOff, on: t.chrome.soundOn, arming: t.chrome.soundArming,
+    }),
     toggle: async () => {
-      if (muted) await unlock();
+      if (muted) await armAudio();
       setMuted(!muted);
     },
   };

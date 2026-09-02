@@ -25,6 +25,17 @@ interface UI {
   muted: boolean;
   setMuted: (muted: boolean) => void;
   /**
+   * Whether the browser has actually granted audio yet.
+   *
+   * Mirrored into the store rather than read from `sounds.ready()` at render time.
+   * The AudioContext is module state and React has no reason to re-render on it, so
+   * the toggle's label stuck at ARMING long after the first click had armed it. Not
+   * persisted: permission is a fact about this page's lifetime, and a remembered
+   * `true` would be the same lie in a fresh tab.
+   */
+  armed: boolean;
+  setArmed: (armed: boolean) => void;
+  /**
    * Whether the decision record is open.
    *
    * Collapsed by default: it is a rationale and seventeen verdicts, and it sits under
@@ -136,6 +147,8 @@ export const useUI = create<UI>((set) => ({
   toggleArchive: () => set((s) => ({ archiveOpen: !s.archiveOpen })),
   showDecision: (selected) => set({ selected, decisionOpen: true, view: "console" }),
   muted: storedMute(),
+  armed: false,
+  setArmed: (armed) => set({ armed }),
   setMuted: (muted) => {
     try {
       window.localStorage.setItem(MUTE_KEY, String(muted));

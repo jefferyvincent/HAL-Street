@@ -2,7 +2,6 @@ import { ICON } from "@/constants/icons";
 import { cn } from "@/lib/cn";
 import { useStrings } from "@/hooks/useStrings";
 import { useSoundToggle } from "@/hooks/useAudioCues";
-import { ready } from "@/lib/sounds";
 import { Icon } from "./Icon";
 
 /**
@@ -10,13 +9,18 @@ import { Icon } from "./Icon";
  *
  * Sound is on by default now, but a browser will not start audio outside a real
  * gesture — an AudioContext created on mount stays suspended. `useAudioUnlock` arms
- * it on the first click anywhere; until then this reads ARMING rather than SOUND,
- * because a control that says it is on while nothing can play is the one failure
- * worth avoiding here.
+ * it on the first click anywhere; until then the label reads ARMING rather than
+ * SOUND, because a control that says it is on while nothing can play is the one
+ * failure worth avoiding here.
+ *
+ * Which of the three it says is `useSoundToggle`'s decision, and the readiness it
+ * turns on is store state. It used to be read at render time straight from the
+ * AudioContext — module state React has no reason to re-render on — so the label
+ * stuck at ARMING long after the first click had armed it.
  */
 export function SoundToggle() {
   const t = useStrings();
-  const { muted, toggle } = useSoundToggle();
+  const { muted, label, toggle } = useSoundToggle();
   return (
     <button
       onClick={() => void toggle()}
@@ -29,7 +33,7 @@ export function SoundToggle() {
       )}
     >
       <Icon d={muted ? ICON.muted : ICON.sound} stroke="currentColor" />
-      {muted ? t.chrome.soundOff : ready() ? t.chrome.soundOn : t.chrome.soundArming}
+      {label}
     </button>
   );
 }
