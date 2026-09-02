@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { CUE_GAP_MS } from "@/constants/theme";
 import { type Watched, decide, watch } from "@/lib/cues";
 import { CUES, ready, unlock } from "@/lib/sounds";
+import { armingStep } from "@/lib/arming";
 import { soundLabel } from "@/lib/soundLabel";
 import { useStrings } from "@/hooks/useStrings";
 import { useUI } from "@/stores/ui";
@@ -69,21 +70,30 @@ export function useAudioCues(snapshot: Snapshot | null) {
  * document turns the first click, key or touch — whatever it was for — into the
  * gesture the AudioContext needs.
  *
- * `once` on all three and a removal on unmount, so this costs one listener that
- * deletes itself. It does nothing while muted: arming audio for someone who asked
- * for silence is the wrong side of the same mistake.
+ * It listens until it succeeds, and then removes itself. `once: true` was the first
+ * version and it is one attempt with no second: a gesture that arrived while the panel
+ * was muted, or a resume that did not take, spent the only attempt there was and the
+ * control read ARMING for the rest of the session. It still arms nothing while muted —
+ * audio for someone who asked for silence is the wrong side of the same mistake — but
+ * it keeps listening rather than treating that as its one go.
  */
 export function useAudioUnlock(): void {
   useEffect(() => {
     if (ready()) return;
-    const arm = () => {
-      if (!useUI.getState().muted) void armAudio();
-    };
     const events: (keyof DocumentEventMap)[] = ["pointerdown", "keydown", "touchstart"];
-    for (const name of events) document.addEventListener(name, arm, { once: true });
-    return () => {
+    const stop = () => {
       for (const name of events) document.removeEventListener(name, arm);
     };
+    const arm = () => {
+      const step = armingStep({ muted: useUI.getState().muted, ready: ready() });
+      if (step === "stop") return stop();
+      if (step === "skip") return;          // muted: stay listening, arm nothing
+      void armAudio().then(() => {
+        if (ready()) stop();
+      });
+    };
+    for (const name of events) document.addEventListener(name, arm);
+    return stop;
   }, []);
 }
 
