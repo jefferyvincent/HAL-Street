@@ -136,3 +136,50 @@ def test_utcnow_is_not_a_substitute_either():
     et_evening = datetime(2026, 8, 26, 20, 30, tzinfo=ET)
     assert et_evening.date() == date(2026, 8, 26)
     assert et_evening.astimezone(UTC).date() == date(2026, 8, 27)
+
+
+class TestAnUnconfirmedSessionDateIsGivenUp:
+    """A session date the broker has stopped confirming must not be asserted forever.
+
+    `adopt` caches the exchange's own date so nothing here has to know where the
+    exchange is. The cache had no way to expire: if the broker became unreachable —
+    which happened on 2026-09-01, DNS failing mid-evening — the agent kept returning
+    *yesterday* from `today()` for as long as the process lived. Nothing errors. Every
+    DTE reads one day high, so the DTE floor admits contracts a day nearer expiry than
+    it believes; the breaker's daily baseline never rolls; the P&L day window and the
+    loss cooldown both measure the wrong session.
+
+    That is precisely the failure this module's own docstring is about, arriving from
+    the other direction: not a fallback that hides, but a cache that outlives its
+    evidence. The counted host fallback is the honest answer once the broker has
+    stopped answering, so `forget` is what the scheduler calls when a clock read
+    fails.
+    """
+
+    def test_forgetting_returns_today_to_the_counted_fallback(self):
+        clock.reset()
+        clock.adopt({"timestamp": "2026-09-01T15:00:00-04:00"})
+        assert clock.today() == date(2026, 9, 1)
+        assert clock.source() == "broker"
+
+        clock.forget()
+
+        before = clock.fallbacks()
+        assert clock.today() == date.today()  # noqa: DTZ011 - asserting the fallback
+        assert clock.fallbacks() == before + 1
+        assert clock.source() != "broker"
+
+    def test_forgetting_when_nothing_was_adopted_is_harmless(self):
+        clock.reset()
+        clock.forget()
+        assert clock.source() != "broker"
+
+    def test_a_later_read_re_adopts(self):
+        """Giving up is not giving up permanently. The next successful clock read is
+        authoritative again."""
+        clock.reset()
+        clock.adopt({"timestamp": "2026-09-01T15:00:00-04:00"})
+        clock.forget()
+        clock.adopt({"timestamp": "2026-09-02T10:00:00-04:00"})
+        assert clock.today() == date(2026, 9, 2)
+        assert clock.source() == "broker"

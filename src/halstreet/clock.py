@@ -94,9 +94,39 @@ def source() -> str:
 def describe() -> str:
     with _lock:
         if _session is None:
-            return f"session date unset — {_fallbacks} local-calendar fallback(s)"
+            state = "given up" if _source == "given up" else "unset"
+            return f"session date {state} — {_fallbacks} local-calendar fallback(s)"
         note = f", {_fallbacks} fallback(s) before it was adopted" if _fallbacks else ""
         return f"session date {_session.isoformat()} from the broker{note}"
+
+
+def forget() -> None:
+    """Stop asserting a session date the broker has stopped confirming.
+
+    `adopt` caches the exchange's own date so nothing here needs a timezone table. The
+    cache had no way to expire, and that is a second way to be quietly wrong about the
+    calendar — the first being the host fallback this module was written to count.
+
+    It is not hypothetical. When the broker became unreachable on the evening of
+    2026-09-01, a surviving agent would have gone on returning *yesterday* from
+    `today()` for as long as the process lived: every DTE one day high, so the DTE
+    floor admits contracts a day nearer expiry than it believes, the breaker's daily
+    baseline never rolling, the P&L day window and the loss cooldown both measuring a
+    session that has ended.
+
+    So a failed clock read gives the date up rather than keeping it. The counted host
+    fallback is the honest answer once the broker has stopped answering — it is
+    approximate and it says so, which is the whole difference. The next successful
+    read re-adopts and is authoritative again.
+
+    Separate from `reset` on purpose: that clears the fallback count too, which is a
+    test's prerogative and not something a running agent should ever do to its own
+    record.
+    """
+    with _lock:
+        global _session, _source
+        if _session is not None:
+            _session, _source = None, "given up"
 
 
 def reset() -> None:

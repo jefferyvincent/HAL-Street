@@ -397,7 +397,11 @@ class Scheduler:
             try:
                 clock = await market_clock(self.client)
             except MCPError as exc:
-                # Not knowing whether the market is open is not a licence to trade.
+                # Not knowing whether the market is open is not a licence to trade —
+                # nor to keep asserting the session date the last successful read
+                # gave us. Held, it would still read as yesterday tomorrow, and every
+                # DTE in the book with it. See `clock.forget`.
+                session_clock.forget()
                 self.log(f"clock unavailable ({exc}); waiting {self.interval / 60:.0f}m")
                 await self._sleep(self.interval)
                 continue
