@@ -81,7 +81,6 @@ export function makeStrings(t: Translate) {
       breakerHalted: t("chrome.breakerHalted"),
       soundOn: t("chrome.soundOn"),
       soundOff: t("chrome.soundOff"),
-      soundArming: t("chrome.soundArming"),
       soundTitle: t("chrome.soundTitle"),
       marketOpen: t("chrome.marketOpen"),
       marketClosed: t("chrome.marketClosed"),

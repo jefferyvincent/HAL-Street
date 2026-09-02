@@ -120,8 +120,8 @@ export function useSoundToggle() {
     muted,
     armed,
     // Decided here, not in the markup: which of three states this is, is a rule.
-    label: soundLabel({ muted, armed }, {
-      off: t.chrome.soundOff, on: t.chrome.soundOn, arming: t.chrome.soundArming,
+    label: soundLabel({ muted }, {
+      off: t.chrome.soundOff, on: t.chrome.soundOn,
     }),
     toggle: async () => {
       if (muted) await armAudio();
