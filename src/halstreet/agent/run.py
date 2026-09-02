@@ -242,11 +242,20 @@ async def main_async(args: argparse.Namespace) -> int:
     async def tend() -> None:
         """Between scans: mind the orders already at the broker.
 
-        Chases a working limit toward the book so a structure the gates approved gets
-        filled, instead of resting at a price the market moved away from thirty minutes
-        ago. It opens nothing — everything new still goes through a full pass.
+        Two jobs, both of them deadlines the scan cadence is too coarse for. It chases
+        a working limit toward the book so a structure the gates approved gets filled
+        rather than resting at a price the market left; and once the close is near
+        enough it flattens the book, which a thirty-minute cycle would otherwise do or
+        not do depending on where its phase landed.
+
+        It opens nothing — everything new still goes through a full pass.
         """
         for line in await agent.work_orders():
+            log(f"  {line}")
+        # And the flatten, which cannot wait for the next scan: cycles are thirty
+        # minutes apart and the window is fifteen, so whether the book was swept would
+        # otherwise depend on where the cycle phase happened to land.
+        for line in await agent.sweep_if_due():
             log(f"  {line}")
 
     # Built for both paths, because both need the same answer to Ctrl-C. A single

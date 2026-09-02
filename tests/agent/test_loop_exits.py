@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -588,3 +590,84 @@ def test_the_loop_raises_the_high_water_mark_each_cycle(tmp_path, journal):
     asyncio.run(agent.manage_exits())
     peak = Ledger.load(str(led.path)).open_structures[0].peak_usd
     assert peak == Decimal("71.00")
+
+
+# --- the sweep cannot wait for a scan -------------------------------------------------
+#
+# `manage_exits` runs once per cycle, and cycles are thirty minutes apart. The flatten
+# window is fifteen. On 2026-09-02 the cycle phase happened to put a scan at 15:57,
+# three minutes before the bell, and the book was flattened by luck — a phase of :14 and
+# :44 would have swept nothing at all and carried two short call spreads overnight.
+#
+# So the between-scan job runs the sweep itself once the window is open. It is the same
+# reasoning as chasing a working order: a rule that only fires when a thirty-minute
+# cycle happens to land on it is not a rule, it is a coincidence.
+
+class _Clocked(_Orders):
+    def __init__(self, minutes):
+        super().__init__({})
+        self.minutes, self.clock_calls = minutes, 0
+
+    async def call(self, tool, args=None):
+        if tool == "get_clock":
+            self.clock_calls += 1
+            if self.minutes is None:
+                raise MCPError("clock unavailable")
+            now = datetime.now(UTC)
+            return {"is_open": True, "timestamp": now.isoformat(),
+                    "next_close": (now + timedelta(minutes=self.minutes)).isoformat(),
+                    "next_open": now.isoformat()}
+        return await super().call(tool, args)
+
+
+def _swept(tmp_path, journal, minutes, *, window=15):
+    from halstreet.execution.structures import vertical
+    led = Ledger(path=tmp_path / "sw.json")
+    led.record_open(vertical("Oct spread", P755, P760), "SPY",
+                   structure_id="s1", entry_price=Decimal("-1.51"))
+    led.record_fill("s1", Decimal("-1.51"))
+    client = _Clocked(minutes)
+    agent = agent_for(client, led, journal, dry_run=True)
+    agent.policy = replace(agent.policy, flatten_before_close_min=window)
+    return agent, client, asyncio.run(agent.sweep_if_due())
+
+
+def test_the_sweep_runs_between_scans_once_the_window_is_open(tmp_path, journal):
+    _agent, _client, done = _swept(tmp_path, journal, minutes=10)
+    assert done, "the window was open and nothing was swept"
+
+
+def test_it_does_nothing_earlier_in_the_session(tmp_path, journal):
+    _agent, _client, done = _swept(tmp_path, journal, minutes=180)
+    assert done == []
+
+
+def test_an_unreadable_clock_sweeps_nothing(tmp_path, journal):
+    """Not knowing the time is not the bell. Reading a failed clock call as "the close
+    is near" would liquidate the book on any tick where the broker did not answer."""
+    _agent, _client, done = _swept(tmp_path, journal, minutes=None)
+    assert done == []
+
+
+def test_the_sweep_is_off_when_the_policy_is(tmp_path, journal):
+    _agent, client, done = _swept(tmp_path, journal, minutes=5, window=None)
+    assert done == []
+    assert client.clock_calls == 0, "a disabled sweep should cost no broker call"
+
+
+def test_the_clock_is_not_asked_on_every_tick(tmp_path, journal):
+    """The job runs four times a minute for a whole session. One reading answers for a
+    while — elapsed time since it is measured, not asserted, so this is still the
+    broker's clock rather than the host's."""
+    agent, client, _ = _swept(tmp_path, journal, minutes=180)
+    for _ in range(5):
+        asyncio.run(agent.sweep_if_due())
+    assert client.clock_calls == 1
+
+
+def test_a_new_cycle_forces_a_fresh_reading(tmp_path, journal):
+    """Otherwise the first reading of the morning answers all afternoon."""
+    agent, client, _ = _swept(tmp_path, journal, minutes=180)
+    agent.forget_clock()
+    asyncio.run(agent.sweep_if_due())
+    assert client.clock_calls == 2

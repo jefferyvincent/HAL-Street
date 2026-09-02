@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -105,6 +106,13 @@ class CycleResult:
 
 #: Distinguishes "not read yet" from the broker answering "no close time".
 #: Both are falsy and only one is worth retrying.
+#: How long one reading of the broker's clock is allowed to answer for.
+#:
+#: The between-scan job asks four times a minute; the broker is asked once every few.
+#: Short enough that the flatten window cannot be missed, long enough that a session is
+#: a few hundred calls rather than a few thousand.
+CLOCK_TTL_MINUTES = 3.0
+
 _UNREAD = object()
 
 
@@ -417,8 +425,20 @@ class Agent:
         same pass. `None` on any failure, which both read as a reason to act carefully
         rather than as time remaining.
         """
+        # One reading answers for a while. The between-scan job runs four times a
+        # minute for a whole session, and asking the broker each time would be a
+        # thousand clock calls to learn what subtraction already knows.
+        #
+        # Elapsed time is *measured* here, not asserted: `monotonic` says how long
+        # since the broker spoke, which is a different claim from a host clock saying
+        # what time it is. The rule against the latter stands.
         if self._minutes_to_close is not _UNREAD:
-            return self._minutes_to_close
+            assert self._clock_read_at is not None
+            aged = (time.monotonic() - self._clock_read_at) / 60
+            if aged < CLOCK_TTL_MINUTES:
+                if self._minutes_to_close is None:
+                    return None
+                return max(0.0, self._minutes_to_close - aged)
         try:
             reading = await market_clock(self.client)
             seconds = reading.seconds_until_close()
@@ -426,6 +446,7 @@ class Agent:
         except Exception as exc:
             self.journal.error("exit_clock", f"{type(exc).__name__}: {exc}")
             self._minutes_to_close = None
+        self._clock_read_at = time.monotonic()
         return self._minutes_to_close
 
     async def _overnight_facts(
@@ -478,6 +499,27 @@ class Agent:
         15:50, and neither the sweep nor the cutoff would ever arm.
         """
         self._minutes_to_close = _UNREAD
+        self._clock_read_at = None
+
+    async def sweep_if_due(self) -> list[str]:
+        """Flatten the book between scans, once the close is near enough.
+
+        `manage_exits` runs once per cycle and cycles are thirty minutes apart, while
+        the flatten window is fifteen. On 2026-09-02 the phase happened to put a scan
+        at 15:57 and the book was swept with three minutes to spare; a phase of :14 and
+        :44 would have swept nothing and carried two short call spreads overnight. A
+        rule that fires only when a thirty-minute cycle lands on it is not a rule.
+
+        Costs nothing when the sweep is off, and nothing before the window opens beyond
+        one clock reading every few minutes. An unreadable clock sweeps nothing — not
+        knowing the time is not the bell.
+        """
+        if self.policy.flatten_before_close_min is None:
+            return []
+        minutes = await self.minutes_to_close()
+        if minutes is None or minutes > self.policy.flatten_before_close_min:
+            return []
+        return [str(d) for d in await self.manage_exits() if d.should_close]
 
     async def manage_exits(self, positions: list[dict] | None = None) -> list[ExitDecision]:
         """Review every open structure and close the ones that qualify.
