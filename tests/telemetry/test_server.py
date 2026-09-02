@@ -148,14 +148,14 @@ def test_the_chain_is_served_with_a_family_on_every_gate():
 
 
 def test_the_family_split_matches_the_gate_modules():
-    # contract 3 / liquidity 2 / defined risk 4 / portfolio 3 / circuit 5 = 17.
+    # contract 3 / liquidity 2 / defined risk 4 / portfolio 3 / circuit 6 = 18.
     from collections import Counter
 
     from halstreet.gates import ALL_GATES
     from halstreet.gates.base import family_of
     counts = Counter(family_of(g) for g in ALL_GATES)
     assert counts == {"contract": 3, "liquidity": 2, "defined_risk": 4,
-                      "portfolio": 3, "circuit": 5}
+                      "portfolio": 3, "circuit": 6}
 
 
 def test_limits_are_served_under_their_environment_variable_names():

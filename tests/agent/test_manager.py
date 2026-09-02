@@ -299,6 +299,12 @@ def test_exit_review_consults_no_gates():
 
 # --- exit levels, which the chart draws -------------------------------------------
 
+def _at_long_mark(structure, mark: Decimal) -> dict:
+    """A chain pricing a long-only structure at `mark`. Its whole value is the long."""
+    symbol = next(iter(structure.legs))
+    return {symbol: {"latestQuote": {"bp": str(mark), "ap": str(mark)}}}
+
+
 def _at_mark(structure, mark: Decimal) -> dict:
     """A chain pricing `structure` at exactly `mark`, with both legs quoted positive.
 
@@ -824,6 +830,14 @@ class TestFlattenBeforeTheClose:
             entry_price=entry, entry_filled=True,
         )
 
+    def _long(self, entry: Decimal = Decimal("2.00")) -> OpenStructure:
+        """A structure with nothing short in it — the only kind that can earn a hold."""
+        return OpenStructure(
+            structure_id="ln", name="long call", underlying="SPY", qty=1,
+            legs={C770: 1}, opened_at="2026-08-26T00:00:00+00:00",
+            entry_price=entry, entry_filled=True,
+        )
+
     def _decide(self, mark: Decimal, *, minutes: float | None = 10,
                 event: bool | None = False, policy: ExitPolicy | None = None):
         structure = self._spread()
@@ -831,28 +845,72 @@ class TestFlattenBeforeTheClose:
                              asof=TODAY, minutes_to_close=minutes,
                              event_before_next_session=event)
 
-    def test_holds_a_winner_with_a_clear_calendar(self):
+    def _decide_long(self, mark: Decimal, *, minutes: float | None = 10,
+                     event: bool | None = False, policy: ExitPolicy | None = None):
+        structure = self._long()
+        return evaluate_exit(structure, _at_long_mark(structure, mark),
+                             policy or self.POLICY, asof=TODAY,
+                             minutes_to_close=minutes, event_before_next_session=event)
+
+    def test_a_short_leg_is_flattened_however_well_it_is_doing(self):
+        """The rule that changed on 2026-09-02. This used to hold a winner overnight on
+        a clear calendar, and the position it held was short an option — the one thing
+        the gap cannot be managed through, because it arrives already having happened.
+        No amount of unrealized profit is an argument for being short into it."""
         decision = self._decide(Decimal("-1.20"))
+        assert decision.action is Action.FLATTEN_OVERNIGHT
+        assert "short" in decision.reason
+
+    def test_a_long_only_structure_may_still_earn_the_hold(self):
+        """Nothing is short, so the whole risk is premium already paid and the gap can
+        only take what was staked. The three vetoes still apply to it."""
+        decision = self._decide_long(Decimal("2.60"))
         assert decision.action is Action.HOLD
         assert "held through the close" in decision.reason
+
+    def test_a_short_leg_that_cannot_be_priced_is_still_flattened(self):
+        """The hole the old ordering left. An unmarkable position returned UNKNOWN long
+        before the sweep was reached, so the one structure nobody could put a number on
+        was the one carried through the gap. Closing needs no mark."""
+        structure = self._spread()
+        decision = evaluate_exit(structure, {}, self.POLICY, asof=TODAY,
+                                 minutes_to_close=10, event_before_next_session=False)
+        assert decision.action is Action.FLATTEN_OVERNIGHT
+
+    def test_a_short_leg_with_no_entry_price_is_still_flattened(self):
+        structure = self._spread()
+        structure.entry_price = None
+        decision = evaluate_exit(structure, _at_mark(structure, Decimal("-1.20")),
+                                 self.POLICY, asof=TODAY, minutes_to_close=10,
+                                 event_before_next_session=False)
+        assert decision.action is Action.FLATTEN_OVERNIGHT
+
+    def test_a_working_order_is_never_flattened(self):
+        """It is not a position. Closing it would sell contracts the account does not
+        hold — the working order wants cancelling, which is a different act."""
+        structure = self._spread()
+        structure.entry_filled = False
+        decision = evaluate_exit(structure, {}, self.POLICY, asof=TODAY,
+                                 minutes_to_close=10, event_before_next_session=False)
+        assert decision.action is Action.UNKNOWN
 
     def test_flattens_a_position_that_is_down(self):
         """A loser is not positive data. This is the case the rule exists for: the
         overnight gap is the tail risk, and a position already going the wrong way is
         the worst thing to carry into it."""
-        decision = self._decide(Decimal("-2.10"))
+        decision = self._decide_long(Decimal("1.40"))
         assert decision.action is Action.FLATTEN_OVERNIGHT
         assert "down" in decision.reason
 
     def test_flattens_a_winner_with_an_event_before_the_next_session(self):
-        decision = self._decide(Decimal("-1.20"), event=True)
+        decision = self._decide_long(Decimal("2.60"), event=True)
         assert decision.action is Action.FLATTEN_OVERNIGHT
         assert "event" in decision.reason
 
     def test_an_unreadable_calendar_flattens_rather_than_assuming_a_quiet_night(self):
         """Fails closed, like every gate. A hole in the calendar poisons the window —
         it must never read as "no events"."""
-        decision = self._decide(Decimal("-1.20"), event=None)
+        decision = self._decide_long(Decimal("2.60"), event=None)
         assert decision.action is Action.FLATTEN_OVERNIGHT
         assert "could not be read" in decision.reason
 
@@ -923,13 +981,21 @@ class TestReviewCarriesTheOvernightFacts:
     """
 
     def _book(self, ledger: Ledger) -> Ledger:
+        """Two long-only positions, one per name.
+
+        Long-only deliberately: a short leg is flattened whatever the calendar says, so
+        a book of credit spreads cannot show that the events map was dispatched by name
+        at all — every row would flatten and the test would pass with the mapping wired
+        backwards.
+        """
         pairs = (("a", "SPY", C775, C770), ("b", "QQQ", "QQQ261016C00775000",
                                             "QQQ261016C00765000"))
         for sid, underlying, long_, short in pairs:
             ledger.record_open(vertical(f"{underlying} spread", long_, short),
                                underlying, structure_id=sid,
-                               entry_price=Decimal("-1.60"))
-            ledger.record_fill(sid, Decimal("-1.60"))
+                               entry_price=Decimal("2.00"))
+            ledger.record_fill(sid, Decimal("2.00"))
+            ledger.structures[-1].legs = {long_: 1}
         return ledger
 
     def test_each_structure_is_judged_against_its_own_underlying(self, ledger):
@@ -937,7 +1003,7 @@ class TestReviewCarriesTheOvernightFacts:
         policy = ExitPolicy(flatten_before_close_min=15)
         chain = {}
         for structure in book.open_structures:
-            chain.update(_at_mark(structure, Decimal("-1.20")))
+            chain.update(_at_long_mark(structure, Decimal("2.60")))
 
         decisions = review(book, chain, policy, asof=TODAY, minutes_to_close=5,
                            events_by_underlying={"SPY": False, "QQQ": True})
@@ -953,7 +1019,7 @@ class TestReviewCarriesTheOvernightFacts:
         policy = ExitPolicy(flatten_before_close_min=15)
         chain = {}
         for structure in book.open_structures:
-            chain.update(_at_mark(structure, Decimal("-1.20")))
+            chain.update(_at_long_mark(structure, Decimal("2.60")))
 
         decisions = review(book, chain, policy, asof=TODAY, minutes_to_close=5,
                            events_by_underlying={"SPY": False})
@@ -961,6 +1027,18 @@ class TestReviewCarriesTheOvernightFacts:
         by_id = {d.structure.structure_id: d for d in decisions}
         assert by_id["b"].action is Action.FLATTEN_OVERNIGHT
         assert "could not be read" in by_id["b"].reason
+
+    def test_a_short_leg_ignores_the_map_altogether(self, ledger):
+        """The map decides a long-only hold. It has no say over a short option, which
+        is flattened on the clearest calendar there is."""
+        ledger.record_open(vertical("SPY spread", C775, C770), "SPY",
+                           structure_id="s", entry_price=Decimal("-1.60"))
+        ledger.record_fill("s", Decimal("-1.60"))
+        structure = ledger.open_structures[0]
+        decisions = review(ledger, _at_mark(structure, Decimal("-1.20")),
+                           ExitPolicy(flatten_before_close_min=15), asof=TODAY,
+                           minutes_to_close=5, events_by_underlying={"SPY": False})
+        assert decisions[0].action is Action.FLATTEN_OVERNIGHT
 
 
 class TestEveryClosingActionActuallyCloses:

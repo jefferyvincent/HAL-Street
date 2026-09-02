@@ -158,6 +158,7 @@ risk, not a pricing one.
 structure. Note this is *options* buying power, which is cash and much smaller than \
 the headline margin figure; a reserve is kept back so there is always enough left to \
 pay for an exit.
+  - `session-cutoff` — how close the exchange is to closing. Nothing is held overnight, so a structure opened near the bell would be unwound within the hour: two crossings of the spread bought for no holding period. Do not propose into the last part of the session.
   - `correlated-exposure` — contracts held across a basket of names that move \
 together. SPY, QQQ and IWM are one bet in three tickers; the per-underlying cap above \
 counts them as three separate names, and this one does not. If the book already holds \

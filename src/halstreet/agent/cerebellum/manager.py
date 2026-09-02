@@ -22,11 +22,23 @@ Four exit conditions, in the order they are checked:
    least recoverable part of it.
 3. **Profit target.** Taking most of the move beats waiting for all of it, because
    the last portion of max gain is bought with the most time and the most risk.
-4. **The overnight sweep.** Last, and a veto rather than a reason of its own: near the
-   session close, a position that has not earned the hold is flattened. It is checked
-   last precisely so a position at its target is reported as having hit its target —
-   the journal is what the results are computed from, and it must name the rule that
-   took the money. See `_overnight_veto` for the three things that end a hold.
+4. **The overnight sweep.** Near the session close, nothing short is carried. A short
+   leg cannot be managed while the market is shut, assignment does not wait for the
+   bell, and the gap arrives already having happened — so no amount of unrealized
+   profit argues for holding one. This used to be a veto like the three in
+   `_overnight_veto`, which held a winner on a clear calendar; for a book made entirely
+   of credit spreads that was the wrong default. Those three now decide only a
+   long-only structure, whose whole risk is premium already paid.
+
+   Checked last for anything that can be priced, so a position at its target is
+   reported as having hit its target — the journal is what the results are computed
+   from and it must name the rule that took the money. The exception is a short leg
+   with no usable mark: those return UNKNOWN long before this point, so `_forced_flatten`
+   catches them earlier. Closing needs no mark, and the position nobody could put a
+   number on is the last one to leave on the book overnight.
+
+   `gates.circuit.session_cutoff` is the entry half. Flattening without it buys two
+   crossings of the spread for no holding period at all.
 
 Every threshold is a percentage of the structure's own max gain or max loss, not a
 dollar figure — a $41-risk condor and an $820-risk condor should be managed the same
@@ -342,10 +354,45 @@ def _giveback(structure: OpenStructure, policy: ExitPolicy,
             "made rather than watching it become nothing")
 
 
-def _overnight_veto(unrealized: Decimal, event: bool | None) -> str | None:
+def _has_short_leg(structure: OpenStructure) -> bool:
+    """Whether the account is short an option here.
+
+    The distinction the overnight rule turns on. A long-only structure's whole risk is
+    premium already paid and the gap can only take what was staked; a short leg has no
+    such ceiling, cannot be managed while the market is shut, and carries assignment
+    on top.
+    """
+    return any(qty < 0 for qty in structure.legs.values())
+
+
+def _forced_flatten(structure: OpenStructure, policy: ExitPolicy,
+                    minutes_to_close: float | None) -> str | None:
+    """The overnight reason that applies with no price at all, or None.
+
+    Only the short-leg veto qualifies. The other three read a P&L or a calendar, so
+    they belong at the end of `evaluate_exit` where both are known; this one is true of
+    the structure itself and is therefore the only one that can be reached before the
+    mark.
+    """
+    if (policy.flatten_before_close_min is None or minutes_to_close is None
+            or minutes_to_close > policy.flatten_before_close_min
+            or not _has_short_leg(structure)):
+        return None
+    return _overnight_veto(Decimal(0), False, short=True)
+
+
+def _overnight_veto(unrealized: Decimal, event: bool | None, *,
+                    short: bool = False) -> str | None:
     """Why this position may not be carried through the close, or None if it may.
 
-    Three vetoes, and the third is the one worth arguing about.
+    **A short leg is never carried.** No amount of unrealized profit is an argument for
+    being short an option through a gap that arrives already having happened, and the
+    account cannot manage or be assigned out of one while the market is shut. This used
+    to be a veto like the others — a winner on a clear calendar was held — and that was
+    the wrong default for a book made entirely of credit spreads.
+
+    The three below still decide a long-only structure, where the whole risk is premium
+    already paid.
 
     A **losing** position is not positive data. The gap is the risk being avoided, and
     a trade already going the wrong way is the worst thing to hand to it — closing
@@ -361,6 +408,9 @@ def _overnight_veto(unrealized: Decimal, event: bool | None) -> str | None:
     is the branch that would quietly become "assume it is quiet" if `None` were ever
     folded into `False`.
     """
+    if short:
+        return ("short an option into the close — nothing is carried overnight. The gap "
+                "cannot be traded through and assignment does not wait for the bell")
     if unrealized < 0:
         return (f"down ${-unrealized:,.2f} into the close — a position going the wrong "
                 "way is not data that it is worth the overnight gap")
@@ -695,7 +745,15 @@ def evaluate_exit(structure: OpenStructure, chain: dict[str, dict], policy: Exit
             "window — short gamma and assignment risk, and no greeks at 0DTE",
         )
 
+    # A short leg that cannot be priced is the one position most in need of closing and
+    # the one the old ordering carried through the gap: both branches below returned
+    # UNKNOWN long before the sweep at the end of this function was reached. Closing
+    # needs no mark — the expiry branch above is built on exactly that.
+    forced = _forced_flatten(structure, policy, minutes_to_close)
+
     if structure.entry_price is None:
+        if forced is not None:
+            return ExitDecision(structure, Action.FLATTEN_OVERNIGHT, forced)
         return ExitDecision(
             structure, Action.UNKNOWN,
             "no entry price recorded, so P&L cannot be computed. Close manually or "
@@ -704,6 +762,8 @@ def evaluate_exit(structure: OpenStructure, chain: dict[str, dict], policy: Exit
 
     mark = mark_structure(structure, chain)
     if not mark.complete:
+        if forced is not None:
+            return ExitDecision(structure, Action.FLATTEN_OVERNIGHT, forced)
         return ExitDecision(
             structure, Action.UNKNOWN,
             f"cannot mark {len(mark.missing)} leg(s): {mark.missing[:3]}. Holding "
@@ -779,7 +839,8 @@ def evaluate_exit(structure: OpenStructure, chain: dict[str, dict], policy: Exit
     # wrong rule for the money in the journal the results are computed from.
     if (policy.flatten_before_close_min is not None and minutes_to_close is not None
             and minutes_to_close <= policy.flatten_before_close_min):
-        veto = _overnight_veto(unrealized, event_before_next_session)
+        veto = _overnight_veto(unrealized, event_before_next_session,
+                               short=_has_short_leg(structure))
         if veto is not None:
             return ExitDecision(structure, Action.FLATTEN_OVERNIGHT, veto,
                                 unrealized, mark.value)

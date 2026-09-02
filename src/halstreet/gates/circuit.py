@@ -42,6 +42,7 @@ DAILY_LOSS = "daily-loss-halt"
 ENTRY_RATE = "entry-rate-throttle"
 OPEN_POSITIONS = "open-position-count"
 LOSS_COOLDOWN = "loss-cooldown"
+SESSION_CUTOFF = "session-cutoff"
 
 # Names that move together closely enough that holding several is one position rather
 # than a diversified book. Deliberately a small static map rather than a live
@@ -321,3 +322,47 @@ def loss_cooldown(proposal: Proposal, ctx: GateContext) -> GateResult:
     if resting is None:
         return allow(LOSS_COOLDOWN)
     return reject(LOSS_COOLDOWN, resting)
+
+
+@gate(SESSION_CUTOFF)
+def session_cutoff(proposal: Proposal, ctx: GateContext) -> GateResult:
+    """Refuse an entry the close is about to shut.
+
+    The exit policy flattens every position before the bell, because a credit spread is
+    short an option and the overnight gap is the one move a defined-risk structure
+    cannot be traded out of — it arrives already having happened. This is the entry half
+    of that rule. Without it the agent spends the last half hour opening spreads it will
+    pay to unwind minutes later: two crossings of the spread bought for no holding
+    period at all, which is a guaranteed loss dressed as a trade.
+
+    Fails closed on an unknown clock, like every gate here. A session whose end nobody
+    could establish is precisely when not to write a short option — and "the broker did
+    not answer" is not the same fact as "there is time".
+
+    Off unless a cutoff is configured. A gate that starts refusing the moment it is
+    added is a gate that changed behaviour without anyone choosing it.
+    """
+    cutoff = ctx.limits.entry_cutoff_minutes
+    if cutoff is None:
+        return allow(SESSION_CUTOFF, "no session cutoff configured")
+
+    if ctx.minutes_to_close is None:
+        return reject(
+            SESSION_CUTOFF,
+            "the time until the close could not be established, so whether this entry "
+            "has a session to live in is unknown. Not knowing there is time is not the "
+            "same as knowing there is.",
+        )
+
+    if ctx.minutes_to_close <= cutoff:
+        return reject(
+            SESSION_CUTOFF,
+            f"{ctx.minutes_to_close:.0f} minute(s) to the close, inside the "
+            f"{cutoff}-minute cutoff. Everything is flattened before the bell, so this "
+            "would be opened and unwound within the hour — two crossings of the spread "
+            "for no holding period.",
+        )
+
+    return allow(SESSION_CUTOFF,
+              f"{ctx.minutes_to_close:.0f} minute(s) to the close, outside the "
+              f"{cutoff}-minute cutoff")

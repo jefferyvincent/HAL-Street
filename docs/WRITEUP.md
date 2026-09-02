@@ -33,7 +33,7 @@ Counting runs on the publisher's structured `symbols` field, never on the headli
 the same line `marketdata/news` already drew — "a headline never becomes a symbol" — and it is why
 Alpaca was chosen over RSS in the first place: the mapping from article to ticker is Benzinga's,
 not a regex of ours. Discovery *nominates*; the tradability screen, the liquidity floors and the
-seventeen gates all still stand between a mention and an order.
+eighteen gates all still stand between a mention and an order.
 
 **What the strategy engine produces, deterministically.** `strategy/` builds put and call credit
 spreads and iron condors from the live chain — arithmetic only, no model, no randomness, so the
@@ -93,7 +93,7 @@ agreement looks like corroboration to a judge. The judge is told so explicitly: 
 instructed to disagree, so their agreeing is not evidence.
 
 **The committee cannot approve anything.** It produces a proposal, and a proposal meets the same
-seventeen gates whichever path built it. A committee that agreed unanimously and enthusiastically
+eighteen gates whichever path built it. A committee that agreed unanimously and enthusiastically
 still has its structure checked against the menu, its loss against the cap, and its size against
 buying power. More deliberation is allowed to make a *better* proposal; it is never allowed to
 make a *permitted* one. `COMMITTEE=false` falls back to the single call for a cheap demo.
@@ -108,7 +108,7 @@ turn, fenced and labelled, where what comes back is a constrained JSON verdict r
 that flows onward.
 
 None of that is the security boundary. The gates are. A successful injection reaches a lean, a
-sentence of note, and from there a worse trade proposal — which is the case seventeen deterministic
+sentence of note, and from there a worse trade proposal — which is the case eighteen deterministic
 gates already exist for. That is the point of putting the model between two deterministic layers:
 it is what makes reading untrusted input safe enough to do at all.
 
@@ -132,7 +132,7 @@ attempt, and an unattended loop must not spend an unbounded budget arguing with 
 
 ## Risk gates
 
-**Seventeen gates. All of them run on every proposal — evaluation never short-circuits**, because
+**Eighteen gates. All of them run on every proposal — evaluation never short-circuits**, because
 "rejected by four gates" is a more useful artifact than "rejected by the first one we checked."
 Every gate **fails closed**: a missing greek, an absent quote, an unreadable open-interest figure
 is a rejection, never a skip. A gate that silently stops protecting you when the data is bad stops
@@ -155,6 +155,7 @@ protecting you exactly when you need it most.
 | `quoted-spread-width` | Bid/ask as % of mid, worst leg decides | positions expensive to leave |
 | `underlying-concentration` | Net contracts per underlying | stacking one name |
 | `correlated-exposure` | Contracts across a basket that moves together | SPY+QQQ+IWM as "diversification" |
+| `session-cutoff` | Minutes to the close, against the entry cutoff | A spread opened at 15:50 and flattened at 15:55 |
 | `portfolio-greek-bounds` | Net delta and vega across the whole book | directional / vol drift |
 | `assignment-proximity` | Short leg near the money near expiry | operational assignment risk |
 | *(environment assertion)* | Paper-only, three independent signals | any non-paper credential |
@@ -322,14 +323,14 @@ it was the one item on that list this project genuinely lacked, and the measurem
 that followed found options buying power to be a quarter of the headline figure.
 
 **Telemetry.** Append-only JSONL journal: every cycle, market view, candidate menu with score
-breakdowns, the committee session, proposal, all seventeen gate verdicts, order, fill, exit. `./start.sh report` exports
+breakdowns, the committee session, proposal, all eighteen gate verdicts, order, fill, exit. `./start.sh report` exports
 `summary.json`, `positions.csv` and `results.txt`. Realized P&L comes from the ledger rather than
 the broker, because Alpaca can tell you what a *contract* did but never what a *condor* did.
 Drawdown is labelled "over N scan samples" — it is scan-resolution, not tick-resolution, and the
 output should not imply otherwise.
 
 **The panel, and why it cannot trade.** `./start.sh panel` serves a React/TypeScript app that
-reads the same journal: one decision with all seventeen verdicts grouped by family, the full
+reads the same journal: one decision with all eighteen verdicts grouped by family, the full
 decision history, the chain with each gate's actual rejection count, an equity curve, and — on
 clicking a position — a chart of that structure's own net price with its entry, target and stop
 drawn on it. Those three lines are derived from the same `ExitPolicy` the position manager acts

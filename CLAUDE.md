@@ -1,6 +1,6 @@
 # HAL Street
 
-An autonomous options trading agent on Alpaca. The model proposes; seventeen
+An autonomous options trading agent on Alpaca. The model proposes; eighteen
 deterministic gates dispose. A Python agent writes an append-only journal; a React
 panel reads it and never writes anything.
 

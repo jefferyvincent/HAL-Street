@@ -33,11 +33,13 @@ from halstreet.gates.circuit import (
     ENTRY_RATE,
     LOSS_COOLDOWN,
     OPEN_POSITIONS,
+    SESSION_CUTOFF,
     correlated_exposure,
     daily_loss_halt,
     entry_rate_throttle,
     loss_cooldown,
     open_position_count,
+    session_cutoff,
 )
 from halstreet.gates.contract import (
     CONTRACT_EXISTS,
@@ -72,6 +74,7 @@ ALL_GATES: list[Gate] = [
     # than the proposal, and none of them looks at the structure's own merits.
     daily_loss_halt,
     entry_rate_throttle,
+    session_cutoff,
     open_position_count,
     # Have we just been wrong about this exact idea? Reads a record computed from the
     # ledger, so a losing run stops the trade rather than only warning the model.
@@ -114,6 +117,7 @@ __all__ = [
     "ON_THE_MENU",
     "OPEN_POSITIONS",
     "PORTFOLIO_RISK",
+    "SESSION_CUTOFF",
     "SPREAD_WIDTH",
     "ConfigurationError",
     "Decision",
@@ -136,6 +140,7 @@ __all__ = [
     "options_buying_power",
     "portfolio_greek_bounds",
     "portfolio_risk_ceiling",
+    "session_cutoff",
     "spread_width",
     "underlying_concentration",
 ]

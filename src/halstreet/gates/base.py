@@ -95,6 +95,10 @@ class GateContext:
     # looked. A gate that read those the same way would wave everything through on the
     # day the caller forgot to load the ledger.
     benched: dict[tuple[str, str], str] | None = None
+    # Minutes until the exchange closes, from the broker's own clock. `None` means
+    # nobody could establish it — which `session_cutoff` reads as a reason to refuse,
+    # not as an open session.
+    minutes_to_close: float | None = None
 
     @property
     def equity(self) -> Decimal | None:
@@ -132,6 +136,12 @@ class Limits:
     max_net_delta: Decimal = Decimal(5000)
     # Net vega in dollars per volatility point, summed across contracts.
     max_net_vega: Decimal = Decimal(100)
+    # How close to the bell entries stop, in minutes. `None` disables it.
+    #
+    # Paired with the flatten rule in `cerebellum.manager`: if every position is closed
+    # before the close, opening one in the last half hour buys two crossings of the
+    # spread for no holding period at all.
+    entry_cutoff_minutes: int | None = None
     # --- circuit breakers (see gates/circuit.py) ---
     # Positions' worth of contracts allowed across one correlated group. SPY, QQQ and
     # IWM are one bet in three tickers; without this the per-underlying cap counts
@@ -214,6 +224,8 @@ class Limits:
             max_open_positions=integer("MAX_OPEN_POSITIONS", cls.max_open_positions),
             min_buying_power_headroom_pct=dec("MIN_BUYING_POWER_HEADROOM_PCT",
                                               cls.min_buying_power_headroom_pct),
+            entry_cutoff_minutes=(None if not (src.get("ENTRY_CUTOFF_MINUTES") or "").strip()
+                                  else integer("ENTRY_CUTOFF_MINUTES", 0)),
         )
 
 

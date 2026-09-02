@@ -103,6 +103,11 @@ class CycleResult:
         return verdict
 
 
+#: Distinguishes "not read yet" from the broker answering "no close time".
+#: Both are falsy and only one is worth retrying.
+_UNREAD = object()
+
+
 class Agent:
     """One scan loop over a universe."""
 
@@ -125,6 +130,11 @@ class Agent:
         # which is not the same as a quiet backdrop, and the catalyst is told which.
         # Set once per pass in `run_once`; a single `run_cycle` leaves it None.
         self.macro: list | None = None
+        # The session clock for the pass in progress, read once and shared by the two
+        # rules that need it. `_UNREAD` rather than None because None is a real answer
+        # here — "the broker did not say" — and caching it must not look like an empty
+        # cache that gets retried on every gate.
+        self._minutes_to_close: float | object | None = _UNREAD
         # In-memory when the caller supplies nothing, which keeps tests free of a
         # filesystem. The CLI always passes a persisted one — a latch that dies with
         # the process is not a latch.
@@ -395,6 +405,29 @@ class Agent:
         except (MCPError, KeyError, TypeError):
             return {}
 
+    async def minutes_to_close(self) -> float | None:
+        """Minutes until the exchange closes, from the broker's own clock.
+
+        The **broker's**, never a local `datetime`: a host that thinks it is 15:45 on a
+        half-day would flatten the book an hour after the close and submit orders into a
+        shut market.
+
+        Cached for the cycle, because two rules now need it — the overnight sweep on the
+        way out and `session-cutoff` on the way in — and they run minutes apart in the
+        same pass. `None` on any failure, which both read as a reason to act carefully
+        rather than as time remaining.
+        """
+        if self._minutes_to_close is not _UNREAD:
+            return self._minutes_to_close
+        try:
+            reading = await market_clock(self.client)
+            seconds = reading.seconds_until_close()
+            self._minutes_to_close = None if seconds is None else seconds / 60
+        except Exception as exc:
+            self.journal.error("exit_clock", f"{type(exc).__name__}: {exc}")
+            self._minutes_to_close = None
+        return self._minutes_to_close
+
     async def _overnight_facts(
         self, structures: list[Any]
     ) -> tuple[float | None, dict[str, bool | None]]:
@@ -419,13 +452,8 @@ class Agent:
         if self.policy.flatten_before_close_min is None:
             return None, {}
 
-        minutes: float | None = None
-        try:
-            reading = await market_clock(self.client)
-            seconds = reading.seconds_until_close()
-            minutes = None if seconds is None else seconds / 60
-        except Exception as exc:
-            self.journal.error("exit_clock", f"{type(exc).__name__}: {exc}")
+        minutes = await self.minutes_to_close()
+        if minutes is None:
             return None, {}
 
         # Only worth asking once the sweep could actually arm — the calendar is a
@@ -441,6 +469,15 @@ class Agent:
                 events_mod.events_between, underlying, asof, tomorrow)
             events[underlying] = None if window is None else bool(window)
         return minutes, events
+
+    def forget_clock(self) -> None:
+        """Drop the cached session clock. Called at the top of every cycle.
+
+        Without this the first reading of the session would be answering for the whole
+        day: an agent started at 10:00 would still believe there were six hours left at
+        15:50, and neither the sweep nor the cutoff would ever arm.
+        """
+        self._minutes_to_close = _UNREAD
 
     async def manage_exits(self, positions: list[dict] | None = None) -> list[ExitDecision]:
         """Review every open structure and close the ones that qualify.
@@ -870,6 +907,9 @@ class Agent:
             account=state["account"], positions=state["positions"], chain=state["chain"],
             limits=self.limits, asof=clock.today(), spot=state["spot"],
             breaker=self.breaker,
+            # The same reading the overnight sweep used, so the two halves of the
+            # no-overnight rule cannot disagree about what time it is.
+            minutes_to_close=await self.minutes_to_close(),
             # Contracts ordered but not yet booked. A resting order is a commitment the
             # account can end up holding, and counting only fills is what let a second
             # SPY spread through while the first was still working.
@@ -1204,6 +1244,10 @@ class Agent:
         Cycles are independent by design — one bad symbol must not cost the others
         their scan, and a failure anywhere in the entry path must not prevent exits.
         """
+        # A fresh reading of the session clock for this pass. Held over, the first
+        # reading of the morning would still be answering at 15:50.
+        self.forget_clock()
+
         # Working orders first of all. An order settled here — filled, dead, or
         # withdrawn — is one this cycle can reason about honestly, and one that no
         # longer blocks the name it is on.
