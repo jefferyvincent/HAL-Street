@@ -1733,15 +1733,48 @@ def _mount_assets() -> None:
 _mount_assets()
 
 
+#: Addresses that reach this machine and nowhere else.
+LOOPBACK = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def exposure_warning(host: str) -> str | None:
+    """What to say before binding somewhere other than loopback, or None.
+
+    The panel was loopback-only and the comment defending that said binding to 0.0.0.0
+    "is a mistake that should not be one flag away". Right about the default, wrong as
+    an absolute — reading the desk from a phone on your own network is an ordinary
+    thing to want, and refusing it outright just means editing the source instead.
+
+    So the flag exists and this is the price of using it. It names equity, positions
+    and P&L specifically, because "exposed to the network" is not something a reader
+    can weigh: what matters is which numbers are on the wire. It also says the panel is
+    read-only, which is the one reassurance here that is actually true — there is no
+    order path in this process and nothing served can move a position.
+    """
+    if str(host).strip() in LOOPBACK:
+        return None
+    return (
+        f"WARNING: serving on {host}, which is reachable from your network rather than\n"
+        "         this machine alone. Anyone who can reach this port sees the account's\n"
+        "         equity, open positions, entry prices and P&L, and can read the chart\n"
+        "         route's market data. There is no authentication.\n"
+        "         The panel is read-only — it holds no order path and cannot move a\n"
+        "         position — so this is a disclosure risk, not a trading one."
+    )
+
+
 def serve(host: str = "127.0.0.1", port: int = 8787, *, journal: str = str(paths.RUN_JOURNAL),
           ledger: str = str(paths.LEDGER), breaker: str = str(paths.CIRCUIT)) -> None:
     import uvicorn  # only the panel needs it, and only when it runs
 
     PATHS.journal, PATHS.ledger, PATHS.breaker = journal, ledger, breaker
     _mount_assets()
-    # Localhost only, and not configurable to anything else from the CLI. This serves
-    # live position data for a real account; binding it to 0.0.0.0 on conference wifi
-    # is a mistake that should not be one flag away.
+    # Loopback by default, and anything else is announced. This serves live position
+    # data for a real account; binding it to 0.0.0.0 on conference wifi should be a
+    # thing you chose, which is what the warning is for.
+    warning = exposure_warning(host)
+    if warning:
+        print(warning)
     print(f"HAL Street panel on http://{host}:{port}  (read-only, Ctrl-C to stop)")
     try:
         uvicorn.run(app, host=host, port=port, log_level="warning", access_log=False)

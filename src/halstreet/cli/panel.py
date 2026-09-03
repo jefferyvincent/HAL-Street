@@ -41,7 +41,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--env", default="dev", choices=["dev", "comp"],
                    help="which credentials the structure chart reads")
-    p.add_argument("--port", type=int, default=8787, help="localhost port for the panel")
+    p.add_argument("--port", type=int, default=8787, help="port for the panel")
+    p.add_argument("--host", default="127.0.0.1",
+                   help="address to bind. The default reaches this machine only; "
+                        "0.0.0.0 reaches your whole network, which prints a warning "
+                        "naming what becomes visible")
     # None, not a literal, so the account can decide — the same reason the agent and
     # the report take theirs this way. `--env comp` on a panel wired to the dev
     # journal would show a rehearsal while claiming to watch the judged run, which is
@@ -111,7 +115,8 @@ def main() -> int:
     # Host is deliberately not a flag: this serves live position data for a real
     # account, and binding it to 0.0.0.0 on conference wifi should not be one
     # argument away.
-    serve(port=args.port, journal=args.journal, ledger=args.ledger, breaker=args.breaker)
+    serve(host=args.host, port=args.port, journal=args.journal, ledger=args.ledger,
+          breaker=args.breaker)
     return 0
 
 
