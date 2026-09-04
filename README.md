@@ -1,5 +1,7 @@
 # HAL Street
 
+![HAL Street — an LLM trading agent on Alpaca where every order passes deterministic risk gates before execution](docs/assets/banner.png)
+
 An autonomous options trading agent built on Alpaca. The model proposes; deterministic gates dispose.
 
 Submission for the Alpaca AI Trading Agents Hackathon (co-hosted with lablab.ai), main challenge
