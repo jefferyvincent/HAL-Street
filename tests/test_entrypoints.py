@@ -1,0 +1,409 @@
+"""`start.sh` and `install.sh` — the two files a person meets before any Python runs.
+
+Both had the same defect in different forms: a check that could not tell a broken
+environment from a missing feature, and said the wrong one confidently.
+
+`start.sh` reported "The agent loop isn't built yet (halstreet.agent.run does not
+exist)" on a machine where it plainly did exist, because the import was run with
+stderr discarded and *any* failure printed that line. `install.sh` reused a stale
+virtualenv and surfaced the mismatch as "No module named pip".
+
+A diagnostic that can state something false about the codebase is worse than none:
+the first sends a reader through the source looking for code that is already there,
+and the second hides a one-command fix behind a puzzle.
+"""
+
+from __future__ import annotations
+
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+START = ROOT / "start.sh"
+INSTALL = ROOT / "install.sh"
+
+
+@pytest.mark.parametrize("script", [START, INSTALL])
+def test_the_shell_entrypoints_parse(script):
+    # They are the first thing that runs and the last thing anything tests.
+    # A fixed argv with an absolute interpreter; nothing here comes from input.
+    bash = shutil.which("bash") or "/bin/bash"
+    done = subprocess.run([bash, "-n", str(script)], capture_output=True, text=True)  # noqa: S603
+    assert done.returncode == 0, done.stderr
+
+
+def test_start_never_claims_a_built_feature_is_unbuilt():
+    """The exact false statement, so it cannot come back.
+
+    The loop, the panel, the report and the soak all exist and all have tests. Any
+    "isn't built yet" branch left in here is scaffolding outliving its subject, and
+    the failure mode is not a stale message — it is a true-sounding lie told to
+    whoever is trying to run the thing.
+    """
+    # Executable lines only. The comment above the replacement quotes the old
+    # message in order to explain why it went — the same reason the write-up's gate
+    # count check reads claims rather than words. A comment cannot mislead a user;
+    # only something that prints can.
+    code = "\n".join(line for line in START.read_text().splitlines()
+                      if not line.strip().startswith("#"))
+    for phrase in ("isn't built yet", "does not exist", "not implemented yet"):
+        assert phrase not in code, f"start.sh still tells a user something {phrase!r}"
+
+
+def test_no_import_check_discards_the_error_it_is_checking_for():
+    """`2>/dev/null` on an import check is what made the message wrong.
+
+    With the error thrown away there is nothing left to distinguish "the package is
+    not installed" from "a dependency is missing" from "the module has a syntax
+    error", so whatever the branch prints is a guess presented as a diagnosis.
+    """
+    for line in START.read_text().splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if "-c 'import" in stripped or '-c "import' in stripped:
+            assert "2>/dev/null" not in stripped, \
+                f"an import check that hides its own error: {stripped}"
+
+
+def test_start_checks_the_environment_once_for_every_mode():
+    # Every mode shells into .venv/bin/python, so a venv that cannot import the
+    # package fails a different way for each one. Checked before the dispatch.
+    text = START.read_text()
+    check = text.index("cannot import halstreet")
+    dispatch = text.index('case "$MODE" in')
+    assert check < dispatch, "the environment check must run before the mode dispatch"
+
+
+def test_the_failure_names_the_command_that_fixes_it():
+    text = START.read_text()
+    section = text[text.index("cannot import halstreet"):text.index('case "$MODE" in')]
+    assert "./install.sh" in section
+    assert "No module named" in section, "it must distinguish the kinds of failure"
+
+
+def test_install_verifies_a_virtualenv_before_reusing_it():
+    """A venv is not portable, and `-x .venv/bin/python` does not know that.
+
+    It goes stale when the repo moves between machines, when the distro upgrades
+    Python underneath it, or when it was built by a different interpreter than the
+    one on PATH today — all of which used to surface as a missing pip module three
+    lines later.
+    """
+    text = INSTALL.read_text()
+    assert "venv_ok()" in text, "no health check is defined"
+    # Defined is not enough — it has to gate the reuse. A mutation that changed
+    # `elif venv_ok; then` to `elif true; then` left the function sitting there,
+    # unreferenced, and an earlier version of this test passed it happily.
+    assert re.search(r"^\s*(el)?if\s+venv_ok\s*;", text, re.MULTILINE), \
+        "venv_ok is defined but nothing calls it"
+    reuse = text.index("Reusing existing .venv")
+    assert text.index("venv_ok()") < reuse, "the check must exist before the reuse"
+    # It must actually compare versions, not merely run the interpreter.
+    assert "$PYMM" in text[text.index("venv_ok()"):reuse]
+    # And a failed check must rebuild rather than carry on.
+    after = text[reuse:text.index("rm -rf .venv")]
+    assert "unusable" in after, "a failing check must say so"
+
+
+def test_install_refuses_to_delete_a_virtualenv_that_is_in_use():
+    """Rebuilding kills a soak mid-session, or the panel, or a scheduled agent.
+
+    The guard checks argv[0] rather than the whole command line: these are launched
+    relative (`.venv/bin/python scripts/soak.py`), so a pattern anchored to $PWD
+    matches nothing, while `pgrep -f .venv/bin/python` matches every shell whose
+    command *text* mentions the path — the installer's own subshell included.
+    """
+    text = INSTALL.read_text()
+    guard = text[text.index("rm -rf .venv") - 2000:text.index("rm -rf .venv")]
+    assert "cmdline" in guard, "the guard must read argv[0], not match a command line"
+    assert "/proc/$pid/cwd" in guard or "$proc/cwd" in guard, \
+        "and confirm the process belongs to this checkout"
+    assert "exit 1" in guard, "it must stop, not warn and carry on"
+
+
+def test_every_mode_start_advertises_is_one_it_can_dispatch():
+    """The help text and the dispatch must agree.
+
+    A mode named in the usage block and missing from the `case` is the same class of
+    lie as the one this file exists for: it sends someone to type a command that
+    cannot work.
+    """
+    text = START.read_text()
+    advertised = set(re.findall(r"^#\s+\./start\.sh (\w+)", text, re.MULTILINE))
+    body = text[text.index('case "$MODE" in'):]
+    dispatched = set(re.findall(r"^\s{2}(\w+)\)", body, re.MULTILINE))
+    # `stop` answers above the case — before the credential checks and the venv probe,
+    # because every prerequisite is a way for it to refuse at exactly the moment it is
+    # needed. It is dispatchable without being a branch, so the two ideas are separate
+    # sets: this one gates the advertised check, and the loop below still walks only
+    # the real branches.
+    early = {"stop"} if 'if [ "$MODE" = "stop" ]' in text else set()
+    assert advertised, "the usage block names no modes"
+    assert advertised <= dispatched | early, \
+        f"advertised but undispatchable: {advertised - dispatched - early}"
+
+    # And each branch must actually run something. A phrase list ("isn't built yet",
+    # "not implemented") is the wrong shape for this: it catches the wording that
+    # happened to be used and nothing else — a mutation reading "is not built yet"
+    # walked straight through an earlier version of this test. What is checkable is
+    # the property itself, which is that every advertised mode reaches a command.
+    # Every *dispatched* mode, not just the advertised ones. `loop` is the default —
+    # bare `./start.sh` — so it never appears in the usage block, and an earlier
+    # version of this check iterated the advertised set and skipped precisely the
+    # branch that carried the bug. Three separate refuse-to-dispatch mutations walked
+    # through it untouched.
+    for mode in sorted(dispatched):
+        branch = re.search(rf"^\s{{2}}{mode}\)(.*?)^\s{{4}};;", body, re.MULTILINE | re.DOTALL)
+        assert branch, f"{mode} has no branch body"
+        assert re.search(r"^\s*run\s+\S", branch.group(1), re.MULTILINE), \
+            f"./start.sh {mode} dispatches but its branch runs nothing"
+
+
+def test_the_in_use_guard_survives_a_process_exiting_while_it_looks():
+    """The guard walks every PID on the machine, so this race is not exotic.
+
+    A process that exits between the `/proc/[0-9]*` glob and the read leaves a path
+    that no longer exists. The read was written as
+
+        argv0="$(tr '\\0' '\\n' < "$proc/cmdline" 2>/dev/null | head -1)"
+
+    where `2>/dev/null` silences *tr*, and the thing that fails is the **shell's own
+    input redirection** — reported by bash, not by tr, and fatal under `set -e`. Ports
+    8792-8798 held six panels for a day and a half; clearing them and re-running was
+    enough to lose the race, and the installer died with
+
+        ./install.sh: line 106: /proc/3878315/cmdline: No such file or directory
+
+    on a machine where nothing was wrong. Worse than a false refusal: the message
+    names a PID the reader cannot look up, so it describes a state that no longer
+    exists — Constitution VII.
+
+    The real line is extracted and executed here rather than pattern-matched, because
+    what matters is that it *survives*, not how it is spelled.
+    """
+    import re
+
+    line = next((ln for ln in INSTALL.read_text().splitlines()
+                 if "cmdline" in ln and "argv0=" in ln), None)
+    assert line, "the guard no longer reads cmdline this way — this test has drifted"
+
+    # `set -e` and friends exactly as install.sh runs, against a path that is gone.
+    # Absolute interpreter and a script built only from this repo's own file — the
+    # same shape, and the same reason, as `test_the_shell_entrypoints_parse` above.
+    script = f'set -euo pipefail\nproc=/proc/nonexistent-{"0" * 6}\n{line.strip()}\necho SURVIVED'
+    bash = shutil.which("bash") or "/bin/bash"
+    done = subprocess.run([bash, "-c", script], capture_output=True, text=True)  # noqa: S603
+
+    assert "SURVIVED" in done.stdout, (
+        f"the guard aborts when a process exits mid-walk: {done.stderr.strip()}")
+    assert not re.search(r"No such file", done.stderr), (
+        f"and it must not print the vanished path: {done.stderr.strip()}")
+
+
+# --- the wordmark --------------------------------------------------------------------
+#
+# Chrome, and chrome has two ways of going wrong. It can end up in places that are not
+# a terminal — a log file, a CI transcript, the output of `report --export` — and it
+# can end up in a screenshot next to a credential. Both are tested; the second is the
+# one that matters.
+
+def _run_start(args, *, tty: bool, env: dict | None = None):
+    import os
+    import shutil
+    import subprocess
+
+    bash = shutil.which("bash") or "/bin/bash"
+    cmd = [bash, str(START), *args]
+    if tty:
+        # `script` gives it a pty, which is what the TTY check actually reads.
+        script = shutil.which("script") or "/usr/bin/script"
+        cmd = [script, "-qec", " ".join([bash, str(START), *args]), "/dev/null"]
+    return subprocess.run(  # noqa: S603 - fixed argv, absolute interpreter
+        cmd, capture_output=True, text=True, timeout=60,
+        env={**os.environ, **(env or {})}, cwd=str(ROOT))
+
+
+def test_help_exits_cleanly_and_lists_the_modes():
+    """`start.sh` had no `--help` at all, while carrying twenty lines of header
+    comment describing every mode. `install.sh` prints its own; this now matches."""
+    done = _run_start(["--help"], tty=False)
+    assert done.returncode == 0
+    for mode in ("panel", "report", "soak", "preflight"):
+        assert mode in done.stdout + done.stderr
+
+
+def test_the_wordmark_appears_on_a_terminal():
+    out = _run_start(["--help"], tty=True)
+    assert "█" in out.stdout + out.stderr
+
+
+def test_it_does_not_appear_when_the_output_is_not_a_terminal():
+    """`./start.sh` pipes through `tee` into var/log, and CI captures everything.
+
+    Block-drawing characters in a log are noise a reader has to scroll past on every
+    run, and they are the first thing to break a grep.
+    """
+    out = _run_start(["--help"], tty=False)
+    assert "█" not in out.stdout + out.stderr
+
+
+def test_the_wordmark_carries_no_credential():
+    """It is the most screenshot-prone surface in the project.
+
+    The launcher already prints a redacted key prefix on the line below; this is the
+    line most likely to be cropped into a build-in-public post, and nothing on it may
+    be a secret.
+    """
+    out = _run_start(["--help"], tty=True)
+    text = out.stdout + out.stderr
+    for marker in ("PK", "AK", "SECRET", "APCA"):
+        banner = "\n".join(ln for ln in text.splitlines() if "█" in ln or "╚" in ln)
+        assert marker not in banner
+
+
+def test_colour_is_dropped_when_asked_but_the_art_is_kept():
+    """NO_COLOR is a request about escape codes, not about output."""
+    out = _run_start(["--help"], tty=True, env={"NO_COLOR": "1"})
+    text = out.stdout + out.stderr
+    assert "█" in text
+    assert "\033[" not in text
+
+
+# --- `watch`: the loop and the panel together -----------------------------------------
+#
+# `./start.sh` is the trading loop and serves nothing, so "the browser did not open"
+# was asked three times about a command that has no page to open. The panel is a
+# separate process on purpose — read-only, restartable mid-run, and unable to reach
+# the broker — and that separation is worth keeping, so this starts both rather than
+# folding a server into the trading process.
+
+def test_watch_is_advertised_and_dispatchable():
+    text = START.read_text()
+    assert re.search(r"^#\s+\./start\.sh watch", text, re.MULTILINE), \
+        "a mode nobody is told about is a mode nobody uses"
+    body = text[text.index('case "$MODE" in'):]
+    assert re.search(r"^\s{2}watch\)", body, re.MULTILINE)
+
+
+def test_watch_starts_both_the_panel_and_the_agent():
+    branch = _mode_branch("watch")
+    assert "panel" in branch, "the panel is the half that has a browser to open"
+    assert "halstreet.agent.run" in branch, "and the agent is the half that trades"
+
+
+def test_watch_stops_the_panel_when_the_agent_stops():
+    """Two processes, one Ctrl-C.
+
+    A panel left running after the loop exits holds :8787 and quietly serves a
+    journal nothing is writing to — which is the state six abandoned panels were
+    already found in, holding the port for a day and a half and blocking the
+    installer.
+    """
+    branch = _mode_branch("watch")
+    assert "trap" in branch, "the panel must not outlive the run that started it"
+
+
+def test_watch_is_the_only_mode_that_starts_a_second_process():
+    """`loop` stays a pure trading process, which is the point of adding a mode
+    rather than changing the one that exists: it still runs headless with no server
+    attached, on a box with no display and nobody watching."""
+    assert "panel" not in _mode_branch("loop")
+
+
+def _mode_branch(mode: str) -> str:
+    text = START.read_text()
+    body = text[text.index('case "$MODE" in'):]
+    start = re.search(rf"^\s{{2}}{mode}\)", body, re.MULTILINE)
+    assert start, f"no {mode}) branch"
+    return body[start.end():body.index(";;", start.end())]
+
+
+# --- Ctrl-C must stop everything, and be able to say so --------------------------
+#
+# Reported live: "ctrl + c is not stopping it". Two things behind that, and the second
+# is the one that hides the first.
+#
+# A cycle over six discovered names is four model calls each — measured at 264 seconds
+# today — and the first press deliberately lets it finish so a structure is never left
+# half-placed. That is right, and it is four and a half minutes of a terminal that looks
+# ignored unless it says otherwise. It does say otherwise: "Ctrl-C again to stop now".
+#
+# Except the message goes through `tee`, and Ctrl-C from a terminal signals the whole
+# foreground process group — `tee` included. With `tee` dead the agent's own shutdown
+# output hits a closed pipe, so the one line explaining what to press next is exactly
+# the line most likely to be lost, and the agent can die on BrokenPipeError instead of
+# stopping cleanly.
+
+def test_the_log_pipe_survives_the_interrupt_that_stops_the_agent():
+    """`tee` must outlive the signal, or the shutdown has nowhere to print."""
+    source = START.read_text()
+    run_line = next(line for line in source.splitlines() if line.startswith("run()"))
+    assert "trap '' INT" in run_line, \
+        "tee is signalled with the agent and takes the shutdown messages with it"
+
+
+def test_watch_kills_the_panel_on_an_interrupt_not_only_at_exit():
+    source = START.read_text()
+    assert "INT TERM" in source
+
+
+def test_the_interrupt_advice_is_where_someone_pressing_it_will_look():
+    """The terminal, not just the log. A person holding Ctrl-C is watching the screen."""
+    source = START.read_text()
+    assert "again" in source.lower()
+
+
+# --- stopping it ------------------------------------------------------------------
+#
+# "How do I kill all processes?" — asked after Ctrl-C left a panel running, because the
+# panel had been started detached and was in nobody's terminal. There was no answer in
+# the script. The nearest was `pkill -f halstreet`, which is a pattern that also matches
+# the shell you type it in.
+
+def test_stop_is_a_mode_and_is_advertised():
+    done = _run_start(["--help"], tty=False)
+    assert "stop" in done.stdout + done.stderr
+
+
+def test_stop_answers_before_anything_that_could_refuse():
+    """It is the command you reach for when things are wrong, so it must run above the
+    credential checks and the venv probe. Anything it depends on is a way for it to fail
+    at exactly the moment it is needed."""
+    source = START.read_text()
+    assert source.index('if [ "$MODE" = "stop" ]') < source.index("Refusing to start")
+
+
+def test_stop_does_not_match_the_shell_that_typed_it():
+    """`pkill -f halstreet` kills the terminal asking the question — which is how this
+    came up. The pattern is the module path under a python interpreter."""
+    source = START.read_text()
+    stop = source[source.index('if [ "$MODE" = "stop" ]'):]
+    stop = stop[:stop.index("\nfi\n")]
+    assert "python.*-m" in stop
+
+
+def test_stop_names_what_it_killed_rather_than_working_silently():
+    source = START.read_text()
+    stop = source[source.index('if [ "$MODE" = "stop" ]'):]
+    assert "say" in stop[:stop.index("\nfi\n")]
+
+
+def test_the_scorecard_script_only_delegates():
+    """Rule 1: scripts/ parses argv and nothing else. The scoring rules belong where a
+    test can reach them without a subprocess."""
+    body = (ROOT / "scripts" / "scorecard.py").read_text()
+    assert "from halstreet.cli.scorecard import main" in body
+    assert "def " not in body
+
+
+def test_start_sh_offers_the_scorecard():
+    """A mode the shell will not dispatch is a mode nobody can run. The case list and
+    the argument allowlist are two places and both have to know."""
+    body = (ROOT / "start.sh").read_text()
+    assert "|scorecard|" in body or "|scorecard)" in body
+    assert "halstreet.cli.scorecard" in body

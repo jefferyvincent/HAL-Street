@@ -23,13 +23,15 @@ htmlcov/
 # node / tauri
 node_modules/
 apps/desktop/dist/
+apps/desktop/.tsbuild/
+apps/desktop/*.tsbuildinfo
 apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/schemas/
 
-# runtime artifacts
-journal/
+# runtime artifacts — everything the agent writes lives under var/
+var/
 *.db
 *.sqlite3
-logs/
 *.log
 
 # models / audio
@@ -39,3 +41,4 @@ models/
 *.pt
 
 .DS_Store
+graphify-out/

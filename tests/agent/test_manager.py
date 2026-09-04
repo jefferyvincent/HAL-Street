@@ -1,0 +1,1074 @@
+"""Exits. The half of the system that decides the P&L number.
+
+Numbers here are taken from the live round trip on 2026-08-26 where possible, so the
+tests describe positions this account actually held.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+from decimal import Decimal
+from pathlib import Path
+
+import pytest
+
+from halstreet.agent.cerebellum.manager import (
+    Action,
+    ExitDecision,
+    ExitPolicy,
+    closing_order,
+    evaluate_exit,
+    exit_levels,
+    mark_structure,
+    review,
+    structure_greeks,
+)
+from halstreet.agent.hippocampus.ledger import Ledger, OpenStructure
+from halstreet.execution.structures import iron_condor, vertical
+
+TODAY = date(2026, 8, 26)
+P755, P760 = "SPY261016P00755000", "SPY261016P00760000"
+C770, C775 = "SPY261016C00770000", "SPY261016C00775000"
+C765 = "SPY261016C00765000"
+
+
+def chain(**mids) -> dict[str, dict]:
+    """A chain whose mids are exactly the values asked for.
+
+    Built with Decimal arithmetic rather than floats: `float(10.78) - 0.02` is
+    10.760000000000002, and that noise propagates straight through the mark into the
+    P&L assertions. Alpaca's own JSON numbers round-trip cleanly through
+    `Decimal(str(x))`, so this is a test-fixture concern rather than a production one —
+    but a fixture that cannot express 4.04 exactly cannot test a $23 loss.
+    """
+    out = {}
+    for sym, m in mids.items():
+        mid = Decimal(str(m))
+        out[sym] = {"latestQuote": {"bp": str(mid - Decimal("0.02")),
+                                    "ap": str(mid + Decimal("0.02"))}}
+    return out
+
+
+@pytest.fixture
+def policy():
+    return ExitPolicy()
+
+
+@pytest.fixture
+def ledger(tmp_path: Path) -> Ledger:
+    return Ledger(path=tmp_path / "l.json")
+
+
+@pytest.fixture
+def condor(ledger):
+    """The condor actually traded: opened for a 4.04 credit, and filled at it.
+
+    Filled explicitly, because `record_open` books on *acceptance* and the exit path
+    only manages what the broker actually gave us. Left unfilled this fixture models a
+    state the exit path can never legitimately see — which is what it was doing, and
+    what the guard added on 2026-08-31 now says out loud.
+    """
+    ledger.record_open(iron_condor("Oct condor", P755, P760, C770, C775), "SPY",
+                       structure_id="c1", entry_price=Decimal("-4.04"))
+    ledger.record_fill("c1", Decimal("-4.04"))
+    return ledger.open_structures[0]
+
+
+@pytest.fixture
+def debit_spread(ledger):
+    """The vertical actually traded: opened for a 2.99 debit."""
+    ledger.record_open(vertical("Oct vertical", C765, C770), "SPY",
+                       structure_id="v1", entry_price=Decimal("2.99"))
+    ledger.record_fill("v1", Decimal("2.99"))
+    return ledger.open_structures[0]
+
+
+# --- expiry beats everything -------------------------------------------------------
+
+def test_forced_close_fires_inside_the_window(condor, policy):
+    d = evaluate_exit(condor, chain(), policy, asof=date(2026, 10, 13))  # 3 DTE
+    assert d.action is Action.CLOSE_BEFORE_EXPIRY
+    assert d.should_close
+    assert "assignment risk" in d.reason
+
+
+def test_forced_close_does_not_need_a_mark(condor, policy):
+    """A position we cannot price is still one we must not carry into expiry."""
+    d = evaluate_exit(condor, {}, policy, asof=date(2026, 10, 14))
+    assert d.action is Action.CLOSE_BEFORE_EXPIRY
+
+
+def test_expiry_is_checked_before_profit(condor, policy):
+    """Deep in profit but 2 DTE: it still closes for expiry, not for profit."""
+    cheap = chain(**{P755: 0.01, P760: 0.02, C770: 0.02, C775: 0.01})
+    d = evaluate_exit(condor, cheap, policy, asof=date(2026, 10, 14))
+    assert d.action is Action.CLOSE_BEFORE_EXPIRY
+
+
+# --- credit structures --------------------------------------------------------------
+
+def test_takes_profit_at_the_target(condor, policy):
+    """Opened for 4.04 credit; buy it back near 2.00 and half the credit is captured."""
+    now = chain(**{P755: 0.50, P760: 1.00, C770: 2.00, C775: 1.00})
+    d = evaluate_exit(condor, now, policy, asof=TODAY)
+    assert d.action is Action.TAKE_PROFIT
+    assert d.unrealized_usd > 0
+    assert "target 50%" in d.reason
+
+
+def test_stops_out_when_the_loss_doubles_the_credit(condor, policy):
+    now = chain(**{P755: 0.20, P760: 1.00, C770: 12.50, C775: 0.30})
+    d = evaluate_exit(condor, now, policy, asof=TODAY)
+    assert d.action is Action.STOP_LOSS
+    assert d.unrealized_usd < 0
+    assert "stop 200%" in d.reason
+
+
+def test_holds_in_between(condor, policy):
+    now = chain(**{P755: 0.60, P760: 1.30, C770: 3.60, C775: 0.90})
+    d = evaluate_exit(condor, now, policy, asof=TODAY)
+    assert d.action is Action.HOLD
+    assert not d.should_close
+
+
+# --- debit structures ---------------------------------------------------------------
+
+def test_debit_spread_profit_is_measured_against_the_premium_paid(debit_spread, policy):
+    """Paid 2.99; worth ~4.60 is a >50% gain on the premium."""
+    d = evaluate_exit(debit_spread, chain(**{C765: 20.00, C770: 15.40}), policy, asof=TODAY)
+    assert d.action is Action.TAKE_PROFIT
+    assert "paid" in d.reason
+
+
+def test_debit_spread_stop_cannot_exceed_the_premium(debit_spread, policy):
+    """A 200% stop on a debit spread can never fire — you cannot lose more than you
+    paid — so a near-worthless spread simply holds to the expiry rule."""
+    d = evaluate_exit(debit_spread, chain(**{C765: 0.10, C770: 0.05}), policy, asof=TODAY)
+    assert d.action is Action.HOLD
+
+
+# --- refusing to act on bad data -----------------------------------------------------
+
+def test_will_not_act_on_a_partial_mark(condor, policy):
+    """Three of four legs is not a mark."""
+    partial = chain(**{P755: 0.50, P760: 1.00, C770: 2.00})
+    d = evaluate_exit(condor, partial, policy, asof=TODAY)
+    assert d.action is Action.UNKNOWN
+    assert not d.should_close
+    assert "partial mark" in d.reason
+
+
+def test_reports_a_missing_entry_price_rather_than_guessing(ledger, policy):
+    # Filled, with no price recorded — a ledger repair case, and the one this branch is
+    # about. Unfilled is a different answer now and is caught before this point.
+    ledger.record_open(vertical("v", C765, C770), "SPY", structure_id="v1")
+    ledger.open_structures[0].entry_filled = True
+    d = evaluate_exit(ledger.open_structures[0], chain(**{C765: 5, C770: 3}),
+                      policy, asof=TODAY)
+    assert d.action is Action.UNKNOWN
+    assert "no entry price" in d.reason
+
+
+def test_mark_reports_which_legs_are_missing(condor):
+    m = mark_structure(condor, chain(**{P755: 0.5, P760: 1.0}))
+    assert not m.complete
+    assert set(m.missing) == {C770, C775}
+
+
+# --- the closing order ----------------------------------------------------------------
+
+def test_closes_a_condor_as_one_four_leg_order(condor):
+    """Legging out of a defined-risk structure re-introduces the risk it bounded."""
+    order = closing_order(condor)
+    assert len(order.legs) == 4
+    assert order.is_multileg
+    assert all(leg.position_intent.value.endswith("_to_close") for leg in order.legs)
+
+
+def test_closing_order_inverts_every_leg(condor):
+    sides = {leg.symbol: leg.side.value for leg in closing_order(condor).legs}
+    assert sides[P755] == "sell"   # was bought
+    assert sides[P760] == "buy"    # was sold
+    assert sides[C770] == "buy"    # was sold
+    assert sides[C775] == "sell"   # was bought
+
+
+def test_closing_order_is_built_from_the_ledger_not_the_broker(condor, ledger):
+    """The broker nets legs across structures; only the ledger knows the grouping."""
+    assert {leg.symbol for leg in closing_order(condor).legs} == set(condor.legs)
+
+
+# --- policy ---------------------------------------------------------------------------
+
+def test_policy_reads_the_environment():
+    p = ExitPolicy.from_env({"TAKE_PROFIT_PCT": "35", "STOP_LOSS_PCT": "150",
+                             "FORCE_CLOSE_DTE": "7"})
+    assert (p.take_profit_pct, p.stop_loss_pct, p.force_close_dte) == (
+        Decimal(35), Decimal(150), 7)
+
+
+def test_warns_when_the_target_is_smaller_than_the_round_trip_cost(policy):
+    """Measured live: a full open->roll->close cycle cost $73.40."""
+    assert policy.sanity_check(Decimal(59)) is not None
+    assert "noise, not edge" in policy.sanity_check(Decimal(59))
+    assert policy.sanity_check(Decimal(800)) is None
+
+
+def test_friction_is_priced_per_leg_not_per_structure():
+    # The original constant was $73.40 — the *total* cost of a verification run that
+    # opened, rolled and closed three separate structures across 16 leg-fills.
+    # Comparing that lump against one structure's per-contract max gain overstated
+    # friction roughly 4x on a condor, and the agent declined trades on the strength
+    # of it.
+    from halstreet.agent.cerebellum.manager import FRICTION_PER_LEG_USD, round_trip_cost
+    assert round_trip_cost(2) == FRICTION_PER_LEG_USD * 2      # ~$15 a spread
+    assert round_trip_cost(4) == FRICTION_PER_LEG_USD * 4      # ~$30 a condor
+    assert round_trip_cost(4, qty=10) == round_trip_cost(4) * 10
+
+
+def test_the_friction_warning_is_size_invariant():
+    # Both the target and the cost scale with quantity, so trading more of a
+    # structure whose edge does not cover its friction must not silence the warning.
+    policy = ExitPolicy(take_profit_pct=Decimal(50))
+    thin = Decimal(14)            # the live QQQ spread: $14 max gain, 2 legs
+    assert policy.sanity_check(thin, legs=2, qty=1) is not None
+    assert policy.sanity_check(thin, legs=2, qty=50) is not None
+    # And a structure that does clear its friction stays quiet at any size.
+    fat = Decimal(180)
+    assert policy.sanity_check(fat, legs=2, qty=1) is None
+    assert policy.sanity_check(fat, legs=4, qty=25) is None
+
+
+def test_more_legs_cost_more_to_get_out_of():
+    policy = ExitPolicy(take_profit_pct=Decimal(50))
+    gain = Decimal(50)            # $25 target at 50%
+    assert policy.sanity_check(gain, legs=2) is None       # $15 to trade — worth it
+    assert policy.sanity_check(gain, legs=4) is not None   # $30 to trade — not
+
+
+def test_review_judges_every_open_structure(ledger, policy, condor, debit_spread):
+    assert len(review(ledger, chain(), policy, asof=TODAY)) == 2
+
+
+# --- the sign convention, pinned ------------------------------------------------------
+
+def test_pnl_is_zero_at_the_moment_of_entry(condor, policy):
+    """mark and entry_price share a convention, so at entry they cancel exactly.
+
+    Regression: negating the mark here reported a profitable debit spread as a 254%
+    loss and would have stopped out every winning position.
+    """
+    at_entry = chain(**{P755: 10.78, P760: 12.28, C770: 14.05, C775: 11.51})
+    d = evaluate_exit(condor, at_entry, policy, asof=TODAY)
+    assert d.mark == Decimal("-4.04")
+    assert d.unrealized_usd == Decimal("0.00")
+    assert d.action is Action.HOLD
+
+
+def test_debit_spread_pnl_matches_the_live_fills(debit_spread, policy):
+    """Bought at 2.99; the real closing fill was 2.84, a $15 loss."""
+    d = evaluate_exit(debit_spread, chain(**{C765: 16.84, C770: 14.00}), policy, asof=TODAY)
+    assert d.mark == Decimal("2.84")
+    assert d.unrealized_usd == Decimal("-15.00")
+
+
+def test_credit_pnl_matches_the_live_condor_round_trip(condor, policy):
+    """Opened for 4.04 credit; the real closing fill was 4.27, a $23 loss."""
+    d = evaluate_exit(condor, chain(**{P755: 0.50, P760: 1.00, C770: 4.87, C775: 1.10}),
+                      policy, asof=TODAY)
+    assert d.mark == Decimal("-4.27")
+    assert d.unrealized_usd == Decimal("-23.00")
+
+
+# --- ordering: exits run before entries -------------------------------------------
+
+def test_exit_review_consults_no_gates():
+    """Exits are never gated. If gates/ ever leaks into this module, say so loudly.
+
+    HAL's risk engine blocks entries only, for the reason that matters here: when the
+    kill switch is latched or the account is in drawdown, you need to be *more* able to
+    close, not less.
+    """
+    import inspect
+
+    from halstreet.agent.cerebellum import manager
+    source = inspect.getsource(manager)
+    assert "from halstreet.gates" not in source
+    assert "evaluate(" not in source
+
+
+# --- exit levels, which the chart draws -------------------------------------------
+
+def _at_long_mark(structure, mark: Decimal) -> dict:
+    """A chain pricing a long-only structure at `mark`. Its whole value is the long."""
+    symbol = next(iter(structure.legs))
+    return {symbol: {"latestQuote": {"bp": str(mark), "ap": str(mark)}}}
+
+
+def _at_mark(structure, mark: Decimal) -> dict:
+    """A chain pricing `structure` at exactly `mark`, with both legs quoted positive.
+
+    mark = mid(long) - mid(short), so the pair is anchored at whichever base keeps
+    both sides above zero. Pinning one leg at a constant instead puts the other
+    negative for large marks, and `mark_structure` refuses a leg with a non-positive
+    ask — which is the *missing data* path, not the threshold path this is testing.
+    """
+    symbols = list(structure.legs)
+    short = next(s for s in symbols if structure.legs[s] < 0)
+    long_ = next(s for s in symbols if structure.legs[s] > 0)
+    base = max(Decimal("0.20"), Decimal("0.20") - mark)
+    short_mid, long_mid = base, base + mark
+
+    def quote(m: Decimal) -> dict:
+        return {"latestQuote": {"bp": str(m - Decimal("0.01")), "ap": str(m + Decimal("0.01"))}}
+
+    return {short: quote(short_mid), long_: quote(long_mid)}
+
+
+@pytest.mark.parametrize("entry", [Decimal("-1.60"), Decimal("-0.75"), Decimal("2.00")])
+def test_levels_agree_with_the_policy_that_acts_on_them(entry):
+    """The chart's lines and the exit's thresholds must be one rule, not two.
+
+    `exit_levels` converts the policy into mark space so it can be drawn; `evaluate_exit`
+    applies it in dollars. Two derivations of one rule is how a chart starts lying while
+    looking confident, so this walks a structure across each boundary and asserts the
+    action flips exactly where the levels say it will.
+    """
+    policy = ExitPolicy()
+    structure = OpenStructure(
+        structure_id="lv", name="spread", underlying="SPY", qty=1,
+        legs={C770: -1, C775: 1}, opened_at="2026-08-26T00:00:00+00:00",
+        # Filled, because a structure under exit management has by definition filled —
+        # the guard added on 2026-08-31 makes that explicit rather than assumed, and
+        # this fixture was modelling a state the exit path can never legitimately see.
+        entry_price=entry, entry_filled=True,
+    )
+    levels = exit_levels(entry, policy)
+    nudge = Decimal("0.02")
+
+    # Direction is the same for credit and debit: take-profit fires as the mark rises
+    # through the target, the stop as it falls through the stop. Only the levels move.
+    assert evaluate_exit(structure, _at_mark(structure, levels.target - nudge), policy,
+                         asof=TODAY).action is not Action.TAKE_PROFIT
+    assert evaluate_exit(structure, _at_mark(structure, levels.target + nudge), policy,
+                         asof=TODAY).action is Action.TAKE_PROFIT
+
+    # A 200% stop on a debit structure is unreachable — you cannot lose more than the
+    # premium you paid — and `Levels.stop_reachable` is how that is now said rather
+    # than left as a gap in this test. Where the stop *can* print, it must print
+    # exactly where the chart draws it.
+    assert levels.stop_reachable == (levels.credit or levels.stop > 0)
+    if levels.stop_reachable:
+        assert evaluate_exit(structure, _at_mark(structure, levels.stop + nudge), policy,
+                             asof=TODAY).action is not Action.STOP_LOSS
+        assert evaluate_exit(structure, _at_mark(structure, levels.stop - nudge), policy,
+                             asof=TODAY).action is Action.STOP_LOSS
+    else:
+        # Clamped to zero: a worthless long structure. The policy does not act here,
+        # and the flag is what stops the chart implying it would.
+        assert levels.stop == 0
+        assert evaluate_exit(structure, _at_mark(structure, Decimal("0.01")), policy,
+                             asof=TODAY).action is not Action.STOP_LOSS
+
+
+def test_levels_do_not_move_with_size():
+    """A target is a price. Trading ten does not change where you get out."""
+    one = exit_levels(Decimal("-1.60"), ExitPolicy())
+    assert one.target == Decimal("-1.60") * Decimal("0.5")
+    assert one.stop == Decimal("-1.60") * Decimal(3)
+
+
+
+# --- a level the market cannot print --------------------------------------------------
+
+def test_a_debit_stop_is_never_a_negative_price():
+    """The chart's half of the unreachable-stop problem.
+
+    `evaluate_exit` simply never fires there, which is correct and was documented. The
+    chart is the half that would have been visibly wrong: the arithmetic puts a 200%
+    stop on a $2.99 debit at **-$2.99**, and a line at a negative price sits off the
+    bottom of an axis whose series never goes below zero. A stop line the market
+    cannot reach is worse than none, because it reads as protection.
+    """
+    levels = exit_levels(Decimal("2.99"), ExitPolicy(
+        take_profit_pct=Decimal(50), stop_loss_pct=Decimal(200), force_close_dte=5))
+    assert levels.stop >= 0, "a long structure's mark cannot go below zero"
+    assert levels.stop == 0, "clamped to worthless, which is the real maximum loss"
+    assert levels.stop_reachable is False
+
+
+def test_a_debit_stop_inside_the_premium_is_reachable_and_exact():
+    # Below 100% the stop is an ordinary level and must stay exact — the clamp must
+    # not round off a stop that can actually print.
+    levels = exit_levels(Decimal("3.00"), ExitPolicy(
+        take_profit_pct=Decimal(50), stop_loss_pct=Decimal(60), force_close_dte=5))
+    assert levels.stop == Decimal("1.20") and levels.stop_reachable is True
+
+
+def test_a_stop_at_exactly_the_whole_premium_is_still_reachable():
+    # 100% is the boundary: the structure expiring worthless is a real outcome the
+    # policy can act on, so zero is reachable rather than clamped.
+    levels = exit_levels(Decimal("2.50"), ExitPolicy(
+        take_profit_pct=Decimal(50), stop_loss_pct=Decimal(100), force_close_dte=5))
+    assert levels.stop == 0 and levels.stop_reachable is True
+
+
+def test_a_credit_stop_has_no_ceiling_and_is_always_reachable():
+    # The short leg can be bought back at any price, so there is no equivalent bound
+    # on this side. The clamp must not touch it.
+    levels = exit_levels(Decimal("-1.00"), ExitPolicy(
+        take_profit_pct=Decimal(50), stop_loss_pct=Decimal(500), force_close_dte=5))
+    assert levels.stop == Decimal(-6) and levels.stop_reachable is True
+
+
+def test_reachability_reaches_the_panel():
+    # The flag is only worth having if the thing that draws the line can see it.
+    levels = exit_levels(Decimal("2.99"), ExitPolicy(
+        take_profit_pct=Decimal(50), stop_loss_pct=Decimal(200), force_close_dte=5))
+    assert levels.to_prompt()["stop_reachable"] is False
+
+
+# --- an order that has not filled is not a position ----------------------------------
+#
+# `entry_price` on an unfilled structure is the limit we *asked* for, not a fill — so
+# the `entry_price is None` guard below does not catch it, and everything after that
+# point marks a phantom position against a price nobody paid. `should_close` then
+# reaches `_close`, which submits a closing order for contracts the account does not
+# hold.
+#
+# Found live on 2026-08-31 with the agent armed and a SPY spread resting unfilled.
+
+def _unfilled(**over):
+    from halstreet.agent.hippocampus.ledger import OpenStructure
+    base = {"structure_id": "abc", "name": "SPY 765/763 put credit spread",
+            "underlying": "SPY", "qty": 2,
+            "legs": {"SPY261016P00765000": -2, "SPY261016P00763000": 2},
+            "opened_at": "2026-08-31T14:15:57+00:00",
+            "entry_price": Decimal("-1.02"), "entry_filled": False}
+    return OpenStructure(**{**base, **over})
+
+
+def _rich_chain() -> dict:
+    """Marks that would look like a large profit against the limit we never paid."""
+    return {
+        "SPY261016P00765000": {"latestQuote": {"bp": 1.0, "ap": 1.1}},
+        "SPY261016P00763000": {"latestQuote": {"bp": 0.9, "ap": 1.0}},
+    }
+
+
+def test_an_unfilled_order_is_never_closed():
+    """The hazard. A closing order for contracts we do not hold either bounces or
+    opens a short — and the second one is worse than the first."""
+    from halstreet.agent.cerebellum.manager import ExitPolicy, evaluate_exit
+
+    out = evaluate_exit(_unfilled(), _rich_chain(), ExitPolicy())
+    assert out.should_close is False
+
+
+def test_it_says_why_rather_than_holding_silently():
+    """A resting order needs cancelling, not closing, and that is a human's call —
+    but nobody makes it if the console never mentions it."""
+    from halstreet.agent.cerebellum.manager import ExitPolicy, evaluate_exit
+
+    out = evaluate_exit(_unfilled(), _rich_chain(), ExitPolicy())
+    assert "fill" in out.reason.lower()
+
+
+def test_the_check_precedes_the_forced_close_at_expiry():
+    """Ordering matters. The expiry branch runs before any mark, so an unfilled order
+    inside the force-close window would be 'closed' — the one path that acts without
+    ever looking at a price."""
+    from halstreet.agent.cerebellum.manager import ExitPolicy, evaluate_exit
+
+    near = _unfilled(legs={"SPY260901P00765000": -2, "SPY260901P00763000": 2})
+    assert evaluate_exit(near, {}, ExitPolicy()).should_close is False
+
+
+def test_a_filled_structure_is_judged_exactly_as_before():
+    """The guard must not become a reason to stop managing the book."""
+    from halstreet.agent.cerebellum.manager import ExitPolicy, evaluate_exit
+
+    out = evaluate_exit(_unfilled(entry_filled=True), _rich_chain(), ExitPolicy())
+    assert out.should_close is True, "deep in profit against a real fill"
+
+
+# --- holding out for a hundred dollars -----------------------------------------------
+#
+# The percentage target is a fraction of whatever the structure happened to be worth, so
+# a spread carrying $151 of credit gets closed for $75. The rest of it was there and the
+# percentage was the only reason to settle — that is money left on the table.
+#
+# So the figure raises the target rather than adding a second trigger. The first version
+# of this had it backwards and would have closed the $151 spread at $75.50, which is the
+# exact behaviour it was asked to stop. A structure that cannot reach the figure keeps
+# its percentage target, because a floor nothing can clear holds every small winner to
+# expiry; a structure whose percentage already asks for more keeps that too.
+
+def _credit_at(tmp_path, entry, mark, *, qty=1, usd=None, pct=50):
+    """One filled credit structure, marked, under a policy with an absolute target."""
+    policy = ExitPolicy(take_profit_pct=Decimal(pct), take_profit_usd=usd)
+    led = Ledger(path=tmp_path / "a.json")
+    led.record_open(vertical("Oct spread", P755, P760, qty=qty), "SPY",
+                    structure_id="a1", entry_price=Decimal(entry))
+    led.record_fill("a1", Decimal(entry))
+    s = led.open_structures[0]
+    # A net of `mark` across the two legs, priced so nothing is missing.
+    base = Decimal("20.00")
+    chain = {P760: {"latestQuote": {"bp": str(base), "ap": str(base)}},
+             P755: {"latestQuote": {"bp": str(base + Decimal(mark)),
+                                    "ap": str(base + Decimal(mark))}}}
+    return evaluate_exit(s, chain, policy, asof=date(2026, 9, 1))
+
+
+def test_a_reachable_figure_is_held_out_for_rather_than_settled_below(tmp_path):
+    """The live QQQ case: $151 of credit, up $75.50, which is the 50% target exactly.
+    Without the floor this closes; with it the position keeps working."""
+    d = _credit_at(tmp_path, "-1.51", "-0.755", usd=Decimal(100))
+    assert d.action is Action.HOLD
+
+
+def test_and_closed_once_the_figure_is_actually_reached(tmp_path):
+    d = _credit_at(tmp_path, "-1.51", "-0.51", usd=Decimal(100))
+    assert d.action is Action.TAKE_PROFIT
+    assert "target $100.00" in d.reason
+
+
+def test_a_structure_too_small_to_reach_it_keeps_its_percentage(tmp_path):
+    """The 733/731 case: $22 of credit can never make $100. A floor nothing can clear
+    would hold every small winner to expiry."""
+    d = _credit_at(tmp_path, "-0.22", "-0.11", usd=Decimal(100))
+    assert d.action is Action.TAKE_PROFIT
+    assert "target 50%" in d.reason
+
+
+def test_a_percentage_that_already_asks_for_more_is_not_dragged_down_to_it(tmp_path):
+    """$1,000 of credit: half of it is $500. Settling for $100 there is the same
+    mistake in the other direction."""
+    d = _credit_at(tmp_path, "-10.00", "-8.50", usd=Decimal(100))
+    assert d.action is Action.HOLD
+
+
+def test_no_figure_configured_changes_nothing(tmp_path):
+    d = _credit_at(tmp_path, "-1.51", "-0.755", usd=None)
+    assert d.action is Action.TAKE_PROFIT
+
+
+def test_the_figure_counts_the_whole_position_not_one_contract(tmp_path):
+    """Three contracts of a $50-credit spread can make $150, so the figure is reachable
+    and governs. One contract cannot, and keeps its percentage."""
+    one = _credit_at(tmp_path, "-0.50", "-0.25", qty=1, usd=Decimal(100))
+    three = _credit_at(tmp_path, "-0.50", "-0.25", qty=3, usd=Decimal(100))
+    assert one.action is Action.TAKE_PROFIT       # 50% of $50
+    assert three.action is Action.HOLD            # $75 of a reachable $100
+
+
+def test_a_loss_is_never_read_as_reaching_the_target(tmp_path):
+    d = _credit_at(tmp_path, "-3.00", "-4.00", usd=Decimal(100))
+    assert d.action is not Action.TAKE_PROFIT
+
+
+# --- and the chart has to agree with it ----------------------------------------------
+
+def test_the_drawn_target_follows_the_figure_when_it_governs():
+    """The chart's whole claim is that it cannot disagree with the policy. A target the
+    exit raised without moving the line would break exactly that."""
+    policy = ExitPolicy(take_profit_pct=Decimal(50), take_profit_usd=Decimal(100))
+    # $151 credit: 50% is $75.50, so the figure governs and the line sits further out.
+    assert exit_levels(Decimal("-1.51"), policy, qty=1).target == Decimal("-0.51")
+
+
+def test_the_drawn_target_stays_the_percentage_when_the_figure_is_unreachable():
+    policy = ExitPolicy(take_profit_pct=Decimal(50), take_profit_usd=Decimal(100))
+    assert exit_levels(Decimal("-0.22"), policy, qty=1).target == Decimal("-0.11")
+
+
+def test_the_drawn_target_scales_with_quantity():
+    """$100 across three contracts is a third of the move it is across one, so the line
+    sits nearer the entry — the one place quantity does not cancel."""
+    policy = ExitPolicy(take_profit_pct=Decimal(50), take_profit_usd=Decimal(100))
+    target = exit_levels(Decimal("-0.50"), policy, qty=3).target
+    assert target == Decimal("-0.1666666666666666666666666667")
+
+
+# --- keeping what was already made ----------------------------------------------------
+#
+# A position up $120 that drifts back to $30 and then to a loss made every dollar of that
+# gain and kept none of it. The target rules cannot help: they only ever fire on the way
+# up, and this is a failure on the way down.
+#
+# So the ledger remembers the best each position has been, and the policy will not let a
+# gain of consequence evaporate. Two things stop that becoming a hair trigger: the peak
+# is a *previous* cycle's reading, never the current one — a new high is not a giveback —
+# and the ratchet does not arm until the peak clears what the round trip costs, or every
+# position closes on the first tick of noise.
+
+def _ratchet(tmp_path, entry, mark, *, peak=None, qty=1, giveback=50):
+    policy = ExitPolicy(take_profit_pct=Decimal(50), take_profit_usd=Decimal(100),
+                        giveback_pct=Decimal(giveback))
+    led = Ledger(path=tmp_path / "r.json")
+    led.record_open(vertical("Oct spread", P755, P760, qty=qty), "SPY",
+                    structure_id="r1", entry_price=Decimal(entry))
+    led.record_fill("r1", Decimal(entry))
+    s = led.open_structures[0]
+    if peak is not None:
+        s.peak_usd = Decimal(peak)
+    base = Decimal("20.00")
+    chain = {P760: {"latestQuote": {"bp": str(base), "ap": str(base)}},
+             P755: {"latestQuote": {"bp": str(base + Decimal(mark)),
+                                    "ap": str(base + Decimal(mark))}}}
+    return evaluate_exit(s, chain, policy, asof=date(2026, 9, 1))
+
+
+def test_a_gain_that_has_given_back_half_is_taken(tmp_path):
+    """Up $120 at its best, now $55. The trade was right and the exit is late; taking
+    $55 beats watching it become nothing."""
+    d = _ratchet(tmp_path, "-1.51", "-0.96", peak="120")
+    assert d.action is Action.TAKE_PROFIT
+    assert "$120" in d.reason and "gave back" in d.reason
+
+
+def test_a_position_at_a_new_high_is_not_giving_anything_back(tmp_path):
+    d = _ratchet(tmp_path, "-1.51", "-0.31", peak="100")
+    assert d.action is not Action.TAKE_PROFIT or "gave back" not in d.reason
+
+
+def test_noise_below_the_cost_of_the_round_trip_does_not_arm_it(tmp_path):
+    """A peak of $8 on a two-leg structure is inside the spread. Closing on that pays
+    $15 of friction to protect $8, which is not protection."""
+    d = _ratchet(tmp_path, "-1.51", "-1.49", peak="8")
+    assert d.action is Action.HOLD
+
+
+def test_a_position_that_has_never_been_up_is_left_to_its_stop(tmp_path):
+    """No peak, nothing to protect. The stop is the rule that governs a losing position
+    and the ratchet must not quietly become a tighter one."""
+    d = _ratchet(tmp_path, "-1.51", "-1.60", peak=None)
+    assert d.action is Action.HOLD
+
+
+def test_the_ratchet_never_closes_a_position_that_is_down(tmp_path):
+    """Giving back a gain and taking a loss are different acts. Closing here would book
+    a real loss under a rule whose whole purpose is protecting a profit."""
+    d = _ratchet(tmp_path, "-1.51", "-1.80", peak="120")
+    assert d.action is not Action.TAKE_PROFIT
+
+
+def test_no_giveback_configured_changes_nothing(tmp_path):
+    policy = ExitPolicy(take_profit_usd=Decimal(100), giveback_pct=None)
+    led = Ledger(path=tmp_path / "n.json")
+    led.record_open(vertical("Oct spread", P755, P760), "SPY",
+                    structure_id="n1", entry_price=Decimal("-1.51"))
+    led.record_fill("n1", Decimal("-1.51"))
+    s = led.open_structures[0]
+    s.peak_usd = Decimal(120)
+    chain = {P760: {"latestQuote": {"bp": "20.00", "ap": "20.00"}},
+             P755: {"latestQuote": {"bp": "19.04", "ap": "19.04"}}}
+    assert evaluate_exit(s, chain, policy, asof=date(2026, 9, 1)).action is Action.HOLD
+
+
+def test_the_peak_is_remembered_across_cycles(tmp_path):
+    """The ledger is the only thing that survives a restart, so the high-water mark has
+    to live there — held in memory it resets every time the agent is bounced, which is
+    exactly when a position is most likely to be sitting on an unprotected gain."""
+    led = Ledger(path=tmp_path / "p.json")
+    led.record_open(vertical("Oct spread", P755, P760), "SPY",
+                    structure_id="p1", entry_price=Decimal("-1.51"))
+    led.record_fill("p1", Decimal("-1.51"))
+    assert led.record_peak("p1", Decimal(80)) is True
+    assert Ledger.load(str(led.path)).open_structures[0].peak_usd == Decimal(80)
+
+
+def test_a_lower_reading_never_lowers_the_peak(tmp_path):
+    """It is a high-water mark. A ratchet that ratchets both ways is a moving average
+    with extra steps, and it would never trigger."""
+    led = Ledger(path=tmp_path / "q.json")
+    led.record_open(vertical("Oct spread", P755, P760), "SPY",
+                    structure_id="q1", entry_price=Decimal("-1.51"))
+    led.record_fill("q1", Decimal("-1.51"))
+    led.record_peak("q1", Decimal(80))
+    assert led.record_peak("q1", Decimal(30)) is False
+    assert Ledger.load(str(led.path)).open_structures[0].peak_usd == Decimal(80)
+
+
+class TestStructureGreeks:
+    """Net delta and vega for one held structure, for the position screen.
+
+    Separate from `portfolio_greek_bounds`, which sums the whole book including a
+    proposal that has not been placed. This answers a different question — what is
+    *this* position doing — and it answers it in the same units the gate does, because
+    two conventions for "net delta" on one screen is how a reader learns to distrust
+    both.
+    """
+
+    def _chain(self, **greeks: object) -> dict[str, dict]:
+        return {symbol: {"greeks": value} for symbol, value in greeks.items()}
+
+    def _held(self, legs: dict[str, int], qty: int) -> OpenStructure:
+        return OpenStructure(
+            structure_id="g1", name="spread", underlying="SPY", qty=qty, legs=legs,
+            opened_at="2026-08-26T00:00:00+00:00", entry_price=Decimal("-1.60"),
+            entry_filled=True,
+        )
+
+    def test_delta_is_in_share_equivalents(self):
+        """×100, like the gate. `MAX_NET_DELTA=50` silently meaning 5,000 shares is a
+        bug this project already had once; the panel must not reintroduce the units it
+        was fixed to."""
+        structure = self._held({C770: -1}, qty=2)
+        chain = self._chain(**{C770: {"delta": "0.31", "vega": "0.44"}})
+
+        greeks = structure_greeks(structure, chain)
+
+        assert greeks.complete
+        assert greeks.delta == Decimal(-62)     # -0.31 x 2 contracts x 100
+        assert greeks.vega == Decimal("-0.88")    # vega is per contract, not per share
+
+    def test_sums_the_legs_with_their_signs(self):
+        structure = self._held({C770: -1, C775: 1}, qty=1)
+        chain = self._chain(**{C770: {"delta": "0.40", "vega": "0.50"},
+                               C775: {"delta": "0.25", "vega": "0.45"}})
+
+        greeks = structure_greeks(structure, chain)
+
+        assert greeks.delta == Decimal(-15)     # (-0.40 + 0.25) x 100
+        assert greeks.vega == Decimal("-0.05")
+
+    def test_reports_a_missing_greek_rather_than_treating_it_as_zero(self):
+        """Fails closed, like the gate. A leg with no greeks does not contribute zero
+        exposure — it contributes an unknown one, and a net that quietly omitted it
+        would read as a smaller position than the account is actually carrying."""
+        structure = self._held({C770: -1, C775: 1}, qty=1)
+        chain = self._chain(**{C770: {"delta": "0.40", "vega": "0.50"}})
+
+        greeks = structure_greeks(structure, chain)
+
+        assert not greeks.complete
+        assert greeks.missing == (C775,)
+
+    def test_a_greek_present_but_unreadable_counts_as_missing(self):
+        structure = self._held({C770: -1}, qty=1)
+        chain = self._chain(**{C770: {"delta": "0.40", "vega": None}})
+
+        assert not structure_greeks(structure, chain).complete
+
+
+class TestScalpFrictionFloor:
+    """A scalp must clear what it costs to take.
+
+    Faster profit-taking is the whole point of scalping, and it is also how a strategy
+    quietly pays its edge away: at $7.50 a leg, a two-leg spread costs $15 to round
+    trip, so a $12 target is a losing trade that reports as a win. The floor raises the
+    target rather than blocking the trade — the position is held a little longer, which
+    is the only thing that actually fixes it.
+    """
+
+    def test_no_multiple_set_leaves_the_target_alone(self):
+        policy = ExitPolicy(take_profit_pct=Decimal(25), take_profit_usd=None)
+        assert policy.profit_target_usd(Decimal(400), legs=2, qty=1) == Decimal(100)
+
+    def test_raises_a_target_that_would_not_cover_the_round_trip(self):
+        # 10% of $200 is $20, against $15 of friction on a two-leg spread. At 2x the
+        # floor is $30, so the position is held for $30 rather than closed for $20.
+        policy = ExitPolicy(take_profit_pct=Decimal(10),
+                            scalp_friction_multiple=Decimal(2))
+        assert policy.profit_target_usd(Decimal(200), legs=2, qty=1) == Decimal(30)
+
+    def test_leaves_a_target_that_already_clears_it(self):
+        """A floor is not a ceiling. The same mistake in the other direction would cap
+        every winner at twice its friction."""
+        policy = ExitPolicy(take_profit_pct=Decimal(50),
+                            scalp_friction_multiple=Decimal(2))
+        assert policy.profit_target_usd(Decimal(400), legs=2, qty=1) == Decimal(200)
+
+    def test_the_floor_scales_with_legs_and_size(self):
+        """Friction is per leg per contract, so a condor's floor is twice a spread's
+        and two contracts' is twice one's. A floor that ignored size would be wrong in
+        exactly the direction that talks the agent into marginal trades."""
+        policy = ExitPolicy(take_profit_pct=Decimal(1),
+                            scalp_friction_multiple=Decimal(1))
+        assert policy.profit_target_usd(Decimal(1000), legs=2, qty=1) == Decimal(15)
+        assert policy.profit_target_usd(Decimal(1000), legs=4, qty=1) == Decimal(30)
+        assert policy.profit_target_usd(Decimal(1000), legs=2, qty=2) == Decimal(30)
+
+    def test_never_asks_for_more_than_the_structure_can_make(self):
+        """A floor above max gain is a position held to expiry, which is the opposite
+        of scalping. It gives way to the percentage rather than becoming unreachable."""
+        policy = ExitPolicy(take_profit_pct=Decimal(50),
+                            scalp_friction_multiple=Decimal(10))
+        assert policy.profit_target_usd(Decimal(40), legs=4, qty=1) == Decimal(20)
+
+    def test_without_legs_the_floor_cannot_be_applied(self):
+        """Backwards compatible on purpose: a caller that does not know the leg count
+        gets the old answer rather than a guessed one."""
+        policy = ExitPolicy(take_profit_pct=Decimal(10),
+                            scalp_friction_multiple=Decimal(2))
+        assert policy.profit_target_usd(Decimal(200)) == Decimal(20)
+
+
+class TestFlattenBeforeTheClose:
+    """Whether a position may be carried through the session close.
+
+    The rule the competition asked for: **flat overnight unless the position has
+    earned the hold.** It is deliberately a veto rather than a reason to close — the
+    profit target, the stop and the expiry window all still fire first and are reported
+    as themselves, because "flattened overnight" on a position that hit its target
+    would name the wrong rule for the money.
+
+    The three vetoes are the whole policy: a losing position, a scheduled event before
+    the next session, and a calendar that could not be read. The last one is the reason
+    this is not a two-branch function — not knowing whether there is an event overnight
+    is not the same as knowing there is none, and only one of those is safe to hold
+    through.
+    """
+
+    POLICY = ExitPolicy(flatten_before_close_min=15)
+
+    def _spread(self, entry: Decimal = Decimal("-1.60")) -> OpenStructure:
+        return OpenStructure(
+            structure_id="on", name="spread", underlying="SPY", qty=1,
+            legs={C770: -1, C775: 1}, opened_at="2026-08-26T00:00:00+00:00",
+            entry_price=entry, entry_filled=True,
+        )
+
+    def _long(self, entry: Decimal = Decimal("2.00")) -> OpenStructure:
+        """A structure with nothing short in it — the only kind that can earn a hold."""
+        return OpenStructure(
+            structure_id="ln", name="long call", underlying="SPY", qty=1,
+            legs={C770: 1}, opened_at="2026-08-26T00:00:00+00:00",
+            entry_price=entry, entry_filled=True,
+        )
+
+    def _decide(self, mark: Decimal, *, minutes: float | None = 10,
+                event: bool | None = False, policy: ExitPolicy | None = None):
+        structure = self._spread()
+        return evaluate_exit(structure, _at_mark(structure, mark), policy or self.POLICY,
+                             asof=TODAY, minutes_to_close=minutes,
+                             event_before_next_session=event)
+
+    def _decide_long(self, mark: Decimal, *, minutes: float | None = 10,
+                     event: bool | None = False, policy: ExitPolicy | None = None):
+        structure = self._long()
+        return evaluate_exit(structure, _at_long_mark(structure, mark),
+                             policy or self.POLICY, asof=TODAY,
+                             minutes_to_close=minutes, event_before_next_session=event)
+
+    def test_a_short_leg_is_flattened_however_well_it_is_doing(self):
+        """The rule that changed on 2026-09-02. This used to hold a winner overnight on
+        a clear calendar, and the position it held was short an option — the one thing
+        the gap cannot be managed through, because it arrives already having happened.
+        No amount of unrealized profit is an argument for being short into it."""
+        decision = self._decide(Decimal("-1.20"))
+        assert decision.action is Action.FLATTEN_OVERNIGHT
+        assert "short" in decision.reason
+
+    def test_a_long_only_structure_may_still_earn_the_hold(self):
+        """Nothing is short, so the whole risk is premium already paid and the gap can
+        only take what was staked. The three vetoes still apply to it."""
+        decision = self._decide_long(Decimal("2.60"))
+        assert decision.action is Action.HOLD
+        assert "held through the close" in decision.reason
+
+    def test_a_short_leg_that_cannot_be_priced_is_still_flattened(self):
+        """The hole the old ordering left. An unmarkable position returned UNKNOWN long
+        before the sweep was reached, so the one structure nobody could put a number on
+        was the one carried through the gap. Closing needs no mark."""
+        structure = self._spread()
+        decision = evaluate_exit(structure, {}, self.POLICY, asof=TODAY,
+                                 minutes_to_close=10, event_before_next_session=False)
+        assert decision.action is Action.FLATTEN_OVERNIGHT
+
+    def test_a_short_leg_with_no_entry_price_is_still_flattened(self):
+        structure = self._spread()
+        structure.entry_price = None
+        decision = evaluate_exit(structure, _at_mark(structure, Decimal("-1.20")),
+                                 self.POLICY, asof=TODAY, minutes_to_close=10,
+                                 event_before_next_session=False)
+        assert decision.action is Action.FLATTEN_OVERNIGHT
+
+    def test_a_working_order_is_never_flattened(self):
+        """It is not a position. Closing it would sell contracts the account does not
+        hold — the working order wants cancelling, which is a different act."""
+        structure = self._spread()
+        structure.entry_filled = False
+        decision = evaluate_exit(structure, {}, self.POLICY, asof=TODAY,
+                                 minutes_to_close=10, event_before_next_session=False)
+        assert decision.action is Action.UNKNOWN
+
+    def test_flattens_a_position_that_is_down(self):
+        """A loser is not positive data. This is the case the rule exists for: the
+        overnight gap is the tail risk, and a position already going the wrong way is
+        the worst thing to carry into it."""
+        decision = self._decide_long(Decimal("1.40"))
+        assert decision.action is Action.FLATTEN_OVERNIGHT
+        assert "down" in decision.reason
+
+    def test_flattens_a_winner_with_an_event_before_the_next_session(self):
+        decision = self._decide_long(Decimal("2.60"), event=True)
+        assert decision.action is Action.FLATTEN_OVERNIGHT
+        assert "event" in decision.reason
+
+    def test_an_unreadable_calendar_flattens_rather_than_assuming_a_quiet_night(self):
+        """Fails closed, like every gate. A hole in the calendar poisons the window —
+        it must never read as "no events"."""
+        decision = self._decide_long(Decimal("2.60"), event=None)
+        assert decision.action is Action.FLATTEN_OVERNIGHT
+        assert "could not be read" in decision.reason
+
+    def test_does_not_arm_outside_the_window(self):
+        decision = self._decide(Decimal("-2.10"), minutes=120)
+        assert decision.action is Action.HOLD
+
+    def test_does_not_arm_without_a_clock(self):
+        """No reading from the broker's clock means the sweep never runs, rather than
+        running against a guess about what time it is."""
+        decision = self._decide(Decimal("-2.10"), minutes=None)
+        assert decision.action is Action.HOLD
+
+    def test_does_not_arm_when_the_policy_is_off(self):
+        decision = self._decide(Decimal("-2.10"), policy=ExitPolicy())
+        assert decision.action is Action.HOLD
+
+    def test_the_profit_target_still_names_itself(self):
+        """At the target the money came from the target, not from the bell. A decision
+        that named the sweep would put the wrong rule in the journal."""
+        decision = self._decide(Decimal("-0.70"))
+        assert decision.action is Action.TAKE_PROFIT
+
+    def test_the_stop_still_names_itself(self):
+        decision = self._decide(Decimal("-4.90"))
+        assert decision.action is Action.STOP_LOSS
+
+    def test_expiry_still_wins_over_everything(self):
+        structure = self._spread()
+        decision = evaluate_exit(structure, _at_mark(structure, Decimal("-1.20")),
+                                 self.POLICY, asof=date(2026, 10, 14),
+                                 minutes_to_close=5, event_before_next_session=False)
+        assert decision.action is Action.CLOSE_BEFORE_EXPIRY
+
+
+@pytest.mark.parametrize("entry", [Decimal("-1.60"), Decimal("-0.75")])
+def test_levels_agree_with_the_policy_when_the_scalp_floor_is_raising_the_target(entry):
+    """The chart may not disagree with the exit about where a scalp closes.
+
+    `exit_levels` used to early-out on `take_profit_usd is None`, which was true while
+    that was the only rule that could move the target off the percentage. The friction
+    floor is a second one, and a level function that did not know about it would draw
+    the target line at 25% while the exit fired at $30 — the exact failure the pinning
+    test above exists to prevent, reintroduced by a setting added later.
+    """
+    policy = ExitPolicy(take_profit_pct=Decimal(10), scalp_friction_multiple=Decimal(2))
+    structure = OpenStructure(
+        structure_id="sc", name="spread", underlying="SPY", qty=1,
+        legs={C770: -1, C775: 1}, opened_at="2026-08-26T00:00:00+00:00",
+        entry_price=entry, entry_filled=True,
+    )
+    levels = exit_levels(entry, policy, qty=1, legs=2)
+    nudge = Decimal("0.02")
+
+    assert evaluate_exit(structure, _at_mark(structure, levels.target - nudge), policy,
+                         asof=TODAY).action is not Action.TAKE_PROFIT
+    assert evaluate_exit(structure, _at_mark(structure, levels.target + nudge), policy,
+                         asof=TODAY).action is Action.TAKE_PROFIT
+
+
+class TestReviewCarriesTheOvernightFacts:
+    """`review` walks the book; the overnight facts are per underlying, not per book.
+
+    One clock reading covers every position — the session closes once — but the events
+    calendar answers per name, so the mapping has to arrive keyed and be dispatched
+    correctly. Getting this wrong would be invisible: every position would still get
+    *an* answer, just possibly another name's.
+    """
+
+    def _book(self, ledger: Ledger) -> Ledger:
+        """Two long-only positions, one per name.
+
+        Long-only deliberately: a short leg is flattened whatever the calendar says, so
+        a book of credit spreads cannot show that the events map was dispatched by name
+        at all — every row would flatten and the test would pass with the mapping wired
+        backwards.
+        """
+        pairs = (("a", "SPY", C775, C770), ("b", "QQQ", "QQQ261016C00775000",
+                                            "QQQ261016C00765000"))
+        for sid, underlying, long_, short in pairs:
+            ledger.record_open(vertical(f"{underlying} spread", long_, short),
+                               underlying, structure_id=sid,
+                               entry_price=Decimal("2.00"))
+            ledger.record_fill(sid, Decimal("2.00"))
+            ledger.structures[-1].legs = {long_: 1}
+        return ledger
+
+    def test_each_structure_is_judged_against_its_own_underlying(self, ledger):
+        book = self._book(ledger)
+        policy = ExitPolicy(flatten_before_close_min=15)
+        chain = {}
+        for structure in book.open_structures:
+            chain.update(_at_long_mark(structure, Decimal("2.60")))
+
+        decisions = review(book, chain, policy, asof=TODAY, minutes_to_close=5,
+                           events_by_underlying={"SPY": False, "QQQ": True})
+
+        by_id = {d.structure.structure_id: d for d in decisions}
+        assert by_id["a"].action is Action.HOLD
+        assert by_id["b"].action is Action.FLATTEN_OVERNIGHT
+
+    def test_an_underlying_the_map_never_answered_for_fails_closed(self, ledger):
+        """A name missing from the mapping is a name the calendar did not answer for,
+        which is the unknown case and not the clear one."""
+        book = self._book(ledger)
+        policy = ExitPolicy(flatten_before_close_min=15)
+        chain = {}
+        for structure in book.open_structures:
+            chain.update(_at_long_mark(structure, Decimal("2.60")))
+
+        decisions = review(book, chain, policy, asof=TODAY, minutes_to_close=5,
+                           events_by_underlying={"SPY": False})
+
+        by_id = {d.structure.structure_id: d for d in decisions}
+        assert by_id["b"].action is Action.FLATTEN_OVERNIGHT
+        assert "could not be read" in by_id["b"].reason
+
+    def test_a_short_leg_ignores_the_map_altogether(self, ledger):
+        """The map decides a long-only hold. It has no say over a short option, which
+        is flattened on the clearest calendar there is."""
+        ledger.record_open(vertical("SPY spread", C775, C770), "SPY",
+                           structure_id="s", entry_price=Decimal("-1.60"))
+        ledger.record_fill("s", Decimal("-1.60"))
+        structure = ledger.open_structures[0]
+        decisions = review(ledger, _at_mark(structure, Decimal("-1.20")),
+                           ExitPolicy(flatten_before_close_min=15), asof=TODAY,
+                           minutes_to_close=5, events_by_underlying={"SPY": False})
+        assert decisions[0].action is Action.FLATTEN_OVERNIGHT
+
+
+class TestEveryClosingActionActuallyCloses:
+    """`should_close` is what turns a decision into an order. A decision the loop never
+    acts on is worse than no decision: it is journalled, it reads as a rule that fired,
+    and the position is still there in the morning.
+
+    Pinned against the enum rather than listed, so an action added later cannot join
+    the silent half by omission — which is exactly what happened when
+    `FLATTEN_OVERNIGHT` was added and the whole suite stayed green.
+    """
+
+    def test_flattening_overnight_places_an_order(self):
+        structure = OpenStructure(
+            structure_id="fo", name="spread", underlying="SPY", qty=1,
+            legs={C770: -1, C775: 1}, opened_at="2026-08-26T00:00:00+00:00",
+            entry_price=Decimal("-1.60"), entry_filled=True,
+        )
+        decision = evaluate_exit(
+            structure, _at_mark(structure, Decimal("-2.10")),
+            ExitPolicy(flatten_before_close_min=15), asof=TODAY,
+            minutes_to_close=5, event_before_next_session=False,
+        )
+        assert decision.action is Action.FLATTEN_OVERNIGHT
+        assert decision.should_close
+
+    def test_every_action_is_either_closing_or_deliberately_not(self):
+        """The two that do not close are the two that are not decisions: holding, and
+        not knowing. Everything else is an instruction to get out."""
+        holds = {Action.HOLD, Action.UNKNOWN}
+        for action in Action:
+            decision = ExitDecision(None, action, "")
+            assert decision.should_close is (action not in holds), action

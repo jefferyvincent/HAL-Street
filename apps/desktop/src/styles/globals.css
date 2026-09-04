@@ -1,0 +1,184 @@
+/* The panel's palette and the two faces it is set in. Tailwind v4 keeps design tokens
+   in CSS rather than a config file, so this is the whole theme — a colour that is not
+   here does not exist in the panel. */
+
+@import "tailwindcss";
+
+@theme {
+  --color-void: #0b0d0e;
+  --color-chrome: #000000;
+  --color-panel: #14181b;
+  --color-sunk: #0e1113;
+  --color-raise: #1b2126;
+  --color-line: #23292e;
+  --color-line-soft: #1f252a;
+  --color-edge: #2f3843;
+  --color-ink: #e9edf0;
+  --color-amber: #e8a33d;
+  --color-pass: #21d07a;
+  --color-fail: #ff4d4f;
+  --color-fail-ink: #ff8a8c;
+  --color-agent: #4fc3f7;
+
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+@layer base {
+  html,
+  body {
+    height: 100%;
+  }
+  body {
+    /* Explicit, not inherited: the Tauri window paints its own ground behind this. */
+    background: var(--color-void);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Icons sit in flex rows beside text that is allowed to shrink; they are not. */
+  svg {
+    flex: none;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-amber);
+    outline-offset: 1px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/*
+ * The news strip.
+ *
+ * The track holds two copies of the feed, so translating it by exactly half its own
+ * width lands the second copy where the first began and the loop has no seam.
+ * Percentage of the *element* rather than of the viewport, which is why the duration
+ * is generous — the track is as wide as the day's news and a fixed duration would
+ * read a short feed at a crawl and a long one at a blur.
+ *
+ * Paused on hover, because a headline you cannot finish reading is decoration. And
+ * stopped outright for anyone who asked for less motion: a marquee is close to the
+ * top of the list of things that setting exists for.
+ */
+@keyframes ticker {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+.ticker-track {
+  animation: ticker 90s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track {
+    animation: none;
+  }
+  /*
+   * The scroll belongs on the clipping parent, not on the track. The track is
+   * `w-max` — sized to its own content — so it never overflows itself, and
+   * `overflow-x` on it scrolls nothing at all. Anyone who asked for less motion got
+   * a strip frozen at its first headline with no way to reach the rest.
+   */
+  .ticker-viewport {
+    overflow-x: auto;
+  }
+}
+
+/*
+ * The placeholder for something still being fetched.
+ *
+ * A pulse rather than a sweeping gradient: the bars it stands in for are small, and a
+ * gradient travelling across a sixty-pixel block is a smear. Opacity also degrades
+ * honestly when the animation is off — the block is still visibly a gap.
+ */
+@keyframes shimmer {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 0.85; }
+}
+
+.shimmer {
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
+/*
+ * A figure lighting for a moment when it moves.
+ *
+ * A background wash rather than a colour change on the text: the text colour already
+ * means something else — whether the position is winning — and borrowing it for
+ * direction would make one signal carry two claims that routinely disagree.
+ *
+ * Off entirely under reduced motion. A figure that flashes is the definition of what
+ * that setting is asking not to see, and nothing is lost: the number is still there
+ * and still correct.
+ */
+@keyframes flash-up {
+  from { background-color: rgb(33 208 122 / 0.30); }
+  to   { background-color: rgb(33 208 122 / 0); }
+}
+
+@keyframes flash-down {
+  from { background-color: rgb(255 77 79 / 0.30); }
+  to   { background-color: rgb(255 77 79 / 0); }
+}
+
+.flash-up   { animation: flash-up 900ms ease-out; }
+.flash-down { animation: flash-down 900ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  .flash-up, .flash-down { animation: none; }
+}
+
+/*
+ * The committee desk while it is sitting.
+ *
+ * Borrowed from HAL's cognition roster, which is what this was asked to look like: an
+ * opacity pulse on the seat that is working, and a slow breathe on the row around it.
+ * Both are opacity and shadow only — nothing here moves an element, so a long-running
+ * stage does not become a thing crawling across the screen in the corner of your eye.
+ *
+ * Stopped outright for anyone who asked for less motion. What they lose is decoration:
+ * the seat still says "working" in words, and the bar still shows how far along it is.
+ */
+@keyframes desk-dot {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 1; }
+}
+
+.desk-dot {
+  animation: desk-dot 1s ease-in-out infinite;
+}
+
+@keyframes desk-busy {
+  0%, 100% { box-shadow: inset 2px 0 0 hsl(38 90% 55% / 0.35); }
+  50%      { box-shadow: inset 2px 0 0 hsl(38 90% 55% / 0.9); }
+}
+
+.desk-busy {
+  animation: desk-busy 1.3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desk-dot,
+  .desk-busy {
+    animation: none;
+  }
+  /* The state the pulse was carrying, held still. */
+  .desk-busy { box-shadow: inset 2px 0 0 hsl(38 90% 55% / 0.9); }
+}

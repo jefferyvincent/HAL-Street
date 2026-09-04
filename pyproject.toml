@@ -2,6 +2,8 @@
 name = "halstreet"
 version = "0.1.0"
 description = "Autonomous options trading agent on Alpaca. The model proposes; deterministic gates dispose."
+readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.7",
@@ -9,8 +11,14 @@ dependencies = [
     "mcp>=1.0",
     "python-dotenv>=1.0",
     "structlog>=24.1",
+    "anthropic>=0.69",
     "pandas>=2.2",
     "numpy>=1.26",
+    # The panel only. Kept in the base install rather than an extra because
+    # `./start.sh panel` is part of the demo, and a judge should not have to discover
+    # a second install command to see the thing the write-up points at.
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
 ]
 
 [project.optional-dependencies]
@@ -27,5 +35,58 @@ packages = ["src/halstreet"]
 line-length = 100
 target-version = "py311"
 
+[tool.ruff.lint]
+# Stated rather than inherited. Without a `select` the gate is whatever the installed
+# ruff happens to default to, which means an upgrade can turn CI red on code nobody
+# touched — and worse, it makes "lint passes" a claim about a version rather than
+# about the code.
+select = [
+    "F",      # pyflakes — real errors: unused names, undefined names
+    "E", "W", # pycodestyle
+    "I",      # import order
+    "UP",     # pyupgrade: this targets 3.11, so say so in the code
+    "B",      # bugbear
+    "C4",     # comprehensions
+    "SIM",    # simplify
+    "RUF",
+    "S",      # bandit — the project handles credentials and places orders
+    # Now that `clock` exists, this is enforceable: a `date.today()` in the trading
+    # path is a question about the market answered by reading the host's calendar.
+    "DTZ",
+    "TRY",    # exception hygiene
+    "PYI", "FURB", "PLC", "PLE",
+]
+ignore = [
+    "TRY003",  # long messages inline: this project's exceptions explain themselves
+    "S101",    # assert — the test suite is built on it
+
+    # `class Side(str, Enum)` -> `StrEnum` is not a refactor here, it is a change to
+    # what goes on the wire: str(Side.BUY) is "Side.BUY" under the first and "buy"
+    # under the second, and these enums build order payloads. Measured, not assumed.
+    "UP042",
+    # Deferred imports are deliberate and each has a reason at the call site: keeping
+    # dotenv and uvicorn out of the agent's startup path, and breaking an import cycle
+    # between the gate registry and the modules it registers.
+    "PLC0415",
+    # A minus sign in "-1.60" and a multiplication sign in "100 × qty" are correct
+    # typography in prose. The rule is for identifiers, and these are docstrings.
+    "RUF002",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests exercise the failure paths deliberately, and their fixtures are not products.
+"tests/**" = [
+    "S105", "S106",  # hardcoded fake credentials are the point of paper_assert's tests
+    "PLC0415",       # imports inside a test keep a fixture's dependencies next to it
+]
+# The system prompt lives in this file verbatim. Reflowing it would change the prompt
+# and invalidate the ~1,592-token cached prefix — the line length is the prompt's, not
+# the code's.
+"src/halstreet/agent/cortex/llm.py" = ["E501"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Every test is offline by construction — the broker sits behind an MCP client the
+# tests stub, and the gates take an injected clock. A test that reaches the network is
+# a bug in the test, so a slow suite is a signal rather than a fact of life.
+addopts = "-q --strict-markers"
